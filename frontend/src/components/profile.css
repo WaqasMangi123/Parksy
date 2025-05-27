@@ -1,0 +1,469 @@
+/* Profile Page - Premium Professional Styling */
+:root {
+  --profile-primary: #4361ee;
+  --profile-primary-light: #4895ef;
+  --profile-primary-dark: #3a32b8;
+  --profile-accent: #4cc9f0;
+  --profile-light: #f8f9fa;
+  --profile-dark: #212529;
+  --profile-text-primary: #2b2d42;
+  --profile-text-secondary: #6c757d;
+  --profile-text-light: #ffffff;
+  --profile-shadow-sm: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+  --profile-shadow-md: 0 4px 6px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.08);
+  --profile-shadow-lg: 0 10px 25px rgba(0,0,0,0.1), 0 5px 10px rgba(0,0,0,0.05);
+  --profile-shadow-xl: 0 20px 40px rgba(0,0,0,0.15);
+  --profile-border-radius-sm: 4px;
+  --profile-border-radius-md: 8px;
+  --profile-border-radius-lg: 12px;
+  --profile-border-radius-xl: 16px;
+  --profile-transition-fast: 0.2s ease;
+  --profile-transition-medium: 0.4s cubic-bezier(0.4, 0.0, 0.2, 1);
+  --profile-transition-slow: 0.6s cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+
+/* Base Styles */
+.profile-page {
+  position: relative;
+  min-height: 100vh;
+  width: 100%;
+  overflow: hidden;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  color: var(--profile-text-primary);
+  background-color: var(--profile-light);
+  line-height: 1.6;
+}
+
+/* Background Slider */
+.profile-bg-slider {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
+.profile-bg-slide {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  will-change: transform, opacity;
+}
+
+.profile-bg-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.profile-bg-gradient {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, rgba(67, 97, 238, 0.2) 0%, rgba(76, 201, 240, 0.15) 100%);
+  mix-blend-mode: overlay;
+}
+
+/* Main Content Container */
+.profile-content-container {
+  position: relative;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 5rem 2rem;
+  z-index: 1;
+}
+
+/* Hero Section */
+.profile-hero-section {
+  text-align: center;
+  margin-bottom: 5rem;
+  padding-bottom: 3rem;
+  position: relative;
+  color: var(--profile-text-light);
+}
+
+.profile-hero-title-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 2rem;
+}
+
+.profile-title-decoration {
+  display: block;
+  width: 80px;
+  height: 3px;
+  background: linear-gradient(90deg, var(--profile-primary), var(--profile-accent));
+  margin: 0 2rem;
+  transform-origin: center;
+}
+
+.profile-main-title {
+  font-size: 3.5rem;
+  font-weight: 800;
+  line-height: 1.1;
+  margin: 0;
+  background: linear-gradient(to right, #ffffff, var(--profile-accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  letter-spacing: -0.5px;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.profile-update-date {
+  font-size: 1.1rem;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 3rem;
+  font-weight: 500;
+  display: inline-block;
+  padding: 0.5rem 1.5rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: var(--profile-border-radius-lg);
+  backdrop-filter: blur(5px);
+}
+
+.profile-update-date-value {
+  color: var(--profile-accent);
+  font-weight: 600;
+}
+
+.profile-intro-text {
+  font-size: 1.3rem;
+  max-width: 800px;
+  margin: 0 auto;
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 400;
+}
+
+/* Policy Sections Grid */
+.profile-policy-sections {
+  display: grid;
+  gap: 3.5rem;
+}
+
+/* Policy Section Styling - Applies to ALL sections including contact */
+.profile-policy-section {
+  background: rgba(255, 255, 255, 0.97);
+  border-radius: var(--profile-border-radius-xl);
+  padding: 3rem;
+  box-shadow: var(--profile-shadow-xl);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  overflow: hidden;
+  position: relative;
+  transition: all var(--profile-transition-medium);
+}
+
+.profile-policy-section::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 5px;
+  height: 100%;
+  background: linear-gradient(to bottom, var(--profile-primary), var(--profile-accent));
+}
+
+.profile-section-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 2.5rem;
+  position: relative;
+}
+
+.profile-section-icon-container {
+  width: 70px;
+  height: 70px;
+  background: rgba(67, 97, 238, 0.1);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 2rem;
+  flex-shrink: 0;
+}
+
+.profile-section-icon {
+  width: 32px;
+  height: 32px;
+  color: var(--profile-primary);
+  transition: all var(--profile-transition-medium);
+}
+
+.profile-section-title {
+  font-size: 2rem;
+  margin: 0;
+  color: var(--profile-text-primary);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+/* Policy List Styling */
+.profile-policy-list {
+  list-style-type: none;
+  padding-left: 2rem;
+}
+
+.profile-policy-item {
+  position: relative;
+  padding-left: 2rem;
+  margin-bottom: 1.5rem;
+  font-size: 1.1rem;
+  line-height: 1.7;
+  color: var(--profile-text-primary);
+  transition: all var(--profile-transition-fast);
+}
+
+.profile-policy-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.7em;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--profile-primary);
+  transform: translateY(-50%);
+}
+
+.profile-highlight-text {
+  font-weight: 600;
+  color: var(--profile-primary);
+  display: inline-block;
+  margin-right: 0.3rem;
+}
+
+/* Contact Section Specific Styles */
+.profile-contact-content {
+  text-align: center;
+  padding: 1rem;
+}
+
+.profile-contact-text {
+  margin-bottom: 2rem;
+  color: var(--profile-text-primary);
+  font-size: 1.2rem;
+}
+
+.profile-contact-email {
+  display: inline-block;
+  padding: 1rem 2rem;
+  background: var(--profile-primary);
+  color: white;
+  border-radius: var(--profile-border-radius-xl);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 1.1rem;
+  box-shadow: var(--profile-shadow-md);
+  transition: all var(--profile-transition-medium);
+  border: none;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Hover Effects - Applies to ALL sections */
+.profile-policy-section:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 25px 50px rgba(0,0,0,0.15);
+  background: rgba(255, 255, 255, 0.99);
+}
+
+.profile-section-header:hover .profile-section-icon {
+  transform: scale(1.15);
+  color: var(--profile-accent);
+}
+
+.profile-policy-item:hover {
+  color: var(--profile-primary-dark);
+  transform: translateX(5px);
+}
+
+.profile-contact-email:hover {
+  background: var(--profile-primary-dark);
+  transform: translateY(-3px);
+  box-shadow: 0 15px 30px rgba(67, 97, 238, 0.3);
+}
+
+/* Button Shimmer Effect */
+.profile-contact-email::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    to bottom right,
+    rgba(255,255,255,0) 0%,
+    rgba(255,255,255,0.2) 50%,
+    rgba(255,255,255,0) 100%
+  );
+  transform: rotate(30deg);
+  transition: all 0.6s ease;
+}
+
+.profile-contact-email:hover::after {
+  left: 100%;
+}
+
+/* Keyframe Animations */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+
+.profile-section-icon-container {
+  animation: float 5s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* Individual icon animations */
+.profile-policy-section--data-collection .profile-section-icon-container {
+  animation-delay: 0.1s;
+}
+
+.profile-policy-section--data-usage .profile-section-icon-container {
+  animation-delay: 0.2s;
+}
+
+.profile-policy-section--data-sharing .profile-section-icon-container {
+  animation-delay: 0.3s;
+}
+
+.profile-policy-section--cookies .profile-section-icon-container {
+  animation-delay: 0.4s;
+}
+
+.profile-policy-section--rights .profile-section-icon-container {
+  animation-delay: 0.5s;
+}
+
+.profile-policy-section--contact .profile-section-icon-container {
+  animation-delay: 0.6s;
+}
+
+/* Professional Enhancements */
+.profile-hero-section::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 200px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+}
+
+.profile-policy-section {
+  border-top: 1px solid rgba(255,255,255,0.2);
+  border-left: 1px solid rgba(255,255,255,0.1);
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+  .profile-content-container {
+    padding: 4rem 2rem;
+  }
+}
+
+@media (max-width: 992px) {
+  .profile-content-container {
+    padding: 3rem 1.5rem;
+  }
+  
+  .profile-main-title {
+    font-size: 3rem;
+  }
+  
+  .profile-policy-section {
+    padding: 2.5rem;
+  }
+  
+  .profile-section-icon-container {
+    width: 60px;
+    height: 60px;
+    margin-right: 1.5rem;
+  }
+  
+  .profile-section-icon {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+@media (max-width: 768px) {
+  .profile-main-title {
+    font-size: 2.5rem;
+  }
+  
+  .profile-section-title {
+    font-size: 1.8rem;
+  }
+  
+  .profile-title-decoration {
+    width: 50px;
+    margin: 0 1.5rem;
+  }
+  
+  .profile-intro-text {
+    font-size: 1.2rem;
+  }
+  
+  .profile-policy-sections {
+    gap: 3rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .profile-content-container {
+    padding: 3rem 1rem;
+  }
+  
+  .profile-main-title {
+    font-size: 2.2rem;
+  }
+  
+  .profile-policy-section {
+    padding: 2rem;
+  }
+  
+  .profile-section-header {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  
+  .profile-section-icon-container {
+    margin-bottom: 1.5rem;
+    margin-right: 0;
+  }
+  
+  .profile-policy-item {
+    font-size: 1rem;
+    padding-left: 1.5rem;
+  }
+  
+  .profile-contact-content {
+    padding: 1rem 0;
+  }
+}

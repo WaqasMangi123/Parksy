@@ -1,0 +1,396 @@
+/* List Space Page Styles */
+.list-space-page {
+  position: relative;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+/* Section 1: Hero */
+.list-space-hero {
+  position: relative;
+  height: 90vh;
+  min-height: 700px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.list-space-hero-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  z-index: 1;
+}
+
+.list-space-hero-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 2;
+}
+
+.list-space-hero-content {
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  z-index: 3;
+  padding: 0 5%;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.list-space-hero-text {
+  max-width: 700px;
+  color: white;
+}
+
+.list-space-hero-title {
+  font-size: 3.5rem;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-bottom: 1.5rem;
+  letter-spacing: -0.5px;
+}
+
+.list-space-hero-highlight {
+  color: #4cc9f0;
+  display: block;
+}
+
+.list-space-hero-subtitle {
+  font-size: 1.25rem;
+  line-height: 1.6;
+  margin-bottom: 2.5rem;
+  opacity: 0.9;
+  max-width: 600px;
+}
+
+.list-space-hero-cta {
+  background: #4361ee;
+  color: white;
+  border: none;
+  padding: 1rem 2rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border-radius: 50px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(67, 97, 238, 0.3);
+}
+
+.list-space-hero-cta:hover {
+  background: #3f37c9;
+}
+
+.cta-icon {
+  transition: transform 0.3s ease;
+}
+
+.list-space-hero-cta:hover .cta-icon {
+  transform: translateX(5px);
+}
+
+/* Section 2: Benefits */
+.list-space-benefits {
+  position: relative;
+  background: white;
+  padding: 6rem 0;
+}
+
+.list-space-benefits-wave {
+  position: absolute;
+  top: -100px;
+  left: 0;
+  width: 100%;
+  height: 100px;
+  transform: rotate(180deg);
+  z-index: 1;
+}
+
+.list-space-benefits-wave svg {
+  width: 100%;
+  height: 100%;
+}
+
+.list-space-benefits-container {
+  position: relative;
+  z-index: 2;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 2rem;
+}
+
+.list-space-benefits-title {
+  text-align: center;
+  font-size: 2.5rem;
+  margin-bottom: 4rem;
+  color: #2b2d42;
+}
+
+.list-space-benefits-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 2rem;
+}
+
+.list-space-benefit-card {
+  background: white;
+  border-radius: 16px;
+  padding: 2.5rem 2rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+  border: 1px solid rgba(0, 0, 0, 0.03);
+}
+
+.list-space-benefit-card:hover {
+  transform: translateY(-10px);
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+}
+
+.list-space-benefit-icon {
+  width: 60px;
+  height: 60px;
+  background: rgba(67, 97, 238, 0.1);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.5rem;
+  color: #4361ee;
+  font-size: 1.5rem;
+}
+
+.list-space-benefit-title {
+  font-size: 1.4rem;
+  margin-bottom: 1rem;
+  color: #2b2d42;
+}
+
+.list-space-benefit-text {
+  color: #6c757d;
+  line-height: 1.6;
+}
+
+/* Section 3: Steps */
+.list-space-steps {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  padding: 6rem 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.list-space-steps-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 2rem;
+  position: relative;
+}
+
+.list-space-steps-title {
+  text-align: center;
+  font-size: 2.5rem;
+  margin-bottom: 5rem;
+  color: #2b2d42;
+}
+
+.list-space-steps-timeline {
+  position: relative;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 0 0 4rem;
+}
+
+.list-space-steps-line {
+  position: absolute;
+  left: 50px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(to bottom, #4361ee, #4cc9f0);
+  transform-origin: top;
+  z-index: 1;
+}
+
+.list-space-step {
+  position: relative;
+  padding-left: 100px;
+  margin-bottom: 4rem;
+  z-index: 2;
+}
+
+.list-space-step-number {
+  position: absolute;
+  left: 30px;
+  top: 0;
+  width: 40px;
+  height: 40px;
+  background: #4361ee;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.2rem;
+  box-shadow: 0 4px 10px rgba(67, 97, 238, 0.3);
+}
+
+.list-space-step-icon {
+  position: absolute;
+  left: 100px;
+  top: 0;
+  width: 60px;
+  height: 60px;
+  background: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #4361ee;
+  font-size: 1.5rem;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.list-space-step-content {
+  background: white;
+  border-radius: 16px;
+  padding: 2rem 2rem 2rem 5rem;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+}
+
+.list-space-step:hover .list-space-step-content {
+  transform: translateX(10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+}
+
+.list-space-step-title {
+  font-size: 1.3rem;
+  margin-bottom: 0.5rem;
+  color: #2b2d42;
+}
+
+.list-space-step-text {
+  color: #6c757d;
+  line-height: 1.6;
+}
+
+.list-space-steps-cta {
+  display: block;
+  margin: 3rem auto 0;
+  background: #4361ee;
+  color: white;
+  border: none;
+  padding: 1rem 2.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border-radius: 50px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(67, 97, 238, 0.3);
+}
+
+.list-space-steps-cta:hover {
+  background: #3f37c9;
+}
+
+.list-space-steps-cta .cta-icon {
+  transition: transform 0.3s ease;
+}
+
+.list-space-steps-cta:hover .cta-icon {
+  transform: translateX(5px);
+}
+
+/* Responsive Styles */
+@media (max-width: 992px) {
+  .list-space-hero-title {
+    font-size: 2.8rem;
+  }
+  
+  .list-space-benefits-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .list-space-hero {
+    min-height: 600px;
+  }
+  
+  .list-space-hero-title {
+    font-size: 2.2rem;
+  }
+  
+  .list-space-hero-subtitle {
+    font-size: 1.1rem;
+  }
+  
+  .list-space-benefits-title,
+  .list-space-steps-title {
+    font-size: 2rem;
+    margin-bottom: 3rem;
+  }
+  
+  .list-space-step {
+    padding-left: 80px;
+  }
+  
+  .list-space-step-icon {
+    left: 80px;
+    width: 50px;
+    height: 50px;
+    font-size: 1.2rem;
+  }
+  
+  .list-space-step-content {
+    padding: 1.5rem 1.5rem 1.5rem 4rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .list-space-hero-title {
+    font-size: 1.8rem;
+  }
+  
+  .list-space-benefits-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .list-space-steps-line {
+    left: 25px;
+  }
+  
+  .list-space-step {
+    padding-left: 60px;
+  }
+  
+  .list-space-step-number {
+    left: 15px;
+    width: 30px;
+    height: 30px;
+    font-size: 1rem;
+  }
+  
+  .list-space-step-icon {
+    left: 60px;
+    width: 40px;
+    height: 40px;
+    font-size: 1rem;
+  }
+  
+  .list-space-step-content {
+    padding: 1.25rem 1.25rem 1.25rem 3rem;
+  }
+}
