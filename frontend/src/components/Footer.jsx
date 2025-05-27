@@ -55,7 +55,7 @@ const Footer = () => {
           custom={0}
           variants={itemVariants}
         >
-          <h3 className="footer-logo">ParkEase</h3>
+          <h3 className="footer-logo">Parksy</h3>
           <p className="footer-description">
             Revolutionizing parking solutions with cutting-edge technology and 
             customer-focused services to make urban mobility seamless.
@@ -114,7 +114,7 @@ const Footer = () => {
         transition={{ delay: 1 }}
       >
         <div className="footer-container">
-          <p>&copy; {new Date().getFullYear()} ParkEase. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} Parksy. All rights reserved.</p>
           <div className="footer-legal">
             <Link to="/privacypolicy" className="legal-link">Privacy Policy</Link>
             <Link to="/termsandconditions" className="legal-link">Terms & Conditions</Link>

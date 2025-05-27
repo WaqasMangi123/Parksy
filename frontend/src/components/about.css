@@ -1269,4 +1269,4 @@
   .circle-item:nth-child(4) { transform: rotate(180deg) translate(110px) rotate(-180deg); }
   .circle-item:nth-child(5) { transform: rotate(240deg) translate(110px) rotate(-240deg); }
   .circle-item:nth-child(6) { transform: rotate(300deg) translate(110px) rotate(-300deg); }
-}
+} 
