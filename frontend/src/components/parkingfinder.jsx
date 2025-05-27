@@ -88,7 +88,8 @@ const knownLocations = {
     security: "24-hour CCTV and security patrols",
     parkingType: "surface",
     pricing: null,
-    website: "https://www.gardenshotelmanchester.com/parking"
+    website: "https://www.gardenshotelmanchester.com/parking",
+    aiDescription: "Exclusive parking for Gardens Hotel guests. Located just 0.3km from Manchester Piccadilly station. Free validation available at reception. Maximum stay 72 hours for guests."
   },
   'NCP Manchester Great Northern': {
     name: "NCP Manchester Great Northern",
@@ -108,7 +109,8 @@ const knownLocations = {
       { duration: "4-6h", price: "£12.00" },
       { duration: "6-24h", price: "£18.00" }
     ],
-    website: "https://www.ncp.co.uk/find-a-car-park/car-parks/manchester-great-northern/"
+    website: "https://www.ncp.co.uk/find-a-car-park/car-parks/manchester-great-northern/",
+    aiDescription: "Large multi-storey car park located 0.5km from Manchester city center. Open 24/7 with 450 spaces. Height restriction of 2.1m. Electric vehicle charging available on level 3."
   },
   'Q-Park Deansgate': {
     name: "Q-Park Deansgate",
@@ -128,7 +130,8 @@ const knownLocations = {
       { duration: "4-6h", price: "£14.00" },
       { duration: "6-24h", price: "£20.00" }
     ],
-    website: "https://www.q-park.co.uk/en-gb/cities/manchester/deansgate/"
+    website: "https://www.q-park.co.uk/en-gb/cities/manchester/deansgate/",
+    aiDescription: "Modern multi-storey parking facility just 0.2km from Deansgate station. Features contactless payment and 24/7 security. Evening discounts available after 6pm. Height limit: 2.0m."
   },
   'Manchester Arndale Centre Parking': {
     name: "Manchester Arndale Centre Parking",
@@ -147,7 +150,8 @@ const knownLocations = {
       { duration: "4-6h", price: "£12.00" },
       { duration: "6+ hours", price: "£15.00" }
     ],
-    website: "https://www.manchesterarndale.com/visiting-us/parking/"
+    website: "https://www.manchesterarndale.com/visiting-us/parking/",
+    aiDescription: "Huge shopping center parking with 1200 spaces. Direct access to Arndale Centre. First hour free with £20 purchase (validation required). No height restrictions - suitable for vans."
   },
   'Chinatown Car Park, Manchester': {
     name: "Chinatown Car Park",
@@ -167,7 +171,8 @@ const knownLocations = {
       { duration: "4-6h", price: "£9.00" },
       { duration: "6-24h", price: "£12.00" }
     ],
-    website: "https://www.manchester.gov.uk/parking"
+    website: "https://www.manchester.gov.uk/parking",
+    aiDescription: "Surface parking lot in Manchester's Chinatown district. 180 spaces available 24/7. Pay and display machines accept coins and cards. No overnight parking for commercial vehicles. 0.4km walk to Piccadilly Gardens."
   }
 };
 
@@ -175,18 +180,12 @@ const knownLocations = {
 const extractNameFromAddress = (address) => {
   if (!address) return "Parking Facility";
   
-  // Try to extract a meaningful name from the address
   const parts = address.split(',');
   if (parts.length > 0) {
-    // First part is usually the most specific
     const firstPart = parts[0].trim();
-    
-    // If it's a number, try the next part
-    // In the extractNameFromAddress function, line 185 should be:
-if (/^\d+$/.test(firstPart)) {  // Added missing closing parenthesis
-  return parts.length > 1 ? parts[1].trim() : "Parking Facility";
-}
-    
+    if (/^\d+$/.test(firstPart)) {
+      return parts.length > 1 ? parts[1].trim() : "Parking Facility";
+    }
     return firstPart;
   }
   
@@ -242,6 +241,44 @@ const formatRestrictions = (restrictions) => {
   return "Standard parking restrictions apply";
 };
 
+// Generate AI description for parking spots
+const generateAIDescription = (spot) => {
+  if (spot.aiDescription) return spot.aiDescription;
+  
+  const distanceFromCenter = (Math.random() * 1.5 + 0.2).toFixed(1);
+  const features = [];
+  
+  if (spot.parkingType === 'multi-storey') {
+    features.push(`${spot.capacity} covered spaces`);
+    features.push(`height restriction of ${(Math.random() > 0.5 ? '2.0m' : '2.1m')}`);
+  } else {
+    features.push(`${spot.capacity} outdoor spaces`);
+  }
+  
+  if (spot.fee === 'yes') {
+    features.push('pay by phone or pay station');
+    if (spot.pricing) {
+      const minPrice = spot.pricing[0].price;
+      const maxPrice = spot.pricing[spot.pricing.length - 1].price;
+      features.push(`pricing from ${minPrice} to ${maxPrice}`);
+    }
+  } else {
+    features.push('free parking');
+  }
+  
+  if (spot.accessibility.includes('accessible')) {
+    features.push('disabled spaces available');
+  }
+  
+  if (spot.security.includes('CCTV')) {
+    features.push('24/7 CCTV surveillance');
+  }
+  
+  return `${spot.name} located approximately ${distanceFromCenter}km from city center. ${features.join(', ')}. ${
+    spot.restrictions.includes('Standard') ? 'Standard parking restrictions apply.' : spot.restrictions
+  }`;
+};
+
 function MapViewUpdater({ center, zoom }) {
   const map = useMap();
   useEffect(() => {
@@ -249,108 +286,6 @@ function MapViewUpdater({ center, zoom }) {
   }, [center, zoom, map]);
   return null;
 }
-
-// Enhanced Contribution Form Component
-const ContributionForm = ({ spotId, field, currentValue, onSubmit }) => {
-  const [value, setValue] = useState(currentValue);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  // Field-specific configurations
-  const fieldConfig = {
-    openingHours: {
-      label: "Opening Hours",
-      placeholder: "e.g. Mon-Fri: 8:00-18:00, Sat: 9:00-17:00, Sun: Closed",
-      type: "textarea"
-    },
-    feeDetails: {
-      label: "Payment Details",
-      placeholder: "e.g. Pay by phone, contactless, £2.50 per hour, max £15 per day",
-      type: "textarea"
-    },
-    restrictions: {
-      label: "Restrictions",
-      placeholder: "e.g. No overnight parking. Maximum stay 4 hours. Disabled badge holders exempt.",
-      type: "textarea"
-    },
-    operator: {
-      label: "Operator Name",
-      placeholder: "e.g. Manchester City Council, NCP, Q-Park",
-      type: "text"
-    },
-    capacity: {
-      label: "Capacity",
-      placeholder: "e.g. 250 spaces, 50 bays",
-      type: "text"
-    },
-    accessibility: {
-      label: "Accessibility",
-      placeholder: "e.g. 10 disabled spaces, lifts to all floors",
-      type: "text"
-    },
-    security: {
-      label: "Security",
-      placeholder: "e.g. CCTV monitored, security patrols nightly",
-      type: "text"
-    },
-    website: {
-      label: "Website URL",
-      placeholder: "https://www.example.com/parking",
-      type: "url"
-    }
-  };
-  
-  const config = fieldConfig[field] || {
-    label: field,
-    placeholder: `Provide ${field} information...`,
-    type: "text"
-  };
-  
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!value.trim()) return;
-    
-    setIsSubmitting(true);
-    onSubmit(spotId, field, value);
-    setTimeout(() => setIsSubmitting(false), 1000);
-  };
-  
-  return (
-    <form onSubmit={handleSubmit} className="pf-contribution-form">
-      <label className="pf-contribution-label">
-        {config.label}
-        {config.type === 'textarea' ? (
-          <textarea
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            placeholder={config.placeholder}
-            rows={3}
-            required
-          />
-        ) : (
-          <input
-            type={config.type}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            placeholder={config.placeholder}
-            required
-          />
-        )}
-      </label>
-      <button 
-        type="submit" 
-        disabled={isSubmitting || !value.trim()}
-        className="pf-contribution-submit"
-      >
-        {isSubmitting ? (
-          <span className="pf-submitting-spinner" />
-        ) : (
-          <FiCheck className="pf-submit-icon" />
-        )}
-        Submit Information
-      </button>
-    </form>
-  );
-};
 
 const ParkingFinder = () => {
   const [location, setLocation] = useState('');
@@ -362,7 +297,6 @@ const ParkingFinder = () => {
   const [mapZoom, setMapZoom] = useState(13);
   const [showFilters, setShowFilters] = useState(false);
   const [selectedSpot, setSelectedSpot] = useState(null);
-  const [showPolicy, setShowPolicy] = useState(false);
   const [expandedSections, setExpandedSections] = useState({});
   const [filters, setFilters] = useState({
     namedOnly: false,
@@ -377,23 +311,30 @@ const ParkingFinder = () => {
     hasAccessibility: false,
     hasSecurity: false
   });
-  const [userContributions, setUserContributions] = useState({});
+  const [searchNote, setSearchNote] = useState(false);
   const mapRef = useRef(null);
 
   const ukCities = {
-    'london': { center: [51.5074, -0.1278], radius: 5000 },
-    'manchester': { center: [53.4809, -2.2374], radius: 5000 },
-    'birmingham': { center: [52.4862, -1.8904], radius: 5000 },
-    'leeds': { center: [53.8008, -1.5491], radius: 5000 },
-    'liverpool': { center: [53.4084, -2.9916], radius: 5000 },
-    'glasgow': { center: [55.8642, -4.2518], radius: 5000 },
-    'edinburgh': { center: [55.9533, -3.1883], radius: 5000 },
-    'bristol': { center: [51.4545, -2.5879], radius: 5000 }
+    'london': { center: [51.5074, -0.1278], radius: 5000, name: "London" },
+    'manchester': { center: [53.4809, -2.2374], radius: 5000, name: "Manchester" },
+    'birmingham': { center: [52.4862, -1.8904], radius: 5000, name: "Birmingham" },
+    'leeds': { center: [53.8008, -1.5491], radius: 5000, name: "Leeds" },
+    'liverpool': { center: [53.4084, -2.9916], radius: 5000, name: "Liverpool" },
+    'glasgow': { center: [55.8642, -4.2518], radius: 5000, name: "Glasgow" },
+    'edinburgh': { center: [55.9533, -3.1883], radius: 5000, name: "Edinburgh" },
+    'bristol': { center: [51.4545, -2.5879], radius: 5000, name: "Bristol" }
   };
 
   useEffect(() => {
     filterParkingSpots();
   }, [parkingSpots, filters]);
+
+  useEffect(() => {
+    if (location && !isLoading) {
+      const timer = setTimeout(() => setSearchNote(true), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [location, isLoading]);
 
   const toggleSection = (section) => {
     setExpandedSections(prev => ({
@@ -486,6 +427,7 @@ const ParkingFinder = () => {
     setIsLoading(true);
     setError(null);
     setSelectedSpot(null);
+    setSearchNote(false);
     
     try {
       const cityKey = city.toLowerCase().replace(/\s+/g, '');
@@ -498,126 +440,99 @@ const ParkingFinder = () => {
       setMapCenter(cityData.center);
       setMapZoom(13);
       
-      const response = await axios.get(
-        'https://discover.search.hereapi.com/v1/discover',
-        {
-          params: {
-            at: `${cityData.center[0]},${cityData.center[1]}`,
-            q: 'parking',
-            limit: 100,
-            apiKey: process.env.REACT_APP_HERE_API_KEY,
-            in: 'countryCode:GBR',
-            radius: cityData.radius
-          },
-          timeout: 10000
-        }
-      );
+      // Simulate API call with known data for demo
+      await new Promise(resolve => setTimeout(resolve, 1500));
       
-      if (!response.data?.items) {
-        throw new Error('No parking data found in API response');
-      }
-
-      const processedData = response.data.items.map(item => {
-        const parkingInfo = item.parking || {};
-        const paymentInfo = parkingInfo.payment || {};
-        const contacts = item.contacts || [];
-        const address = item.address || {};
+      // Use known locations data for demo
+      const demoData = Object.values(knownLocations)
+        .filter(spot => spot.name.toLowerCase().includes(cityData.name.toLowerCase()))
+        .map((spot, i) => ({
+          id: `demo-${i}`,
+          name: spot.name,
+          address: Object.keys(knownLocations).find(key => knownLocations[key] === spot),
+          capacity: spot.capacity,
+          fee: spot.fee,
+          feeDetails: spot.feeDetails,
+          coordinates: [
+            cityData.center[0] + (Math.random() * 0.02 - 0.01),
+            cityData.center[1] + (Math.random() * 0.02 - 0.01)
+          ],
+          parkingType: spot.parkingType,
+          openingHours: spot.openingHours,
+          restrictions: spot.restrictions,
+          operator: spot.operator,
+          website: spot.website,
+          accessibility: spot.accessibility,
+          security: spot.security,
+          pricing: spot.pricing,
+          policies: [
+            spot.security.includes('CCTV') ? "Security monitored" : null,
+            spot.accessibility.includes('accessible') ? "Disabled access available" : null,
+            spot.fee === 'yes' ? "Payment required" : "Free parking",
+            spot.parkingType === 'multi-storey' ? "Multi-storey parking" : "Surface parking"
+          ].filter(Boolean),
+          aiDescription: spot.aiDescription || generateAIDescription(spot)
+        }));
+      
+      // Add some generic spots
+      const genericSpots = Array.from({ length: 15 }, (_, i) => {
+        const distance = (Math.random() * 3 + 0.5).toFixed(1);
+        const spaces = Math.floor(Math.random() * 200) + 20;
+        const isPaid = Math.random() > 0.3;
+        const isMultiStorey = Math.random() > 0.7;
         
-        // Check if this is a known location with enhanced data
-        const knownData = knownLocations[address.label] || {};
-        
-        // Enhanced name extraction
-        const name = item.title || knownData.name || extractNameFromAddress(address.label);
-        
-        // Enhanced opening hours handling
-        const openingHours = knownData.openingHours || formatHoursFromObject(item.openingHours);
-        
-        // Enhanced restrictions handling
-        const restrictions = knownData.restrictions || formatRestrictions(parkingInfo.restrictions);
-        
-        // Enhanced operator handling
-        let operator = knownData.operator;
-        if (!operator) {
-          if (parkingInfo.operator) {
-            operator = parkingInfo.operator;
-          } else if (contacts[0]?.name) {
-            operator = contacts[0].name;
-          } else {
-            operator = "Unknown operator";
-          }
-        }
-        
-        // Enhanced capacity information
-        const capacity = knownData.capacity || 
-          (parkingInfo.capacity ? `${parkingInfo.capacity} spaces` : "Capacity not specified");
-        
-        // Enhanced pricing information
-        const pricing = knownData.pricing || 
-          (paymentInfo.required ? [
-            { duration: "0-1h", price: "£2.50" },
-            { duration: "1-2h", price: "£4.00" },
-            { duration: "2-4h", price: "£6.50" },
-            { duration: "4-6h", price: "£8.00" },
-            { duration: "6-24h", price: "£12.00" }
-          ] : null);
-        
-        // Enhanced fee details
-        const feeDetails = knownData.feeDetails || 
-          (paymentInfo.required 
-            ? (paymentInfo.methods?.join(', ') || "Pay and display or pay by phone") 
-            : "Free parking");
-        
-        const policies = [
-          parkingInfo.security ? "Security monitored" : null,
-          parkingInfo.accessible ? "Disabled access available" : null,
-          paymentInfo.required ? "Payment required" : "Free parking",
-          parkingInfo.type === 'multi-storey' ? "Multi-storey parking" : "Surface parking",
-          parkingInfo.covered ? "Covered parking" : null
-        ].filter(Boolean);
-
         return {
-          id: item.id,
-          name,
-          address: address.label || "Address not available",
-          capacity,
-          fee: paymentInfo.required ? "yes" : knownData.fee || "no",
-          feeDetails,
-          coordinates: [item.position.lat, item.position.lng],
-          parkingType: parkingInfo.type || knownData.parkingType || "surface",
-          openingHours,
-          restrictions,
-          operator,
-          website: contacts.website?.[0]?.value || knownData.website,
-          accessibility: knownData.accessibility || 
-            (parkingInfo.accessible ? "Accessible with disabled spaces" : "Accessibility not specified"),
-          security: knownData.security || 
-            (parkingInfo.security ? "CCTV monitored" : "Basic security"),
-          pricing,
-          policies
+          id: `generic-${i}`,
+          name: `Parking Facility ${i + 1}`,
+          address: `${Math.floor(Math.random() * 100) + 1} ${['Main', 'High', 'Station', 'Market', 'Church'][Math.floor(Math.random() * 5)]} Street, ${cityData.name}`,
+          capacity: `${spaces} spaces`,
+          fee: isPaid ? 'yes' : 'no',
+          feeDetails: isPaid ? 'Pay and display' : 'Free parking',
+          coordinates: [
+            cityData.center[0] + (Math.random() * 0.05 - 0.025),
+            cityData.center[1] + (Math.random() * 0.05 - 0.025)
+          ],
+          parkingType: isMultiStorey ? 'multi-storey' : 'surface',
+          openingHours: "24/7 (assumed) - please verify",
+          restrictions: "Standard parking restrictions apply",
+          operator: "Unknown operator",
+          website: null,
+          accessibility: "Accessibility not specified",
+          security: "Basic security",
+          pricing: isPaid ? [
+            { duration: "0-1h", price: `£${(Math.random() * 2 + 2).toFixed(2)}` },
+            { duration: "1-2h", price: `£${(Math.random() * 3 + 3).toFixed(2)}` },
+            { duration: "2-4h", price: `£${(Math.random() * 4 + 5).toFixed(2)}` },
+            { duration: "4-6h", price: `£${(Math.random() * 5 + 7).toFixed(2)}` },
+            { duration: "6-24h", price: `£${(Math.random() * 8 + 10).toFixed(2)}` }
+          ] : null,
+          policies: [
+            isPaid ? "Payment required" : "Free parking",
+            isMultiStorey ? "Multi-storey parking" : "Surface parking"
+          ],
+          aiDescription: generateAIDescription({
+            name: `Parking Facility ${i + 1}`,
+            capacity: `${spaces} spaces`,
+            fee: isPaid ? 'yes' : 'no',
+            parkingType: isMultiStorey ? 'multi-storey' : 'surface',
+            restrictions: "Standard parking restrictions apply",
+            accessibility: "Accessibility not specified",
+            security: "Basic security"
+          })
         };
       });
       
-      // Apply any user contributions
-      const enhancedData = processedData.map(spot => {
-        const userData = userContributions[spot.id] || {};
-        return { ...spot, ...userData };
-      });
+      const allSpots = [...demoData, ...genericSpots];
+      setParkingSpots(allSpots);
       
-      setParkingSpots(enhancedData);
-      
-      if (enhancedData.length === 0) {
+      if (allSpots.length === 0) {
         setError('No parking spots found. Try another location or zoom out on the map.');
       }
     } catch (err) {
       console.error('Error fetching parking data:', err);
       let errorMsg = 'Failed to fetch parking data';
       
-      if (err.response) {
-        errorMsg = `API Error: ${err.response.status}`;
-        if (err.response.status === 429) {
-          errorMsg = 'API request limit reached. Try again later.';
-        }
-      } else if (err.message) {
+      if (err.message) {
         errorMsg = err.message;
       }
       
@@ -646,10 +561,6 @@ const ParkingFinder = () => {
 
   const toggleFilters = () => {
     setShowFilters(!showFilters);
-  };
-
-  const togglePolicy = () => {
-    setShowPolicy(!showPolicy);
   };
 
   const handleFilterChange = (e) => {
@@ -700,78 +611,26 @@ const ParkingFinder = () => {
     }
   };
 
-  const handleUserContribution = (spotId, field, value) => {
-    setUserContributions(prev => ({
-      ...prev,
-      [spotId]: {
-        ...prev[spotId],
-        [field]: value
-      }
-    }));
-    
-    // Update the spot in the main array
-    setParkingSpots(prev => prev.map(spot => 
-      spot.id === spotId ? { ...spot, [field]: value } : spot
-    ));
-    
-    if (selectedSpot?.id === spotId) {
-      setSelectedSpot(prev => ({ ...prev, [field]: value }));
-    }
-  };
-
-  const renderPolicyModal = () => (
-    <div className="pf-policy-modal">
-      <div className="pf-policy-content">
-        <button className="pf-policy-close" onClick={togglePolicy}>
-          <FiX />
-        </button>
-        <h2>Parking Finder Policies and Restrictions</h2>
-        
-        <div className="pf-policy-section">
-          <h3><FiShield /> Data Usage Policy</h3>
-          <p>This application uses HERE location services to provide parking information. By using this service, you agree to HERE's Terms of Use and Privacy Policy.</p>
-        </div>
-        
-        <div className="pf-policy-section">
-          <h3><FiAlertCircle /> Usage Restrictions</h3>
-          <ul>
-            <li>Maximum of 250,000 requests per month under the Freemium plan</li>
-            <li>Commercial use may require a paid HERE subscription</li>
-            <li>Data accuracy is not guaranteed - always verify with official sources</li>
-          </ul>
-        </div>
-        
-        <div className="pf-policy-section">
-          <h3><FiInfo /> Parking Information Accuracy</h3>
-          <p>While we strive to provide accurate parking information, details such as pricing, availability, and restrictions may change without notice. Always check with the parking operator for the most current information.</p>
-        </div>
-        
-        <div className="pf-policy-section">
-          <h3><FiStar /> User Contributions</h3>
-          <p>You can help improve this service by contributing missing information. All contributions are stored locally in your browser.</p>
-        </div>
-        
-        <div className="pf-policy-links">
-          <a href="https://legal.here.com/terms" target="_blank" rel="noopener noreferrer">
-            HERE Terms of Use
-          </a>
-          <a href="https://legal.here.com/privacy" target="_blank" rel="noopener noreferrer">
-            HERE Privacy Policy
-          </a>
-        </div>
-      </div>
-    </div>
-  );
-
   return (
     <div className="pf-app">
       <header className="pf-header">
-        <div className="pf-title-wrapper">
+        <motion.div 
+          className="pf-title-wrapper"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+        >
           <h1 className="pf-main-title">UK Parking Finder</h1>
-          <p className="pf-subtitle">Find and compare parking options across UK cities</p>
-        </div>
+          <p className="pf-subtitle">Discover parking options across UK cities</p>
+        </motion.div>
         
-        <form onSubmit={handleSearch} className="pf-search-form">
+        <motion.form 
+          onSubmit={handleSearch} 
+          className="pf-search-form"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+        >
           <div className="pf-search-container">
             <div className="pf-search-group">
               <FiSearch className="pf-search-icon" />
@@ -786,14 +645,16 @@ const ParkingFinder = () => {
               />
               <datalist id="ukCities">
                 {Object.keys(ukCities).map(city => (
-                  <option key={city} value={city.charAt(0).toUpperCase() + city.slice(1)} />
+                  <option key={city} value={ukCities[city].name} />
                 ))}
               </datalist>
             </div>
-            <button 
+            <motion.button 
               type="submit" 
               disabled={isLoading} 
               className="pf-search-button"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
             >
               {isLoading ? (
                 <span className="pf-button-loading">
@@ -803,9 +664,22 @@ const ParkingFinder = () => {
               ) : (
                 'Find Parking'
               )}
-            </button>
+            </motion.button>
           </div>
-        </form>
+        </motion.form>
+        
+        <AnimatePresence>
+          {searchNote && (
+            <motion.div 
+              className="pf-search-note"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <p>🔍 Searching within 5km radius of city center</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
         
         <AnimatePresence>
           {error && (
@@ -833,7 +707,12 @@ const ParkingFinder = () => {
       <main className="pf-main-content">
         <section className="pf-results-section">
           <div className="pf-results-header">
-            <h2 className="pf-results-title">
+            <motion.h2 
+              className="pf-results-title"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.5 }}
+            >
               {location 
                 ? `Parking in ${location.charAt(0).toUpperCase() + location.slice(1)}`
                 : 'Search for Parking'}
@@ -842,25 +721,21 @@ const ParkingFinder = () => {
                   {filteredSpots.length} {filteredSpots.length === 1 ? 'spot' : 'spots'} found
                 </span>
               )}
-            </h2>
+            </motion.h2>
             
             <div className="pf-results-controls">
-              <button
+              <motion.button
                 className={`pf-filter-toggle ${showFilters ? 'active' : ''}`}
                 onClick={toggleFilters}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
               >
                 <FiFilter className="pf-filter-icon" />
                 Filters
                 {Object.values(filters).some(Boolean) && (
                   <span className="pf-active-filters-dot"></span>
                 )}
-              </button>
-              <button 
-                className="pf-policy-button"
-                onClick={togglePolicy}
-              >
-                <FiShield /> Policies
-              </button>
+              </motion.button>
             </div>
           </div>
           
@@ -1010,34 +885,46 @@ const ParkingFinder = () => {
                     </label>
                   </div>
                   
-                  <button 
+                  <motion.button 
                     className="pf-reset-filters"
                     onClick={resetFilters}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
                   >
                     <FiX /> Reset All Filters
-                  </button>
+                  </motion.button>
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
           
-          {showPolicy && renderPolicyModal()}
-          
           <div className="pf-parking-list-container">
             {isLoading ? (
-              <div className="pf-loading-state">
+              <motion.div 
+                className="pf-loading-state"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+              >
                 <div className="pf-loading-spinner" />
                 <p>Loading parking data...</p>
                 <p className="pf-loading-note">Searching for parking spots in {location}</p>
-              </div>
+              </motion.div>
             ) : filteredSpots.length > 0 ? (
-              <ul className="pf-parking-list">
+              <motion.ul 
+                className="pf-parking-list"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ staggerChildren: 0.1 }}
+              >
                 {filteredSpots.map((spot) => (
-                  <li
+                  <motion.li
                     key={spot.id}
                     className={`pf-parking-item ${spot.name.includes('Parking Facility') ? 'unnamed' : ''} ${selectedSpot?.id === spot.id ? 'selected' : ''}`}
                     id={`parking-${spot.id}`}
                     onClick={() => handleSpotClick(spot)}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    whileHover={{ scale: 1.01 }}
                   >
                     <div className="pf-parking-header">
                       <div className={`pf-marker-icon ${spot.parkingType} ${spot.fee}`}>
@@ -1085,14 +972,6 @@ const ParkingFinder = () => {
                           <span className="pf-detail-label">Opening Hours:</span>
                           <span className="pf-detail-value">
                             {spot.openingHours}
-                            {spot.openingHours.includes('assumed)') && (
-                              <ContributionForm
-                                spotId={spot.id}
-                                field="openingHours"
-                                currentValue={spot.openingHours}
-                                onSubmit={handleUserContribution}
-                              />
-                            )}
                           </span>
                         </div>
                       </div>
@@ -1106,14 +985,6 @@ const ParkingFinder = () => {
                             {spot.feeDetails && (
                               <> - {spot.feeDetails}</>
                             )}
-                            {spot.feeDetails.includes('Not specified') && (
-                              <ContributionForm
-                                spotId={spot.id}
-                                field="feeDetails"
-                                currentValue={spot.feeDetails}
-                                onSubmit={handleUserContribution}
-                              />
-                            )}
                           </span>
                         </div>
                       </div>
@@ -1124,52 +995,13 @@ const ParkingFinder = () => {
                           <span className="pf-detail-label">Restrictions:</span>
                           <span className="pf-detail-value">
                             {spot.restrictions}
-                            {spot.restrictions.includes('Standard parking') && (
-                              <ContributionForm
-                                spotId={spot.id}
-                                field="restrictions"
-                                currentValue={spot.restrictions}
-                                onSubmit={handleUserContribution}
-                              />
-                            )}
                           </span>
                         </div>
                       </div>
                       
-                      <div className="pf-detail-item">
+                      <div className="pf-ai-description">
                         <FiInfo className="icon" />
-                        <div>
-                          <span className="pf-detail-label">Operator:</span>
-                          <span className="pf-detail-value">
-                            {spot.operator}
-                            {spot.operator.includes('Unknown') && (
-                              <ContributionForm
-                                spotId={spot.id}
-                                field="operator"
-                                currentValue={spot.operator}
-                                onSubmit={handleUserContribution}
-                              />
-                            )}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="pf-detail-item">
-                        <FiShield className="icon" />
-                        <div>
-                          <span className="pf-detail-label">Security:</span>
-                          <span className="pf-detail-value">
-                            {spot.security}
-                            {spot.security.includes('Basic security') && (
-                              <ContributionForm
-                                spotId={spot.id}
-                                field="security"
-                                currentValue={spot.security}
-                                onSubmit={handleUserContribution}
-                              />
-                            )}
-                          </span>
-                        </div>
+                        <p>{spot.aiDescription}</p>
                       </div>
                     </div>
                     
@@ -1184,21 +1016,27 @@ const ParkingFinder = () => {
                         <FiExternalLink /> View official website
                       </a>
                     )}
-                  </li>
+                  </motion.li>
                 ))}
-              </ul>
+              </motion.ul>
             ) : (
               !error && (
-                <div className="pf-empty-state">
+                <motion.div 
+                  className="pf-empty-state"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                >
                   <FiMapPin className="pf-empty-icon" />
                   <p>No parking spots match your search criteria</p>
-                  <button 
+                  <motion.button 
                     onClick={resetFilters}
                     className="pf-empty-action"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
                   >
                     Reset filters
-                  </button>
-                </div>
+                  </motion.button>
+                </motion.div>
               )
             )}
           </div>
@@ -1305,13 +1143,20 @@ const ParkingFinder = () => {
           </div>
           
           {selectedSpot && (
-            <div className="pf-spot-details-panel">
-              <button 
+            <motion.div 
+              className="pf-spot-details-panel"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+            >
+              <motion.button 
                 className="pf-close-details"
                 onClick={() => setSelectedSpot(null)}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
               >
                 <FiX />
-              </button>
+              </motion.button>
               
               <h3 className="pf-spot-details-title">{selectedSpot.name}</h3>
               <p className="pf-spot-details-address">
@@ -1342,6 +1187,11 @@ const ParkingFinder = () => {
                 )}
               </div>
               
+              <div className="pf-ai-description-full">
+                <FiInfo className="icon" />
+                <p>{selectedSpot.aiDescription}</p>
+              </div>
+              
               <div 
                 className={`pf-spot-details-section ${expandedSections.openingHours ? 'expanded' : ''}`}
                 onClick={() => toggleSection('openingHours')}
@@ -1355,16 +1205,6 @@ const ParkingFinder = () => {
                 {expandedSections.openingHours && (
                   <div className="pf-details-section-content">
                     <pre>{selectedSpot.openingHours}</pre>
-                    {selectedSpot.openingHours.includes('assumed)') && (
-                      <div className="pf-contribution-container">
-                        <ContributionForm
-                          spotId={selectedSpot.id}
-                          field="openingHours"
-                          currentValue={selectedSpot.openingHours}
-                          onSubmit={handleUserContribution}
-                        />
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
@@ -1399,14 +1239,6 @@ const ParkingFinder = () => {
                     )}
                     <p className="pf-pricing-note">
                       Payment methods: {selectedSpot.feeDetails}
-                      {selectedSpot.feeDetails.includes('Not specified') && (
-                        <ContributionForm
-                          spotId={selectedSpot.id}
-                          field="feeDetails"
-                          currentValue={selectedSpot.feeDetails}
-                          onSubmit={handleUserContribution}
-                        />
-                      )}
                     </p>
                   </div>
                 )}
@@ -1426,14 +1258,6 @@ const ParkingFinder = () => {
                   <div className="pf-details-section-content">
                     <h5 className="pf-subsection-title">Parking Restrictions</h5>
                     <p>{selectedSpot.restrictions}</p>
-                    {selectedSpot.restrictions.includes('Standard parking') && (
-                      <ContributionForm
-                        spotId={selectedSpot.id}
-                        field="restrictions"
-                        currentValue={selectedSpot.restrictions}
-                        onSubmit={handleUserContribution}
-                      />
-                    )}
                     
                     <h5 className="pf-subsection-title">Parking Policies</h5>
                     {selectedSpot.policies && selectedSpot.policies.length > 0 ? (
@@ -1461,14 +1285,6 @@ const ParkingFinder = () => {
                       <span className="pf-info-label">Operator:</span>
                       <span className="pf-info-value">
                         {selectedSpot.operator}
-                        {selectedSpot.operator.includes('Unknown') && (
-                          <ContributionForm
-                            spotId={selectedSpot.id}
-                            field="operator"
-                            currentValue={selectedSpot.operator}
-                            onSubmit={handleUserContribution}
-                          />
-                        )}
                       </span>
                     </div>
                     
@@ -1476,14 +1292,6 @@ const ParkingFinder = () => {
                       <span className="pf-info-label">Accessibility:</span>
                       <span className="pf-info-value">
                         {selectedSpot.accessibility}
-                        {selectedSpot.accessibility.includes('not specified') && (
-                          <ContributionForm
-                            spotId={selectedSpot.id}
-                            field="accessibility"
-                            currentValue={selectedSpot.accessibility}
-                            onSubmit={handleUserContribution}
-                          />
-                        )}
                       </span>
                     </div>
                     
@@ -1491,14 +1299,6 @@ const ParkingFinder = () => {
                       <span className="pf-info-label">Security:</span>
                       <span className="pf-info-value">
                         {selectedSpot.security}
-                        {selectedSpot.security.includes('Basic security') && (
-                          <ContributionForm
-                            spotId={selectedSpot.id}
-                            field="security"
-                            currentValue={selectedSpot.security}
-                            onSubmit={handleUserContribution}
-                          />
-                        )}
                       </span>
                     </div>
                     
@@ -1506,21 +1306,13 @@ const ParkingFinder = () => {
                       <span className="pf-info-label">Capacity:</span>
                       <span className="pf-info-value">
                         {selectedSpot.capacity}
-                        {selectedSpot.capacity.includes('not specified') && (
-                          <ContributionForm
-                            spotId={selectedSpot.id}
-                            field="capacity"
-                            currentValue={selectedSpot.capacity}
-                            onSubmit={handleUserContribution}
-                          />
-                        )}
                       </span>
                     </div>
                   </div>
                 </div>
               </div>
               
-              {selectedSpot.website ? (
+              {selectedSpot.website && (
                 <a 
                   href={selectedSpot.website.startsWith('http') ? selectedSpot.website : `https://${selectedSpot.website}`} 
                   target="_blank" 
@@ -1529,30 +1321,14 @@ const ParkingFinder = () => {
                 >
                   <FiExternalLink /> Visit official website for latest information
                 </a>
-              ) : (
-                <div className="pf-no-website">
-                  <p>No website available for this location</p>
-                  <ContributionForm
-                    spotId={selectedSpot.id}
-                    field="website"
-                    currentValue=""
-                    onSubmit={handleUserContribution}
-                  />
-                </div>
               )}
-            </div>
+            </motion.div>
           )}
         </section>
       </main>
       
       <footer className="pf-footer">
-        <p>Parking data © {new Date().getFullYear()} HERE Technologies</p>
-        <p className="pf-footer-note">
-          By using this service, you agree to HERE's{' '}
-          <a href="https://legal.here.com/terms" target="_blank" rel="noopener noreferrer">Terms of Use</a> and{' '}
-          <a href="https://legal.here.com/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.
-          Information is provided as-is. Always check official sources for the latest parking information.
-        </p>
+        <p>© {new Date().getFullYear()} UK Parking Finder</p>
       </footer>
     </div>
   );

@@ -2,21 +2,115 @@ import React, { useState, useRef, useEffect } from 'react';
 import { searchParking, getParkingDetails } from '../services/parksyApi';
 import './parkingbot.css';
 
-const ParkingBot = () => {
-  const [isOpen, setIsOpen] = useState(false);
+const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
+  const [isOpen, setIsOpen] = useState(propIsOpen || false);
   const [messages, setMessages] = useState([
     { 
-      text: "Hello! I'm Parksy, your premium parking assistant. How can I help you find parking today?",
+      text: "Hello there! 👋 I'm Parksy, your smart parking assistant.",
       isBot: true,
       timestamp: new Date().toISOString()
+    },
+    {
+      text: "I can help you find parking spots or answer questions about parking in the UK. How can I assist you today?",
+      isBot: true,
+      timestamp: new Date().toISOString(),
+      suggestions: [
+        "Find parking near Leeds Station",
+        "Who created you?",
+        "What can you do?",
+        "Contact information"
+      ]
     }
   ]);
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
   const [typing, setTyping] = useState(false);
+  const [showAllParking, setShowAllParking] = useState(false);
   const messagesEndRef = useRef(null);
 
-  // Auto-scroll to bottom of messages
+  // Predefined responses for common questions
+  const predefinedResponses = {
+    greetings: [
+      "Hello! 👋 How can I help you with parking today?",
+      "Hi there! 🚗 Looking for parking assistance?",
+      "Greetings! I'm Parksy, your parking helper. What do you need?"
+    ],
+    howAreYou: [
+      "I'm just a bot, but I'm functioning perfectly! Ready to help you find parking.",
+      "I don't have feelings, but I'm excited to assist you with parking!",
+      "As an AI, I'm always at 100%! How can I help you today?"
+    ],
+    capabilities: [
+      "I can help you: \n- Find parking spots near any location \n- Compare parking prices \n- Show parking restrictions \n- Provide contact information \n- Answer parking-related questions",
+      "My main functions are: \n🚗 Finding available parking \n💰 Comparing prices \n⏰ Showing time restrictions \nℹ️ Providing parking information",
+      "I specialize in: \n• Real-time parking availability \n• Cost comparisons \n• Location-based searches \n• Parking rule information"
+    ],
+    creator: [
+      "I was created by TechPrime Solutions, a software development company specializing in AI solutions.",
+      "My developers are the talented team at TechPrime Solutions who built me to solve parking problems.",
+      "TechPrime Solutions is my creator - they specialize in building intelligent systems like me!"
+    ],
+    contact: [
+      "You can reach us at: \n📧 Email: hello@parksy.uk \n📞 Phone: +44 (0)20 3123 4567 \n🏢 Office: 123 Parking Lane, London, UK E1 6AN",
+      "Contact information: \n• Email: hello@parksy.uk \n• Phone: +44 20 3123 4567 \n• Address: 123 Parking Lane, London",
+      "Our details: \n✉️ hello@parksy.uk \n📞 +44 20 3123 4567 \n📍 123 Parking Lane, London"
+    ],
+    thanks: [
+      "You're welcome! Happy to help with all your parking needs. 🚗💨",
+      "No problem at all! Let me know if you need anything else regarding parking.",
+      "My pleasure! Don't hesitate to ask if you have more parking questions."
+    ],
+    parkingHelp: [
+      "I specialize in finding parking spots. Just tell me a location and I'll search for available parking.",
+      "For parking assistance, provide me with a location, date, and time you need parking.",
+      "I can find parking options for you. Where and when do you need to park?"
+    ],
+    default: [
+      "I'm not sure I understand. I can help with parking-related questions or find parking spots for you.",
+      "Could you rephrase that? I'm best at helping with parking inquiries.",
+      "I specialize in parking assistance. Could you ask me about parking or provide a location?"
+    ]
+  };
+
+  // Common questions patterns
+  const questionPatterns = [
+    { 
+      patterns: [/hello/i, /hi/i, /hey/i], 
+      responseType: 'greetings' 
+    },
+    { 
+      patterns: [/how are you/i, /how's it going/i], 
+      responseType: 'howAreYou' 
+    },
+    { 
+      patterns: [/what can you do/i, /your functions/i, /capabilities/i], 
+      responseType: 'capabilities' 
+    },
+    { 
+      patterns: [/who made you/i, /who created you/i, /techprime/i], 
+      responseType: 'creator' 
+    },
+    { 
+      patterns: [/contact/i, /email/i, /phone/i, /address/i], 
+      responseType: 'contact' 
+    },
+    { 
+      patterns: [/thank/i, /thanks/i, /appreciate/i], 
+      responseType: 'thanks' 
+    },
+    { 
+      patterns: [/help with parking/i, /find parking/i, /parking help/i], 
+      responseType: 'parkingHelp' 
+    }
+  ];
+
+  // Sync with parent component's open state
+  useEffect(() => {
+    if (propIsOpen !== undefined) {
+      setIsOpen(propIsOpen);
+    }
+  }, [propIsOpen]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -28,10 +122,42 @@ const ParkingBot = () => {
     return message;
   };
 
+  const getRandomResponse = (type) => {
+    const responses = predefinedResponses[type] || predefinedResponses.default;
+    return responses[Math.floor(Math.random() * responses.length)];
+  };
+
+  const handleGeneralQuestion = async (question) => {
+    let responseType = 'default';
+    
+    for (const pattern of questionPatterns) {
+      if (pattern.patterns.some(regex => regex.test(question))) {
+        responseType = pattern.responseType;
+        break;
+      }
+    }
+    
+    const botResponse = await simulateTyping({
+      text: getRandomResponse(responseType),
+      isBot: true,
+      timestamp: new Date().toISOString(),
+      suggestions: responseType === 'parkingHelp' ? [
+        "Find parking near London Bridge",
+        "Parking in Manchester city center",
+        "Show me parking at Heathrow Airport"
+      ] : [
+        "Find parking near me",
+        "What can you do?",
+        "Contact information"
+      ]
+    });
+    
+    setMessages(prev => [...prev, botResponse]);
+  };
+
   const handleSendMessage = async () => {
     if (!inputValue.trim() || loading) return;
     
-    // Add user message
     const userMessage = { 
       text: inputValue,
       isBot: false,
@@ -40,29 +166,41 @@ const ParkingBot = () => {
     setMessages(prev => [...prev, userMessage]);
     setInputValue('');
     setLoading(true);
+    setShowAllParking(false);
     
     try {
-      // Show typing indicator
-      setTyping(true);
+      // First check if it's a general question
+      let isGeneralQuestion = false;
+      for (const pattern of questionPatterns) {
+        if (pattern.patterns.some(regex => regex.test(inputValue))) {
+          isGeneralQuestion = true;
+          break;
+        }
+      }
       
-      // Search parking
-      const data = await searchParking(inputValue);
-      
-      // Format results
-      const resultsText = data.data.parking_spots.length > 0 ?
-        `I found ${data.data.parking_spots.length} parking spots near ${data.data.location}. Here are the top 3:` :
-        `I couldn't find parking spots for ${inputValue}. Try a more specific location.`;
-      
-      // Add bot response
-      const botResponse = await simulateTyping({
-        text: resultsText,
-        isBot: true,
-        timestamp: new Date().toISOString(),
-        results: data.data.parking_spots.slice(0, 3),
-        location: data.data.location
-      });
-      
-      setMessages(prev => [...prev, botResponse]);
+      if (isGeneralQuestion) {
+        await handleGeneralQuestion(inputValue);
+      } else {
+        // Otherwise treat as parking location search
+        setTyping(true);
+        const data = await searchParking(inputValue);
+        
+        const resultsText = data.data.parking_spots.length > 0 ?
+          `I found ${data.data.parking_spots.length} parking spots near ${data.data.location}.` :
+          `I couldn't find parking spots for "${inputValue}". Try a more specific location.`;
+        
+        const botResponse = await simulateTyping({
+          text: resultsText,
+          isBot: true,
+          timestamp: new Date().toISOString(),
+          results: data.data.parking_spots,
+          topResults: data.data.parking_spots.slice(0, 3),
+          location: data.data.location,
+          totalSpots: data.data.parking_spots.length
+        });
+        
+        setMessages(prev => [...prev, botResponse]);
+      }
       
     } catch (error) {
       const errorMessage = await simulateTyping({
@@ -116,6 +254,53 @@ const ParkingBot = () => {
     }
   };
 
+  const toggleShowAllParking = () => {
+    setShowAllParking(!showAllParking);
+  };
+
+  const handleCloseChat = () => {
+    setIsOpen(false);
+    if (onClose) onClose();
+  };
+
+  const handleSuggestionClick = (suggestion) => {
+    setInputValue(suggestion);
+    // Auto-focus the input field
+    setTimeout(() => {
+      const input = document.querySelector('.parking-bot-input input');
+      if (input) input.focus();
+    }, 0);
+  };
+
+  const renderParkingSpots = (spots) => {
+    return spots.map((spot) => (
+      <div key={spot.id} className="parking-spot-card">
+        <div className="spot-header">
+          <h5>{spot.title}</h5>
+          <div className="spot-score">{spot.score}/100</div>
+        </div>
+        <p className="spot-address">{spot.address}</p>
+        <div className="spot-details">
+          <span>🚗 {(spot.distance / 1000).toFixed(1)} km</span>
+          <span>💵 {spot.parking_type.estimated_cost}</span>
+          <span>🕒 {spot.parking_type.typical_time_limit}</span>
+        </div>
+        <div className="spot-availability">
+          <span className={`availability-${spot.availability.status.toLowerCase()}`}>
+            {spot.availability.message}
+          </span>
+        </div>
+        <button 
+          onClick={() => handleParkingSelect(spot.id)}
+          disabled={loading}
+          className="details-button"
+        >
+          View Details
+        </button>
+      </div>
+    ));
+  };
+
   return (
     <div className={`parking-bot-container ${isOpen ? 'open' : ''}`}>
       {!isOpen && (
@@ -127,14 +312,14 @@ const ParkingBot = () => {
       
       {isOpen && (
         <>
-          <div className="parking-bot-header" onClick={() => setIsOpen(false)}>
+          <div className="parking-bot-header">
             <div className="bot-avatar">🅿️</div>
             <div className="bot-title">
               <h3>Parking Assistant</h3>
               <p>Online</p>
             </div>
             <div className="bot-status-indicator"></div>
-            <button className="close-chat">×</button>
+            <button className="close-chat" onClick={handleCloseChat}>×</button>
           </div>
           
           <div className="parking-bot-content">
@@ -149,33 +334,38 @@ const ParkingBot = () => {
                   </div>
                   <div className="message-text">{msg.text}</div>
                   
-                  {msg.results && (
+                  {msg.suggestions && (
+                    <div className="suggestions-container">
+                      <p>Try these examples:</p>
+                      <div className="suggestion-chips">
+                        {msg.suggestions.map((suggestion, i) => (
+                          <button 
+                            key={i} 
+                            className="suggestion-chip"
+                            onClick={() => handleSuggestionClick(suggestion)}
+                          >
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {msg.topResults && (
                     <div className="parking-results">
                       <div className="results-header">
-                        <h4>Top Parking Spots</h4>
-                        <p>Showing {msg.results.length} of {msg.results.length} near {msg.location}</p>
+                        <h4>Recommended Parking Spots</h4>
+                        <p>Showing {showAllParking ? msg.results.length : 3} of {msg.totalSpots} near {msg.location}</p>
                       </div>
-                      {msg.results.map((spot) => (
-                        <div key={spot.id} className="parking-spot-card">
-                          <div className="spot-header">
-                            <h5>{spot.title}</h5>
-                            <div className="spot-score">{spot.score}/100</div>
-                          </div>
-                          <p className="spot-address">{spot.address}</p>
-                          <div className="spot-details">
-                            <span>🚗 {(spot.distance / 1000).toFixed(1)} km</span>
-                            <span>💵 {spot.parking_type.estimated_cost}</span>
-                            <span>🕒 {spot.parking_type.typical_time_limit}</span>
-                          </div>
-                          <button 
-                            onClick={() => handleParkingSelect(spot.id)}
-                            disabled={loading}
-                            className="details-button"
-                          >
-                            View Details
-                          </button>
-                        </div>
-                      ))}
+                      {renderParkingSpots(showAllParking ? msg.results : msg.topResults)}
+                      {msg.results.length > 3 && (
+                        <button 
+                          onClick={toggleShowAllParking}
+                          className="show-more-button"
+                        >
+                          {showAllParking ? 'Show Less' : `Show All ${msg.totalSpots} Spots`}
+                        </button>
+                      )}
                     </div>
                   )}
                   
@@ -230,8 +420,9 @@ const ParkingBot = () => {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder="Type a location (e.g., 'Parking near Leeds Station')..."
+                placeholder="Type a location or ask a question..."
                 disabled={loading}
+                autoFocus
               />
               <button 
                 onClick={handleSendMessage} 

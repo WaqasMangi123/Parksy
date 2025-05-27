@@ -1,208 +1,180 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Link, useLocation } from 'react-router-dom';
+import React, { useState, useEffect } from "react";
+import { Link, useLocation } from "react-router-dom";
+import { FaChevronDown, FaChevronUp } from "react-icons/fa";
 import './navbar.css';
 
 const Navbar = () => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
+  const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [activeDropdown, setActiveDropdown] = useState(null);
+  const [isScrolled, setIsScrolled] = useState(false);
   const location = useLocation();
 
+  // Close mobile menu when route changes
+  useEffect(() => {
+    setMobileMenuOpen(false);
+    setActiveDropdown(null);
+  }, [location]);
+
+  // Add scroll effect
   useEffect(() => {
     const handleScroll = () => {
-      setScrolled(window.scrollY > 10);
+      setIsScrolled(window.scrollY > 10);
     };
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  useEffect(() => {
-    setIsOpen(false);
-  }, [location]);
-
-  const navLinks = [
-    { name: 'Home', path: '/' },
-    { name: 'About', path: '/about' },
-    { name: 'Find Parking', path: '/parkingfinder' },
-    { name: 'List Space', path: '/listyourspace' },
-    { name: 'Guidance', path: '/guidance' },
-    { name: 'Contact', path: '/contact' },
-  ];
-
-  const itemVariants = {
-    open: {
-      opacity: 1,
-      y: 0,
-      transition: { 
-        type: 'spring', 
-        stiffness: 300, 
-        damping: 24,
-        duration: 0.5
-      }
-    },
-    closed: { 
-      opacity: 0, 
-      y: 20, 
-      transition: { 
-        duration: 0.3 
-      } 
-    }
+  const toggleMobileMenu = () => {
+    setMobileMenuOpen(!isMobileMenuOpen);
+    setActiveDropdown(null);
   };
 
+  const handleDropdown = (menu) => {
+    setActiveDropdown(activeDropdown === menu ? null : menu);
+  };
+
+  const isDropdownOpen = (menu) => activeDropdown === menu;
+
   return (
-    <motion.nav 
-      className={`navbar ${scrolled ? 'scrolled' : ''}`}
-      initial={{ y: -100 }}
-      animate={{ y: 0 }}
-      transition={{ duration: 0.5, ease: [0.6, 0.05, -0.01, 0.9] }}
-    >
+    <nav className={`navbar ${isScrolled ? 'scrolled' : ''}`}>
       <div className="navbar-container">
-        <Link to="/" className="logo">
-          <motion.img 
-            src="/parksylogo.jpg" 
-            alt="Parksy Logo"
-            className="logo-img"
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.2, duration: 0.5 }}
-            whileHover={{ scale: 1.05 }}
-          />
+        {/* Logo */}
+        <Link to="/" className="logo-link">
+          <img src="/parksylogo.jpg" alt="Parksy Logo" className="logo" />
         </Link>
 
-        <div className="desktop-links">
-          {navLinks.map((link) => (
-            <motion.div
-              key={link.path}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 10 }}
+        {/* Desktop Navigation */}
+        <div className="desktop-nav">
+          <ul className="nav-links">
+            <li>
+              <Link to="/" className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}>Home</Link>
+            </li>
+            <li>
+              <Link to="/about" className={`nav-link ${location.pathname === '/about' ? 'active' : ''}`}>About</Link>
+            </li>
+            
+            {/* Find Parking Dropdown */}
+            <li 
+              className={`nav-item ${isDropdownOpen('parking') ? 'active' : ''}`}
+              onMouseEnter={() => handleDropdown('parking')}
+              onMouseLeave={() => handleDropdown('parking')}
             >
-              <Link 
-                to={link.path} 
-                className={`nav-link ${location.pathname === link.path ? 'active' : ''}`}
-              >
-                {link.name}
-                {location.pathname === link.path && (
-                  <motion.div 
-                    className="underline" 
-                    layoutId="underline"
-                    initial={false}
-                    transition={{
-                      type: 'spring',
-                      stiffness: 500,
-                      damping: 30,
-                    }}
-                  />
-                )}
-              </Link>
-            </motion.div>
-          ))}
+              <div className="dropdown-trigger">
+                <Link to="/parkingfinder" className={`nav-link ${location.pathname.includes('/parkingfinder') ? 'active' : ''}`}>
+                  <span>Find Parking</span>
+                </Link>
+                {isDropdownOpen('parking') ? <FaChevronUp /> : <FaChevronDown />}
+              </div>
+              <ul className="dropdown-menu">
+                <li><Link to="/parkingfinder/nearme" className="dropdown-link">Near Me</Link></li>
+                <li><Link to="/parkingfinder/bycity" className="dropdown-link">By City</Link></li>
+                <li><Link to="/parkingfinder/airports" className="dropdown-link">Airports</Link></li>
+              </ul>
+            </li>
+
+            {/* List Space Dropdown */}
+            <li 
+              className={`nav-item ${isDropdownOpen('list') ? 'active' : ''}`}
+              onMouseEnter={() => handleDropdown('list')}
+              onMouseLeave={() => handleDropdown('list')}
+            >
+              <div className="dropdown-trigger">
+                <Link to="/listyourspace" className={`nav-link ${location.pathname.includes('/listyourspace') ? 'active' : ''}`}>
+                  <span>List Space</span>
+                </Link>
+                {isDropdownOpen('list') ? <FaChevronUp /> : <FaChevronDown />}
+              </div>
+              <ul className="dropdown-menu">
+                <li><Link to="/listyourspace/how-it-works" className="dropdown-link">How It Works</Link></li>
+                <li><Link to="/listyourspace/pricing" className="dropdown-link">Pricing</Link></li>
+                <li><Link to="/listyourspace/requirements" className="dropdown-link">Requirements</Link></li>
+              </ul>
+            </li>
+
+            <li>
+              <Link to="/guidance" className={`nav-link ${location.pathname === '/guidance' ? 'active' : ''}`}>Guidance</Link>
+            </li>
+            <li>
+              <Link to="/contact" className={`nav-link ${location.pathname === '/contact' ? 'active' : ''}`}>Contact</Link>
+            </li>
+          </ul>
+
+          <div className="nav-actions">
+            <Link to="/privacypolicy" className="terms-link">Privacy Policy</Link>
+            <Link to="/termsandconditions" className="terms-link">Terms & Conditions</Link>
+          </div>
         </div>
 
-        <motion.button 
-          className="hamburger"
-          onClick={() => setIsOpen(!isOpen)}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          aria-label="Menu"
+        {/* Mobile Hamburger */}
+        <div 
+          className={`hamburger ${isMobileMenuOpen ? "open" : ""}`} 
+          onClick={toggleMobileMenu}
         >
-          <motion.span
-            className="hamburger-line"
-            animate={isOpen ? "open" : "closed"}
-            variants={{
-              open: { rotate: 45, y: 7, backgroundColor: '#3a56d4' },
-              closed: { rotate: 0, y: 0, backgroundColor: '#4361ee' }
-            }}
-            transition={{ duration: 0.3 }}
-          />
-          <motion.span
-            className="hamburger-line"
-            animate={isOpen ? "open" : "closed"}
-            variants={{
-              open: { opacity: 0, x: -20 },
-              closed: { opacity: 1, x: 0 }
-            }}
-            transition={{ duration: 0.2 }}
-          />
-          <motion.span
-            className="hamburger-line"
-            animate={isOpen ? "open" : "closed"}
-            variants={{
-              open: { rotate: -45, y: -7, backgroundColor: '#3a56d4' },
-              closed: { rotate: 0, y: 0, backgroundColor: '#4361ee' }
-            }}
-            transition={{ duration: 0.3 }}
-          />
-        </motion.button>
+          <div className="bar"></div>
+          <div className="bar"></div>
+          <div className="bar"></div>
+        </div>
       </div>
 
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div 
-            className="mobile-menu"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ 
-              height: 'auto', 
-              opacity: 1,
-              transition: {
-                height: { type: 'spring', bounce: 0.1, duration: 0.5 },
-                opacity: { duration: 0.4 }
-              }
-            }}
-            exit={{ 
-              height: 0, 
-              opacity: 0,
-              transition: {
-                height: { duration: 0.3 },
-                opacity: { duration: 0.2 }
-              }
-            }}
-          >
-            <motion.ul
-              initial="closed"
-              animate="open"
-              exit="closed"
-              variants={{
-                open: {
-                  transition: { staggerChildren: 0.07, delayChildren: 0.2 }
-                },
-                closed: {
-                  transition: { staggerChildren: 0.05, staggerDirection: -1 }
-                }
-              }}
+      {/* Mobile Menu */}
+      <div className={`mobile-menu ${isMobileMenuOpen ? "open" : ""}`}>
+        <ul className="mobile-nav-links">
+          <li>
+            <Link to="/" className="mobile-nav-link" onClick={toggleMobileMenu}>Home</Link>
+          </li>
+          <li>
+            <Link to="/about" className="mobile-nav-link" onClick={toggleMobileMenu}>About</Link>
+          </li>
+
+          {/* Find Parking Dropdown */}
+          <li className="mobile-dropdown">
+            <div 
+              className="mobile-dropdown-trigger" 
+              onClick={() => handleDropdown('mobile-parking')}
             >
-              {navLinks.map((link) => (
-                <motion.li
-                  key={link.path}
-                  variants={itemVariants}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  transition={{ type: 'spring', stiffness: 400 }}
-                >
-                  <Link 
-                    to={link.path} 
-                    className={`mobile-link ${location.pathname === link.path ? 'active' : ''}`}
-                  >
-                    {link.name}
-                    {location.pathname === link.path && (
-                      <motion.div 
-                        className="mobile-underline"
-                        layoutId="mobile-underline"
-                        transition={{
-                          type: 'spring',
-                          stiffness: 500,
-                          damping: 30,
-                        }}
-                      />
-                    )}
-                  </Link>
-                </motion.li>
-              ))}
-            </motion.ul>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.nav>
+              <span>Find Parking</span>
+              {isDropdownOpen('mobile-parking') ? <FaChevronUp /> : <FaChevronDown />}
+            </div>
+            <ul className={`mobile-dropdown-menu ${isDropdownOpen('mobile-parking') ? "open" : ""}`}>
+              <li><Link to="/parkingfinder" className="mobile-dropdown-link" onClick={toggleMobileMenu}>All Parking</Link></li>
+              <li><Link to="/parkingfinder/nearme" className="mobile-dropdown-link" onClick={toggleMobileMenu}>Near Me</Link></li>
+              <li><Link to="/parkingfinder/bycity" className="mobile-dropdown-link" onClick={toggleMobileMenu}>By City</Link></li>
+              <li><Link to="/parkingfinder/airports" className="mobile-dropdown-link" onClick={toggleMobileMenu}>Airports</Link></li>
+            </ul>
+          </li>
+
+          {/* List Space Dropdown */}
+          <li className="mobile-dropdown">
+            <div 
+              className="mobile-dropdown-trigger" 
+              onClick={() => handleDropdown('mobile-list')}
+            >
+              <span>List Space</span>
+              {isDropdownOpen('mobile-list') ? <FaChevronUp /> : <FaChevronDown />}
+            </div>
+            <ul className={`mobile-dropdown-menu ${isDropdownOpen('mobile-list') ? "open" : ""}`}>
+              <li><Link to="/listyourspace" className="mobile-dropdown-link" onClick={toggleMobileMenu}>Overview</Link></li>
+              <li><Link to="/listyourspace/how-it-works" className="mobile-dropdown-link" onClick={toggleMobileMenu}>How It Works</Link></li>
+              <li><Link to="/listyourspace/pricing" className="mobile-dropdown-link" onClick={toggleMobileMenu}>Pricing</Link></li>
+              <li><Link to="/listyourspace/requirements" className="mobile-dropdown-link" onClick={toggleMobileMenu}>Requirements</Link></li>
+            </ul>
+          </li>
+
+          <li>
+            <Link to="/guidance" className="mobile-nav-link" onClick={toggleMobileMenu}>Guidance</Link>
+          </li>
+          <li>
+            <Link to="/contact" className="mobile-nav-link" onClick={toggleMobileMenu}>Contact</Link>
+          </li>
+          <li>
+            <Link to="/privacypolicy" className="mobile-terms-link" onClick={toggleMobileMenu}>Privacy Policy</Link>
+          </li>
+          <li>
+            <Link to="/termsandconditions" className="mobile-terms-link" onClick={toggleMobileMenu}>Terms & Conditions</Link>
+          </li>
+        </ul>
+      </div>
+    </nav>
   );
 };
 

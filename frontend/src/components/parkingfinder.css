@@ -1,7 +1,7 @@
 /* Unique class prefix to avoid conflicts */
 .pf-app {
-  --pf-primary: #4361ee;
-  --pf-secondary: #3f37c9;
+  --pf-primary: #0288d1;
+  --pf-secondary: #0288d1;
   --pf-accent: #4895ef;
   --pf-light: #f8f9fa;
   --pf-dark: #212529;

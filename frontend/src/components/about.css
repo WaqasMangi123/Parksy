@@ -1062,7 +1062,8 @@
   transform: translateY(-3px);
 }
 
-/* ===== Responsive Styles ===== */
+/* ===== Responsive Styles - Updated for Mobile Circle Positioning ===== */
+/* ===== Responsive Styles - Optimized Circle Layout ===== */
 @media (max-width: 1024px) {
   .section-header h2 {
     font-size: 2.5rem;
@@ -1075,12 +1076,15 @@
   
   .tech-visual {
     order: -1;
-    height: 300px;
+    height: 320px; /* Increased height for better spacing */
+    margin-bottom: 2rem;
   }
   
   .tech-circle {
     width: 280px;
     height: 280px;
+    position: relative;
+    margin: 0 auto;
   }
   
   .circle-item {
@@ -1144,6 +1148,19 @@
     width: 100%;
     max-width: 300px;
   }
+  
+  /* Enhanced tablet circle layout */
+  .tech-visual {
+    height: 300px;
+    margin: 2rem auto 3rem -1.5rem; /* More left shift */
+  }
+  
+  .tech-circle {
+    width: 270px;
+    height: 270px;
+    margin-left: 1.5rem;
+    margin-top: 0.5rem; /* Slight downward adjustment */
+  }
 }
 
 @media (max-width: 480px) {
@@ -1175,26 +1192,81 @@
     grid-template-columns: 1fr;
   }
   
+  /* Premium mobile circle layout */
+  .tech-content {
+    gap: 2.5rem; /* Increased gap */
+  }
+  
+  .tech-visual {
+    height: 320px; /* Taller container */
+    margin: 5rem auto 3rem -1rem; /* Significantly lower and left */
+    padding: 0 1.5rem;
+    transform: translateX(-15px);
+  }
+  
   .tech-circle {
-    width: 250px;
-    height: 250px;
+    width: 260px; /* Larger than previous mobile size */
+    height: 260px;
+    margin-left: 1.5rem;
+    margin-top: 2rem; /* Much lower position */
   }
   
   .circle-item {
-    width: 80px;
-    height: 80px;
+    width: 90px; /* Larger items */
+    height: 90px;
     font-size: 0.8rem;
+    padding: 0.7rem;
   }
   
   .circle-item.main {
-    width: 100px;
-    height: 100px;
+    width: 110px;
+    height: 110px;
+    font-size: 0.95rem;
   }
   
-  .circle-item:nth-child(1) { transform: rotate(0deg) translate(120px) rotate(0deg); }
-  .circle-item:nth-child(2) { transform: rotate(60deg) translate(120px) rotate(-60deg); }
-  .circle-item:nth-child(3) { transform: rotate(120deg) translate(120px) rotate(-120deg); }
-  .circle-item:nth-child(4) { transform: rotate(180deg) translate(120px) rotate(-180deg); }
-  .circle-item:nth-child(5) { transform: rotate(240deg) translate(120px) rotate(-240deg); }
-  .circle-item:nth-child(6) { transform: rotate(300deg) translate(120px) rotate(-300deg); }
+  /* Adjusted positions for larger mobile circle */
+  .circle-item:nth-child(1) { transform: rotate(0deg) translate(130px) rotate(0deg); }
+  .circle-item:nth-child(2) { transform: rotate(60deg) translate(130px) rotate(-60deg); }
+  .circle-item:nth-child(3) { transform: rotate(120deg) translate(130px) rotate(-120deg); }
+  .circle-item:nth-child(4) { transform: rotate(180deg) translate(130px) rotate(-180deg); }
+  .circle-item:nth-child(5) { transform: rotate(240deg) translate(130px) rotate(-240deg); }
+  .circle-item:nth-child(6) { transform: rotate(300deg) translate(130px) rotate(-300deg); }
+  
+  /* Enhanced text spacing */
+  .tech-text {
+    padding: 0 1.5rem;
+    margin-top: 2rem;
+    margin-left: 1rem;
+  }
+}
+
+/* Special landscape orientation for mobile */
+@media (max-width: 480px) and (orientation: landscape) {
+  .tech-visual {
+    height: 240px;
+    margin: 3rem auto;
+  }
+  
+  .tech-circle {
+    width: 220px;
+    height: 220px;
+    margin-top: 1rem;
+  }
+  
+  .circle-item {
+    width: 75px;
+    height: 75px;
+  }
+  
+  .circle-item.main {
+    width: 95px;
+    height: 95px;
+  }
+  
+  .circle-item:nth-child(1) { transform: rotate(0deg) translate(110px) rotate(0deg); }
+  .circle-item:nth-child(2) { transform: rotate(60deg) translate(110px) rotate(-60deg); }
+  .circle-item:nth-child(3) { transform: rotate(120deg) translate(110px) rotate(-120deg); }
+  .circle-item:nth-child(4) { transform: rotate(180deg) translate(110px) rotate(-180deg); }
+  .circle-item:nth-child(5) { transform: rotate(240deg) translate(110px) rotate(-240deg); }
+  .circle-item:nth-child(6) { transform: rotate(300deg) translate(110px) rotate(-300deg); }
 }

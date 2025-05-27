@@ -1,20 +1,26 @@
+/* ParkingBot Widget Styles */
 .parking-bot-container {
   position: fixed;
   bottom: 20px;
   right: 20px;
   width: 380px;
+  max-width: calc(100vw - 40px);
   background-color: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 5px 25px rgba(0, 0, 0, 0.15);
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
   z-index: 1000;
   transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
   overflow: hidden;
-  font-family: 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-family: 'Segoe UI', Roboto, -apple-system, BlinkMacSystemFont, sans-serif;
   height: auto;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 .parking-bot-container.open {
-  height: 500px;
+  height: 600px;
 }
 
 /* Chat bubble styles */
@@ -22,26 +28,38 @@
   position: fixed;
   bottom: 20px;
   right: 20px;
-  width: 60px;
-  height: 60px;
-  background-color: #2c3e50;
+  width: 64px;
+  height: 64px;
+  background: linear-gradient(135deg, #2c3e50 0%, #1a2530 100%);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   z-index: 1001;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-  transition: all 0.3s ease;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  border: none;
+  outline: none;
 }
 
 .chat-bubble:hover {
   transform: scale(1.1);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+}
+
+.chat-bubble:active {
+  transform: scale(0.98);
 }
 
 .bubble-icon {
   font-size: 28px;
   color: white;
+  transition: transform 0.3s;
+}
+
+.chat-bubble:hover .bubble-icon {
+  transform: scale(1.1);
 }
 
 .bubble-pulse {
@@ -69,30 +87,33 @@
   }
 }
 
+/* Header styles */
 .parking-bot-header {
-  background-color: #2c3e50;
+  background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
   color: white;
-  padding: 15px 20px;
+  padding: 16px 20px;
   display: flex;
   align-items: center;
   cursor: pointer;
-  transition: background-color 0.3s;
+  transition: all 0.3s;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
 
 .parking-bot-header:hover {
-  background-color: #34495e;
+  background: linear-gradient(135deg, #34495e 0%, #2c3e50 100%);
 }
 
 .bot-avatar {
   font-size: 24px;
   margin-right: 15px;
-  background-color: #3498db;
-  width: 40px;
-  height: 40px;
+  background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .bot-title {
@@ -100,15 +121,17 @@
 }
 
 .bot-title h3 {
-  margin: 0 0 3px 0;
+  margin: 0 0 4px 0;
   font-size: 16px;
   font-weight: 600;
+  letter-spacing: 0.3px;
 }
 
 .bot-title p {
   margin: 0;
   font-size: 12px;
-  opacity: 0.8;
+  opacity: 0.85;
+  letter-spacing: 0.2px;
 }
 
 .bot-status-indicator {
@@ -116,8 +139,15 @@
   height: 10px;
   border-radius: 50%;
   background-color: #2ecc71;
-  box-shadow: 0 0 10px #2ecc71;
+  box-shadow: 0 0 12px #2ecc71;
   margin-right: 15px;
+  animation: status-pulse 2s infinite;
+}
+
+@keyframes status-pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.7; }
+  100% { opacity: 1; }
 }
 
 .close-chat {
@@ -128,47 +158,72 @@
   cursor: pointer;
   padding: 0;
   line-height: 1;
-  opacity: 0.7;
-  transition: opacity 0.2s;
+  opacity: 0.8;
+  transition: all 0.2s;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
 }
 
 .close-chat:hover {
   opacity: 1;
+  background-color: rgba(255, 255, 255, 0.1);
 }
 
+/* Main content area */
 .parking-bot-content {
   display: flex;
   flex-direction: column;
   height: calc(100% - 70px);
+  background-color: #f8fafc;
 }
 
 .parking-bot-messages {
   flex: 1;
-  padding: 15px;
+  padding: 16px;
   overflow-y: auto;
-  background-color: #f5f7fa;
+  scroll-behavior: smooth;
 }
 
+/* Message styles */
 .message {
-  margin-bottom: 15px;
+  margin-bottom: 16px;
   max-width: 85%;
+  animation: message-appear 0.3s ease-out;
+}
+
+@keyframes message-appear {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .message-meta {
   display: flex;
   align-items: center;
-  margin-bottom: 5px;
+  margin-bottom: 6px;
   font-size: 11px;
   opacity: 0.7;
+  gap: 8px;
 }
 
 .bot-indicator {
   font-weight: bold;
   color: #3498db;
-  margin-right: 8px;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  background-color: rgba(52, 152, 219, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .message-time {
@@ -176,12 +231,15 @@
 }
 
 .message.bot .message-text {
-  background-color: #e3f2fd;
+  background-color: #ffffff;
   color: #2c3e50;
   border-radius: 18px 18px 18px 4px;
-  padding: 10px 15px;
+  padding: 12px 16px;
   display: inline-block;
-  line-height: 1.4;
+  line-height: 1.5;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e0e6ed;
+  font-size: 14px;
 }
 
 .message.user {
@@ -189,30 +247,70 @@
 }
 
 .message.user .message-text {
-  background-color: #3498db;
+  background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
   color: white;
   border-radius: 18px 18px 4px 18px;
-  padding: 10px 15px;
+  padding: 12px 16px;
   display: inline-block;
-  line-height: 1.4;
+  line-height: 1.5;
+  font-size: 14px;
+  box-shadow: 0 2px 6px rgba(41, 128, 185, 0.2);
 }
 
+/* Suggestions chips */
+.suggestions-container {
+  margin-top: 12px;
+}
+
+.suggestions-container p {
+  margin: 0 0 8px 0;
+  font-size: 12px;
+  color: #7f8c8d;
+}
+
+.suggestion-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.suggestion-chip {
+  background-color: #e3f2fd;
+  color: #3498db;
+  border: none;
+  border-radius: 16px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.suggestion-chip:hover {
+  background-color: #d0e6ff;
+  transform: translateY(-1px);
+}
+
+/* Parking results */
 .parking-results {
-  margin-top: 15px;
+  margin-top: 16px;
   background: white;
-  border-radius: 10px;
-  padding: 15px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e0e6ed;
 }
 
 .results-header {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .results-header h4 {
-  margin: 0 0 5px 0;
+  margin: 0 0 6px 0;
   color: #2c3e50;
   font-size: 15px;
+  font-weight: 600;
 }
 
 .results-header p {
@@ -222,90 +320,154 @@
 }
 
 .parking-spot-card {
-  border: 1px solid #ecf0f1;
-  border-radius: 8px;
-  padding: 12px;
-  margin-bottom: 10px;
-  transition: transform 0.2s, box-shadow 0.2s;
+  border: 1px solid #e0e6ed;
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 12px;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  background-color: white;
 }
 
 .parking-spot-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  transform: translateY(-3px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  border-color: #3498db;
 }
 
 .spot-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 5px;
+  margin-bottom: 6px;
 }
 
 .spot-header h5 {
   margin: 0;
   color: #2c3e50;
   font-size: 14px;
+  font-weight: 600;
 }
 
 .spot-score {
-  background-color: #27ae60;
+  background: linear-gradient(135deg, #27ae60 0%, #219653 100%);
   color: white;
-  padding: 2px 8px;
-  border-radius: 10px;
+  padding: 3px 10px;
+  border-radius: 12px;
   font-size: 12px;
   font-weight: bold;
+  box-shadow: 0 2px 4px rgba(39, 174, 96, 0.2);
 }
 
 .spot-address {
-  margin: 0 0 8px 0;
+  margin: 0 0 10px 0;
   color: #7f8c8d;
   font-size: 12px;
+  line-height: 1.4;
 }
 
 .spot-details {
   display: flex;
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: 12px;
+  margin-bottom: 12px;
   font-size: 12px;
   color: #3498db;
+  flex-wrap: wrap;
+}
+
+.spot-details span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.spot-availability {
+  margin-bottom: 12px;
+}
+
+.availability-available {
+  color: #27ae60;
+  font-weight: 500;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.availability-limited {
+  color: #f39c12;
+  font-weight: 500;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.availability-unavailable {
+  color: #e74c3c;
+  font-weight: 500;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .details-button {
-  background-color: #3498db;
+  background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
   color: white;
   border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  font-size: 12px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all 0.2s;
+  font-weight: 500;
+  box-shadow: 0 2px 6px rgba(41, 128, 185, 0.2);
+  width: 100%;
 }
 
 .details-button:hover {
-  background-color: #2980b9;
+  background: linear-gradient(135deg, #2980b9 0%, #3498db 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(41, 128, 185, 0.3);
+}
+
+.details-button:active {
+  transform: translateY(0);
 }
 
 .details-button:disabled {
-  background-color: #bdc3c7;
+  background: #bdc3c7;
   cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
 }
 
+/* Parking details section */
 .parking-details {
-  margin-top: 15px;
+  margin-top: 16px;
   background: white;
-  border-radius: 10px;
-  padding: 15px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e0e6ed;
 }
 
 .details-section {
-  margin-bottom: 15px;
+  margin-bottom: 16px;
+}
+
+.details-section:last-child {
+  margin-bottom: 0;
 }
 
 .details-section h5 {
-  margin: 0 0 8px 0;
+  margin: 0 0 10px 0;
   color: #2c3e50;
   font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .details-section ul {
@@ -314,9 +476,10 @@
 }
 
 .details-section li {
-  margin-bottom: 5px;
+  margin-bottom: 6px;
   font-size: 13px;
   color: #34495e;
+  line-height: 1.5;
 }
 
 .amenities-grid, .payment-methods {
@@ -326,27 +489,58 @@
 }
 
 .amenity-tag, .payment-tag {
-  background-color: #e3f2fd;
+  background-color: #f5f9ff;
   color: #3498db;
-  padding: 4px 8px;
+  padding: 6px 12px;
   border-radius: 12px;
   font-size: 12px;
+  font-weight: 500;
+  border: 1px solid #e0e6ed;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .payment-tag {
-  background-color: #e8f5e9;
+  background-color: #f0fff4;
   color: #27ae60;
+  border-color: #d5f5e3;
 }
 
+.show-more-button {
+  background: none;
+  border: 1px solid #3498db;
+  color: #3498db;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 500;
+  width: 100%;
+  margin-top: 10px;
+}
+
+.show-more-button:hover {
+  background-color: rgba(52, 152, 219, 0.1);
+}
+
+/* Typing indicator */
 .typing-indicator {
   display: flex;
   align-items: center;
-  padding: 10px 15px;
+  padding: 10px 16px;
+  background-color: white;
+  border-radius: 18px;
+  width: fit-content;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e0e6ed;
+  margin-bottom: 16px;
 }
 
 .typing-dots {
   display: flex;
-  gap: 5px;
+  gap: 6px;
 }
 
 .typing-dots div {
@@ -371,61 +565,162 @@
 
 @keyframes typingAnimation {
   0%, 60%, 100% { transform: translateY(0); }
-  30% { transform: translateY(-5px); }
+  30% { transform: translateY(-4px); }
 }
 
+/* Input area */
 .parking-bot-input {
   display: flex;
-  padding: 12px;
-  border-top: 1px solid #ecf0f1;
+  padding: 16px;
+  border-top: 1px solid #e0e6ed;
   background-color: white;
+  align-items: center;
 }
 
 .parking-bot-input input {
   flex: 1;
-  padding: 10px 15px;
+  padding: 12px 16px;
   border: 1px solid #dfe6e9;
-  border-radius: 20px;
+  border-radius: 24px;
   outline: none;
   font-size: 14px;
-  transition: border-color 0.3s;
+  transition: all 0.3s;
+  background-color: #f8fafc;
 }
 
 .parking-bot-input input:focus {
   border-color: #3498db;
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
+  background-color: white;
+}
+
+.parking-bot-input input::placeholder {
+  color: #95a5a6;
+  opacity: 1;
 }
 
 .send-button {
-  margin-left: 10px;
+  margin-left: 12px;
   padding: 0 20px;
-  background-color: #3498db;
+  min-width: 80px;
+  height: 44px;
+  background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
   color: white;
   border: none;
-  border-radius: 20px;
+  border-radius: 24px;
   cursor: pointer;
   font-weight: 500;
-  transition: background-color 0.3s;
+  transition: all 0.3s;
+  box-shadow: 0 2px 6px rgba(41, 128, 185, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .send-button:hover {
-  background-color: #2980b9;
+  background: linear-gradient(135deg, #2980b9 0%, #3498db 100%);
+  box-shadow: 0 4px 10px rgba(41, 128, 185, 0.3);
+  transform: translateY(-1px);
+}
+
+.send-button:active {
+  transform: translateY(0);
 }
 
 .send-button:disabled {
-  background-color: #bdc3c7;
+  background: #bdc3c7;
   cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
 }
 
-/* Responsive adjustments */
+/* Scrollbar styling */
+.parking-bot-messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.parking-bot-messages::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.parking-bot-messages::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.parking-bot-messages::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Mobile optimizations */
 @media (max-width: 480px) {
   .parking-bot-container {
-    width: 90%;
-    right: 5%;
-    bottom: 10px;
+    width: calc(100% - 32px);
+    right: 16px;
+    bottom: 16px;
+    max-height: 80vh;
+    border-radius: 12px;
+  }
+  
+  .parking-bot-container.open {
+    height: 70vh;
   }
   
   .chat-bubble {
-    right: 5%;
-    bottom: 10px;
+    right: 16px;
+    bottom: 16px;
+    width: 56px;
+    height: 56px;
+  }
+  
+  .bubble-icon {
+    font-size: 24px;
+  }
+  
+  .parking-bot-header {
+    padding: 14px 16px;
+  }
+  
+  .bot-avatar {
+    width: 38px;
+    height: 38px;
+    font-size: 22px;
+  }
+  
+  .message {
+    max-width: 90%;
+  }
+  
+  .parking-spot-card {
+    padding: 12px;
+  }
+  
+  .parking-bot-input {
+    padding: 12px;
+  }
+  
+  .parking-bot-input input {
+    padding: 10px 14px;
+  }
+  
+  .send-button {
+    height: 40px;
+    min-width: 70px;
+    padding: 0 16px;
+  }
+}
+
+/* Tablet optimizations */
+@media (min-width: 481px) and (max-width: 768px) {
+  .parking-bot-container {
+    width: 400px;
+    right: 24px;
+    bottom: 24px;
+  }
+  
+  .chat-bubble {
+    right: 24px;
+    bottom: 24px;
   }
 }

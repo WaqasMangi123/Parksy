@@ -24,8 +24,11 @@ import {
   FaHotel,
   FaCalendarAlt,
   FaCarSide,
-  FaFilter
+  FaFilter,
+  FaTimes
 } from 'react-icons/fa';
+import { Link } from 'react-router-dom';
+import ParkingBot from './parkingbot'; // Import the ParkingBot component
 import '@fontsource/montserrat/400.css';
 import '@fontsource/montserrat/700.css';
 import '@fontsource/montserrat/900.css';
@@ -56,14 +59,25 @@ const testimonials = [
   }
 ];
 
+// Popular locations for search suggestions
+const popularLocations = [
+  { name: "London", icon: <FaCity />, query: "london" },
+  { name: "Manchester", icon: <FaCity />, query: "manchester" },
+  { name: "Birmingham", icon: <FaCity />, query: "birmingham" },
+  { name: "Leeds", icon: <FaCity />, query: "leeds" },
+  { name: "Glasgow", icon: <FaCity />, query: "glasgow" },
+  { name: "Liverpool", icon: <FaCity />, query: "liverpool" },
+  { name: "Airports", icon: <FaPlane />, query: "airport" },
+  { name: "Train Stations", icon: <FaTrain />, query: "train station" },
+  { name: "Hospitals", icon: <FaHospital />, query: "hospital" },
+  { name: "Hotels", icon: <FaHotel />, query: "hotel" }
+];
+
 const ParksyHero = () => {
   const [currentBg, setCurrentBg] = useState(0);
   const [currentTestimonial, setCurrentTestimonial] = useState(0);
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatMessage, setChatMessage] = useState('');
-  const [chatHistory, setChatHistory] = useState([
-    { sender: 'ai', text: 'Hello! I\'m Parksy AI. Ask me anything about parking in your area.' }
-  ]);
+  const [searchQuery, setSearchQuery] = useState('');
   const controls = useAnimation();
   
   // Background images - parking related
@@ -102,27 +116,10 @@ const ParksyHero = () => {
     setCurrentTestimonial((prev) => (prev - 1 + testimonials.length) % testimonials.length);
   };
 
-  const handleSendMessage = (e) => {
+  const handleSearchSubmit = (e) => {
     e.preventDefault();
-    if (!chatMessage.trim()) return;
-    
-    // Add user message
-    const newHistory = [...chatHistory, { sender: 'user', text: chatMessage }];
-    setChatHistory(newHistory);
-    setChatMessage('');
-    
-    // Simulate AI response after delay
-    setTimeout(() => {
-      const aiResponses = [
-        "Based on your location, I found 3 available parking spots within 5 minutes walk.",
-        "Parking restrictions in that area are Mon-Fri 8am-6pm, max stay 2 hours.",
-        "The nearest secure car park is NCP Manchester at £12/day with 24/7 access.",
-        "Yes, you can park there after 6:30pm without restrictions.",
-        "I'm checking real-time availability now... There are 2 spaces currently free at the shopping center car park."
-      ];
-      const randomResponse = aiResponses[Math.floor(Math.random() * aiResponses.length)];
-      setChatHistory([...newHistory, { sender: 'ai', text: randomResponse }]);
-    }, 1000);
+    if (!searchQuery.trim()) return;
+    // The actual navigation will be handled by the Link component
   };
 
   return (
@@ -214,146 +211,121 @@ const ParksyHero = () => {
       </section>
 
       {/* Search Section */}
-      {/* Professional Search Section */}
-<section id="search-section" className="search-section">
-  <div className="search-section-background"></div>
-  <div className="container">
-    <motion.div 
-      className="search-container"
-      initial={{ opacity: 0, y: 50 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-50px" }}
-      transition={{ duration: 0.8 }}
-    >
-      <motion.div
-        className="section-header"
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true }}
-        transition={{ delay: 0.2, duration: 0.6 }}
-      >
-        <h2 className="section-title">
-          Find <span className="text-gradient">Perfect Parking</span> in Seconds
-        </h2>
-        <p className="section-subtitle">
-          Discover and reserve premium parking spots near your destination with our AI-powered real-time availability system.
-          <br />
-          Get instant access to the best rates, guaranteed spots, and stress-free parking.
-         
-        
-        </p>
-      </motion.div>
-      
-      <motion.div 
-        className="search-box"
-        initial={{ opacity: 0, scale: 0.9 }}
-        whileInView={{ opacity: 1, scale: 1 }}
-        viewport={{ once: true }}
-        transition={{ delay: 0.4, duration: 0.6 }}
-      >
-        {/* Rest of your search box code remains the same */}
-        <div className="search-input-container">
-          <div className="search-input-wrapper">
-            <div className="search-input">
-              <div className="input-icon">
-                <FaMapMarkerAlt className="search-icon" />
+      <section id="search-section" className="search-section">
+        <div className="search-section-background"></div>
+        <div className="container">
+          <motion.div 
+            className="search-container"
+            initial={{ opacity: 0, y: 50 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-50px" }}
+            transition={{ duration: 0.8 }}
+          >
+            <motion.div
+              className="section-header"
+              initial={{ opacity: 0 }}
+              whileInView={{ opacity: 1 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.2, duration: 0.6 }}
+            >
+              <h2 className="section-title">
+                Find <span className="text-gradient">Perfect Parking</span> in Seconds
+              </h2>
+              <p className="section-subtitle">
+                Discover and reserve premium parking spots near your destination with our AI-powered real-time availability system.
+                <br />
+                Get instant access to the best rates, guaranteed spots, and stress-free parking.
+              </p>
+            </motion.div>
+            
+            <motion.div 
+              className="search-box"
+              initial={{ opacity: 0, scale: 0.9 }}
+              whileInView={{ opacity: 1, scale: 1 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.4, duration: 0.6 }}
+            >
+              <form onSubmit={handleSearchSubmit}>
+                <div className="search-input-container">
+                  <div className="search-input-wrapper">
+                    <div className="search-input">
+                      <div className="input-icon">
+                        <FaMapMarkerAlt className="search-icon" />
+                      </div>
+                      <input 
+                        type="text" 
+                        placeholder="Enter location, postcode or landmark..." 
+                        className="search-field"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                      />
+                      <Link 
+                        to={`/parkingfinder?location=${encodeURIComponent(searchQuery)}`}
+                        className="search-button"
+                      >
+                        <span className="button-text">Find Parking</span>
+                        <FaArrowRight className="button-icon" />
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              </form>
+              
+              <div className="search-features">
+                <div className="feature-tags">
+                  <div className="tags-header">
+                    <FaBolt className="tag-icon" />
+                    <span className="tags-title">Popular searches:</span>
+                  </div>
+                  <div className="tags-container">
+                    {popularLocations.map((location, index) => (
+                      <Link 
+                        to={`/parkingfinder?location=${location.query}`}
+                        key={index} 
+                        className="tag"
+                      >
+                        <motion.span 
+                          whileHover={{ y: -2 }}
+                          transition={{ duration: 0.2 }}
+                        >
+                          {location.icon} {location.name}
+                        </motion.span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+                
+                <div className="search-options">
+                  <motion.div 
+                    className="option"
+                    whileHover={{ y: -2 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <FaCalendarAlt className="option-icon" />
+                    <span>Date & Time</span>
+                  </motion.div>
+                  <motion.div 
+                    className="option"
+                    whileHover={{ y: -2 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <FaCarSide className="option-icon" />
+                    <span>Vehicle Type</span>
+                  </motion.div>
+                  <motion.div 
+                    className="option"
+                    whileHover={{ y: -2 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <FaFilter className="option-icon" />
+                    <span>More Filters</span>
+                  </motion.div>
+                </div>
               </div>
-              <input 
-                type="text" 
-                placeholder="Enter location, postcode or landmark..." 
-                className="search-field"
-              />
-              <button className="search-button">
-                <span className="button-text">Find Parking</span>
-                <FaArrowRight className="button-icon" />
-              </button>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         </div>
-        
-        <div className="search-features">
-          <div className="feature-tags">
-            <div className="tags-header">
-              <FaBolt className="tag-icon" />
-              <span className="tags-title">Popular searches:</span>
-            </div>
-            <div className="tags-container">
-              <motion.span 
-                className="tag"
-                whileHover={{ y: -2 }}
-                transition={{ duration: 0.2 }}
-              >
-                <FaLocationArrow className="tag-icon" /> Near me
-              </motion.span>
-              <motion.span 
-                className="tag"
-                whileHover={{ y: -2 }}
-                transition={{ duration: 0.2 }}
-              >
-                <FaPlane className="tag-icon" /> Airports
-              </motion.span>
-              <motion.span 
-                className="tag"
-                whileHover={{ y: -2 }}
-                transition={{ duration: 0.2 }}
-              >
-                <FaTrain className="tag-icon" /> Train stations
-              </motion.span>
-              <motion.span 
-                className="tag"
-                whileHover={{ y: -2 }}
-                transition={{ duration: 0.2 }}
-              >
-                <FaHospital className="tag-icon" /> Hospitals
-              </motion.span>
-              <motion.span 
-                className="tag"
-                whileHover={{ y: -2 }}
-                transition={{ duration: 0.2 }}
-              >
-                <FaCity className="tag-icon" /> City centers
-              </motion.span>
-              <motion.span 
-                className="tag"
-                whileHover={{ y: -2 }}
-                transition={{ duration: 0.2 }}
-              >
-                <FaHotel className="tag-icon" /> Hotels
-              </motion.span>
-            </div>
-          </div>
-          
-          <div className="search-options">
-            <motion.div 
-              className="option"
-              whileHover={{ y: -2 }}
-              transition={{ duration: 0.2 }}
-            >
-              <FaCalendarAlt className="option-icon" />
-              <span>Date & Time</span>
-            </motion.div>
-            <motion.div 
-              className="option"
-              whileHover={{ y: -2 }}
-              transition={{ duration: 0.2 }}
-            >
-              <FaCarSide className="option-icon" />
-              <span>Vehicle Type</span>
-            </motion.div>
-            <motion.div 
-              className="option"
-              whileHover={{ y: -2 }}
-              transition={{ duration: 0.2 }}
-            >
-              <FaFilter className="option-icon" />
-              <span>More Filters</span>
-            </motion.div>
-          </div>
-        </div>
-      </motion.div>
-    </motion.div>
-  </div>
-</section>
+      </section>
 
       {/* Features Section */}
       <section className="parksy-features">
@@ -897,53 +869,8 @@ const ParksyHero = () => {
         </div>
       </section>
 
-      {/* AI Chat Bot */}
-      <AnimatePresence>
-        {chatOpen && (
-          <motion.div 
-            className="ai-chatbot"
-            initial={{ opacity: 0, y: 100 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 100 }}
-            transition={{ type: 'spring', damping: 25 }}
-          >
-            <div className="chat-header">
-              <div className="chat-title">
-                <FaRobot /> Parksy AI Assistant
-              </div>
-              <button 
-                className="close-chat"
-                onClick={() => setChatOpen(false)}
-              >
-                &times;
-              </button>
-            </div>
-            
-            <div className="chat-messages">
-              {chatHistory.map((msg, index) => (
-                <div 
-                  key={index} 
-                  className={`message ${msg.sender}`}
-                >
-                  {msg.text}
-                </div>
-              ))}
-            </div>
-            
-            <form className="chat-input" onSubmit={handleSendMessage}>
-              <input
-                type="text"
-                value={chatMessage}
-                onChange={(e) => setChatMessage(e.target.value)}
-                placeholder="Ask about parking restrictions, availability..."
-              />
-              <button type="submit">
-                <FaChevronRight />
-              </button>
-            </form>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Parking Bot Component */}
+      <ParkingBot isOpen={chatOpen} onClose={() => setChatOpen(false)} />
     </>
   );
 };
