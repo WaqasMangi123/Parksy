@@ -468,7 +468,7 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
           onClick={() => setIsOpen(true)}
           aria-label="Open UK Parking Assistant"
         >
-          <div className="bubble-icon">🇬🇧</div>
+          <div className="bubble-icon">Bot</div>
           <div className="bubble-pulse"></div>
         </div>
       )}
@@ -476,7 +476,7 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
       {isOpen && (
         <>
           <div className="parking-bot-header">
-            <div className="bot-avatar" aria-hidden="true">🇬🇧</div>
+            <div className="bot-avatar" aria-hidden="true"> Bot</div>
             <div className="bot-title">
               <h3>UK Parking Assistant</h3>
               <p>Specialist in UK parking</p>
