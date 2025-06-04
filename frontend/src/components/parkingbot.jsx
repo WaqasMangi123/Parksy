@@ -1,24 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { searchParking, getParkingDetails } from '../services/parksyApi';
+import { sendChatMessage, getParkingDetails } from '../services/parksyApi';
 import './parkingbot.css';
 
 const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
   const [isOpen, setIsOpen] = useState(propIsOpen || false);
   const [messages, setMessages] = useState([
     { 
-      text: "Hello there! 👋 I'm Parksy, your UK parking assistant.",
+      text: "🅿️ Hello! I'm Parksy, your comprehensive UK parking assistant.",
       isBot: true,
       timestamp: new Date().toISOString()
     },
     {
-      text: "I specialize in parking information across the United Kingdom. How can I help you today?",
+      text: "I can help you find parking anywhere in the UK with real-time availability, pricing, and detailed information. What do you need?",
       isBot: true,
       timestamp: new Date().toISOString(),
       suggestions: [
         "Find parking near London Victoria Station",
-        "Parking rules in Manchester",
-        "Parking prices in Edinburgh",
-        "Help with disabled parking"
+        "EV charging parking in Manchester",
+        "Accessible parking in Birmingham",
+        "Parking rules in Edinburgh"
       ]
     }
   ]);
@@ -27,62 +27,6 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
   const [typing, setTyping] = useState(false);
   const [showAllParking, setShowAllParking] = useState(false);
   const messagesEndRef = useRef(null);
-
-  // UK-specific predefined responses
-  const predefinedResponses = {
-    greetings: [
-      "Hello! 👋 How can I help with your UK parking needs today?",
-      "Hi there! 🚗 Looking for parking assistance in the UK?",
-      "Greetings! I'm Parksy, your UK parking helper. What do you need?"
-    ],
-    howAreYou: [
-      "I'm just a bot, but I'm fully operational and ready to assist with UK parking!",
-      "I don't have feelings, but I'm excited to help you find parking in the UK!",
-      "As a UK parking AI, I'm always at your service!"
-    ],
-    capabilities: [
-      "I can help you with: \n- Find parking spots anywhere in the UK \n- Compare UK parking prices \n- Show UK parking restrictions \n- Provide contact information \n- Answer UK parking questions",
-      "My main functions for UK parking: \n🚗 Finding available parking \n💰 Comparing prices across cities \n⏰ Showing time restrictions \nℹ️ Providing UK-specific parking info",
-      "I specialize in UK parking: \n• Real-time availability \n• Cost comparisons \n• Location-based searches \n• UK parking regulations"
-    ],
-    creator: [
-      "I was created by TechPrime Solutions, a UK-based software company specializing in parking solutions.",
-      "My developers are the talented UK team at TechPrime Solutions.",
-      "TechPrime Solutions UK is my creator - they built me to solve UK parking problems!"
-    ],
-    contact: [
-      "You can reach our UK office at: \n📧 Email: hello@parksy.uk \n📞 Phone: +44 (0)20 3123 4567 \n🏢 Office: 123 Parking Lane, London, UK E1 6AN",
-      "UK Contact information: \n• Email: hello@parksy.uk \n• Phone: +44 20 3123 4567 \n• Address: 123 Parking Lane, London",
-      "Our UK details: \n✉️ hello@parksy.uk \n📞 +44 20 3123 4567 \n📍 123 Parking Lane, London"
-    ],
-    thanks: [
-      "You're welcome! Happy to help with all your UK parking needs. 🚗💨",
-      "No problem at all! Let me know if you need anything else regarding UK parking.",
-      "My pleasure! Don't hesitate to ask if you have more UK parking questions."
-    ],
-    parkingHelp: [
-      "I specialize in finding UK parking spots. Just tell me a UK location and I'll search for available parking.",
-      "For UK parking assistance, provide me with a location, date, and time you need parking.",
-      "I can find UK parking options for you. Where and when do you need to park?"
-    ],
-    default: [
-      "I'm not sure I understand. I specialize in UK parking-related questions.",
-      "Could you rephrase that? I'm best at helping with UK parking inquiries.",
-      "I focus on UK parking assistance. Could you ask me about UK parking?"
-    ]
-  };
-
-  // UK-specific question patterns
-  const questionPatterns = [
-    { patterns: [/hello/i, /hi/i, /hey/i], responseType: 'greetings' },
-    { patterns: [/how are you/i, /how's it going/i], responseType: 'howAreYou' },
-    { patterns: [/what can you do/i, /your functions/i, /capabilities/i], responseType: 'capabilities' },
-    { patterns: [/who made you/i, /who created you/i, /techprime/i], responseType: 'creator' },
-    { patterns: [/contact/i, /email/i, /phone/i, /address/i], responseType: 'contact' },
-    { patterns: [/thank/i, /thanks/i, /appreciate/i], responseType: 'thanks' },
-    { patterns: [/help with parking/i, /find parking/i, /parking help/i], responseType: 'parkingHelp' },
-    { patterns: [/uk parking/i, /british parking/i, /in london/i, /in manchester/i], responseType: 'parkingHelp' }
-  ];
 
   // Sync with parent component's open state
   useEffect(() => {
@@ -96,44 +40,10 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const simulateTyping = async (message, delay = 1000) => {
+  const simulateTyping = async (delay = 1500) => {
     setTyping(true);
     await new Promise(resolve => setTimeout(resolve, delay));
     setTyping(false);
-    return message;
-  };
-
-  const getRandomResponse = (type) => {
-    const responses = predefinedResponses[type] || predefinedResponses.default;
-    return responses[Math.floor(Math.random() * responses.length)];
-  };
-
-  const handleGeneralQuestion = async (question) => {
-    let responseType = 'default';
-    
-    for (const pattern of questionPatterns) {
-      if (pattern.patterns.some(regex => regex.test(question))) {
-        responseType = pattern.responseType;
-        break;
-      }
-    }
-    
-    const botResponse = await simulateTyping({
-      text: getRandomResponse(responseType),
-      isBot: true,
-      timestamp: new Date().toISOString(),
-      suggestions: responseType === 'parkingHelp' ? [
-        "Find parking near London Bridge",
-        "Parking in Manchester city center",
-        "Show me parking at Heathrow Airport"
-      ] : [
-        "Find parking in Birmingham",
-        "What can you do?",
-        "Contact information"
-      ]
-    });
-    
-    setMessages(prev => [...prev, botResponse]);
   };
 
   const handleSendMessage = async () => {
@@ -144,138 +54,56 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
       isBot: false,
       timestamp: new Date().toISOString()
     };
+    
     setMessages(prev => [...prev, userMessage]);
+    const currentInput = inputValue;
     setInputValue('');
     setLoading(true);
     setShowAllParking(false);
     
     try {
-      // Check if it's a general question
-      let isGeneralQuestion = false;
-      for (const pattern of questionPatterns) {
-        if (pattern.patterns.some(regex => regex.test(inputValue))) {
-          isGeneralQuestion = true;
-          break;
-        }
-      }
+      await simulateTyping();
       
-      if (isGeneralQuestion) {
-        await handleGeneralQuestion(inputValue);
-      } else {
-        // Handle parking location search
-        setTyping(true);
-        const data = await searchParking(inputValue);
-        
-        let resultsText, resultsToShow;
-        
-        if (data.data.parking_spots.length > 0) {
-          resultsText = `I found ${data.data.parking_spots.length} UK parking spots near ${data.data.location}.`;
-          resultsToShow = data.data.parking_spots;
-        } else {
-          resultsText = `Here are some common parking options in ${inputValue}:`;
-          resultsToShow = generateFallbackParkingSpots(inputValue);
-        }
-        
-        const botResponse = await simulateTyping({
-          text: resultsText,
-          isBot: true,
-          timestamp: new Date().toISOString(),
-          results: resultsToShow,
-          topResults: resultsToShow.slice(0, 3),
-          location: data.data.location || inputValue,
-          totalSpots: resultsToShow.length,
-          ukRules: data.data.general_rules || getDefaultUKRules()
-        });
-        
-        setMessages(prev => [...prev, botResponse]);
-      }
-    } catch (error) {
-      const errorMessage = await simulateTyping({
-        text: `Sorry, I encountered an error: ${error.message}`,
+      // Send message to backend
+      const response = await sendChatMessage(currentInput);
+      
+      // Create bot response based on backend data
+      const botMessage = {
+        text: response.message || response.response || "I found some parking options for you!",
         isBot: true,
-        timestamp: new Date().toISOString()
-      });
+        timestamp: new Date().toISOString(),
+        
+        // Include backend data
+        apiResponse: response,
+        parkingData: response.top_recommendations || [],
+        summary: response.summary || {},
+        searchContext: response.search_context || {},
+        areaInsights: response.area_insights || {},
+        tips: response.tips || [],
+        recommendations: response.recommendations || {}
+      };
+      
+      setMessages(prev => [...prev, botMessage]);
+      
+    } catch (error) {
+      console.error('Chat error:', error);
+      
+      const errorMessage = {
+        text: `I apologize, but I'm having trouble processing your request. ${error.message}. Please try again with a simpler query.`,
+        isBot: true,
+        timestamp: new Date().toISOString(),
+        isError: true,
+        suggestions: [
+          "Try: 'Find parking in London'",
+          "Try: 'Parking near Manchester city center'",
+          "Try: 'EV charging in Birmingham'"
+        ]
+      };
+      
       setMessages(prev => [...prev, errorMessage]);
     } finally {
       setLoading(false);
     }
-  };
-
-  const generateFallbackParkingSpots = (location) => {
-    const city = location.split(',')[0].trim();
-    return [
-      {
-        id: `fallback_${city.toLowerCase()}_1`,
-        title: `${city} City Centre Car Park`,
-        address: `City Centre, ${city}`,
-        distance: 500,
-        position: getCityCoordinates(city),
-        score: 80,
-        parking_type: {
-          estimated_cost: '£2.50-£4.50/hour',
-          typical_time_limit: 'Max 4 hours'
-        },
-        availability: {
-          status: 'Available',
-          message: 'Likely spaces available'
-        },
-        detailed_rules: getDefaultUKRules(),
-        amenities: ['CCTV', 'Payment kiosk', 'Lighting'],
-        payment_methods: ['Card', 'Mobile App', 'Cash'],
-        uk_specific: true
-      },
-      {
-        id: `fallback_${city.toLowerCase()}_2`,
-        title: `${city} Shopping Centre Parking`,
-        address: `Retail Park, ${city}`,
-        distance: 800,
-        position: {
-          lat: getCityCoordinates(city).lat + 0.005,
-          lng: getCityCoordinates(city).lng + 0.005
-        },
-        score: 75,
-        parking_type: {
-          estimated_cost: 'First 2 hours free, then £2/hour',
-          typical_time_limit: 'Customer parking only'
-        },
-        availability: {
-          status: 'Available',
-          message: 'Free for shoppers'
-        },
-        detailed_rules: getDefaultUKRules(),
-        amenities: ['CCTV', 'Disabled access'],
-        payment_methods: ['Card', 'Mobile App'],
-        uk_specific: true
-      }
-    ];
-  };
-
-  const getDefaultUKRules = () => [
-    "Standard UK parking regulations apply",
-    "Check local signage for specific restrictions",
-    "Payment required during operational hours",
-    "Disabled bays are strictly enforced",
-    "No parking on double yellow lines"
-  ];
-
-  const getCityCoordinates = (city) => {
-    const ukCities = {
-      london: { lat: 51.5074, lng: -0.1278 },
-      manchester: { lat: 53.4808, lng: -2.2426 },
-      birmingham: { lat: 52.4862, lng: -1.8904 },
-      leeds: { lat: 53.8008, lng: -1.5491 },
-      liverpool: { lat: 53.4084, lng: -2.9916 },
-      bristol: { lat: 51.4545, lng: -2.5879 },
-      sheffield: { lat: 53.3811, lng: -1.4701 },
-      glasgow: { lat: 55.8642, lng: -4.2518 },
-      edinburgh: { lat: 55.9533, lng: -3.1883 }
-    };
-    
-    const cityKey = Object.keys(ukCities).find(key => 
-      city.toLowerCase().includes(key)
-    );
-    
-    return ukCities[cityKey] || { lat: 51.5074, lng: -0.1278 }; // Default to London
   };
 
   const handleKeyPress = (e) => {
@@ -285,34 +113,38 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
     }
   };
 
-  const handleParkingSelect = async (spotId) => {
+  const handleParkingSelect = async (spotId, spotTitle) => {
     setLoading(true);
     try {
-      const typingMsg = await simulateTyping({
-        text: "Getting UK parking details...",
+      await simulateTyping(800);
+      
+      const loadingMsg = {
+        text: `Getting detailed information for ${spotTitle}...`,
         isBot: true,
-        timestamp: new Date().toISOString()
-      });
-      setMessages(prev => [...prev, typingMsg]);
+        timestamp: new Date().toISOString(),
+        isLoading: true
+      };
+      setMessages(prev => [...prev, loadingMsg]);
       
       const details = await getParkingDetails(spotId);
       
       const detailMessage = {
-        text: `Here's the UK parking information:`,
+        text: `Here's the comprehensive information for ${spotTitle}:`,
         isBot: true,
         timestamp: new Date().toISOString(),
-        details: details.data,
-        ukSpecific: true
+        spotDetails: details,
+        spotId: spotId
       };
       
       setMessages(prev => [...prev, detailMessage]);
       
     } catch (error) {
-      const errorMessage = await simulateTyping({
-        text: `Couldn't get UK parking details: ${error.message}`,
+      const errorMessage = {
+        text: `Sorry, I couldn't retrieve detailed information for this parking spot. ${error.message}`,
         isBot: true,
-        timestamp: new Date().toISOString()
-      });
+        timestamp: new Date().toISOString(),
+        isError: true
+      };
       setMessages(prev => [...prev, errorMessage]);
     } finally {
       setLoading(false);
@@ -336,126 +168,294 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
     }, 0);
   };
 
-  const renderParkingSpots = (spots) => {
+  const formatPrice = (pricing) => {
+    if (!pricing) return 'Price varies';
+    if (typeof pricing === 'string') return pricing;
+    return pricing.hourly_rate || pricing.estimated_cost || 'Price varies';
+  };
+
+  const formatDistance = (distance) => {
+    if (!distance) return 'Distance unknown';
+    if (typeof distance === 'string') return distance;
+    if (distance >= 1000) {
+      return `${(distance / 1000).toFixed(1)} km`;
+    }
+    return `${distance}m`;
+  };
+
+  const formatWalkingTime = (walkingTime, distance) => {
+    if (walkingTime) return `${walkingTime} min walk`;
+    if (distance && typeof distance === 'number') {
+      return `~${Math.ceil(distance / 80)} min walk`;
+    }
+    return 'Walking time varies';
+  };
+
+  const getAvailabilityClass = (availability) => {
+    if (!availability) return 'unknown';
+    const status = availability.status || availability;
+    return status.toLowerCase().replace(/\s+/g, '-');
+  };
+
+  const getScoreClass = (score) => {
+    if (score >= 80) return 'excellent';
+    if (score >= 60) return 'good';
+    if (score >= 40) return 'fair';
+    return 'poor';
+  };
+
+  const renderParkingSpots = (spots, showAll = false) => {
     if (!spots || spots.length === 0) {
       return (
         <div className="no-results">
-          <p>No parking spots found. Try a different location or time.</p>
+          <p>No parking spots found. Try a different location or adjust your requirements.</p>
         </div>
       );
     }
 
-    return spots.map((spot) => (
-      <div key={spot.id} className="parking-spot-card">
+    const spotsToShow = showAll ? spots : spots.slice(0, 3);
+
+    return spotsToShow.map((spot, index) => (
+      <div key={spot.id || `spot-${index}`} className="parking-spot-card">
         <div className="spot-header">
           <h5>{spot.title}</h5>
-          <div className="spot-score">
-            <span className={`score-${spot.score > 75 ? 'high' : spot.score > 50 ? 'medium' : 'low'}`}>
-              {spot.score}/100
-            </span>
+          <div className="spot-badges">
+            {spot.recommendation_score && (
+              <span className={`score-badge ${getScoreClass(spot.recommendation_score)}`}>
+                {spot.recommendation_score}/100
+              </span>
+            )}
+            {spot.rank && (
+              <span className="rank-badge">#{spot.rank}</span>
+            )}
           </div>
         </div>
+        
         <p className="spot-address">{spot.address}</p>
+        <p className="spot-type">{spot.type || 'Parking Area'}</p>
+        
         <div className="spot-details">
-          <span title="Distance">
-            <span role="img" aria-label="Distance">🚗</span> {(spot.distance / 1000).toFixed(1)} km
-          </span>
-          <span title="Estimated cost">
-            <span role="img" aria-label="Cost">💷</span> {spot.parking_type.estimated_cost}
-          </span>
-          <span title="Time limit">
-            <span role="img" aria-label="Time">🕒</span> {spot.parking_type.typical_time_limit}
-          </span>
+          <div className="detail-item">
+            <span className="icon">📍</span>
+            <span>{formatDistance(spot.distance)}</span>
+          </div>
+          <div className="detail-item">
+            <span className="icon">🚶</span>
+            <span>{formatWalkingTime(spot.walking_time, spot.distance)}</span>
+          </div>
+          <div className="detail-item">
+            <span className="icon">💷</span>
+            <span>{formatPrice(spot.pricing)}</span>
+          </div>
         </div>
-        <div className="spot-availability">
-          <span className={`availability-${spot.availability.status.toLowerCase()}`}>
-            {spot.availability.message}
-          </span>
-        </div>
+        
+        {spot.availability && (
+          <div className={`spot-availability ${getAvailabilityClass(spot.availability)}`}>
+            <span className="availability-status">
+              {spot.availability.status || spot.availability}
+            </span>
+            {spot.availability.spaces_available && (
+              <span className="spaces-info">
+                {spot.availability.spaces_available} spaces
+              </span>
+            )}
+          </div>
+        )}
+        
+        {spot.special_features && spot.special_features.length > 0 && (
+          <div className="special-features">
+            {spot.special_features.map((feature, i) => (
+              <span key={i} className="feature-tag">
+                {feature}
+              </span>
+            ))}
+          </div>
+        )}
+        
+        {spot.analysis && spot.analysis.overall_rating && (
+          <div className="spot-rating">
+            <span className={`rating ${spot.analysis.overall_rating.toLowerCase()}`}>
+              {spot.analysis.overall_rating}
+            </span>
+          </div>
+        )}
+        
         <button 
-          onClick={() => handleParkingSelect(spot.id)}
+          onClick={() => handleParkingSelect(spot.id, spot.title)}
           disabled={loading}
           className="details-button"
           aria-label={`View details for ${spot.title}`}
         >
-          View UK Details
+          View Full Details
         </button>
       </div>
     ));
   };
 
-  const renderUKRules = (rules) => {
-    if (!rules || rules.length === 0) return null;
+  const renderSummary = (summary) => {
+    if (!summary || Object.keys(summary).length === 0) return null;
     
     return (
-      <div className="uk-rules-section">
-        <h4>UK Parking Regulations</h4>
-        <ul>
-          {rules.map((rule, index) => (
-            <li key={index}>{rule}</li>
+      <div className="summary-section">
+        <h4>📊 Search Summary</h4>
+        <div className="summary-grid">
+          {summary.total_options && (
+            <div className="summary-item">
+              <span className="label">Total Options:</span>
+              <span className="value">{summary.total_options}</span>
+            </div>
+          )}
+          {summary.average_price && (
+            <div className="summary-item">
+              <span className="label">Average Price:</span>
+              <span className="value">{summary.average_price}</span>
+            </div>
+          )}
+          {summary.closest_option && (
+            <div className="summary-item">
+              <span className="label">Closest Option:</span>
+              <span className="value">{summary.closest_option.distance}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAreaInsights = (insights) => {
+    if (!insights || Object.keys(insights).length === 0) return null;
+    
+    return (
+      <div className="insights-section">
+        <h4>🏙️ Area Information</h4>
+        <div className="insights-grid">
+          {insights.area_type && (
+            <div className="insight-item">
+              <strong>Area Type:</strong> {insights.area_type}
+            </div>
+          )}
+          {insights.parking_density && (
+            <div className="insight-item">
+              <strong>Parking Density:</strong> {insights.parking_density}
+            </div>
+          )}
+          {insights.typical_pricing && (
+            <div className="insight-item">
+              <strong>Typical Pricing:</strong> {insights.typical_pricing}
+            </div>
+          )}
+          {insights.best_parking_strategy && (
+            <div className="insight-item">
+              <strong>Strategy:</strong> {insights.best_parking_strategy}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderTips = (tips) => {
+    if (!tips || tips.length === 0) return null;
+    
+    return (
+      <div className="tips-section">
+        <h4>💡 Parking Tips</h4>
+        <ul className="tips-list">
+          {tips.map((tip, index) => (
+            <li key={index}>{tip}</li>
           ))}
         </ul>
       </div>
     );
   };
 
-  const renderParkingDetails = (details) => {
+  const renderRecommendations = (recommendations) => {
+    if (!recommendations || Object.keys(recommendations).length === 0) return null;
+    
+    return (
+      <div className="recommendations-section">
+        <h4>🎯 Top Recommendations</h4>
+        <div className="recommendations-grid">
+          {recommendations.best_overall && (
+            <div className="recommendation-item">
+              <strong>Best Overall:</strong> {recommendations.best_overall.title}
+            </div>
+          )}
+          {recommendations.best_value && (
+            <div className="recommendation-item">
+              <strong>Best Value:</strong> {recommendations.best_value.title}
+            </div>
+          )}
+          {recommendations.closest && (
+            <div className="recommendation-item">
+              <strong>Closest:</strong> {recommendations.closest.title}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderSpotDetails = (details, spotId) => {
     if (!details) return null;
     
     return (
-      <div className="parking-details">
-        <h4>UK Parking Details</h4>
+      <div className="spot-details-full">
+        <h4>🚗 Detailed Parking Information</h4>
         
-        <div className="details-section">
-          <h5>Location</h5>
-          <p>{details.address}</p>
-        </div>
-        
-        <div className="details-section">
-          <h5>UK Rules & Restrictions</h5>
-          <ul>
-            {details.detailed_rules.map((rule, i) => (
-              <li key={i}>{rule}</li>
-            ))}
-          </ul>
-        </div>
-        
-        <div className="details-section">
-          <h5>Pricing</h5>
-          <div className="pricing-info">
-            <p><strong>Hourly:</strong> {details.pricing?.estimated_hourly || '£2.00-£4.00'}</p>
-            <p><strong>Daily:</strong> {details.pricing?.estimated_daily || '£15.00-£25.00'}</p>
-            {details.pricing?.notes && (
-              <div className="pricing-notes">
-                {details.pricing.notes.map((note, i) => (
-                  <p key={i}>• {note}</p>
+        {details.detailed_info && (
+          <div className="details-sections">
+            <div className="detail-section">
+              <h5>🕒 Availability</h5>
+              <p>{details.detailed_info.live_availability}</p>
+            </div>
+            
+            {details.detailed_info.recent_reviews && (
+              <div className="detail-section">
+                <h5>⭐ Recent Reviews</h5>
+                {details.detailed_info.recent_reviews.map((review, i) => (
+                  <div key={i} className="review-item">
+                    <span className="rating">{'⭐'.repeat(review.rating)}</span>
+                    <span className="comment">{review.comment}</span>
+                  </div>
                 ))}
               </div>
             )}
+            
+            {details.detailed_info.nearby_amenities && (
+              <div className="detail-section">
+                <h5>🏪 Nearby Amenities</h5>
+                <ul>
+                  {details.detailed_info.nearby_amenities.map((amenity, i) => (
+                    <li key={i}>{amenity}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            {details.detailed_info.traffic_conditions && (
+              <div className="detail-section">
+                <h5>🚦 Traffic Conditions</h5>
+                <p>{details.detailed_info.traffic_conditions}</p>
+              </div>
+            )}
           </div>
-        </div>
+        )}
         
-        <div className="details-section">
-          <h5>UK Amenities</h5>
-          <div className="amenities-grid">
-            {details.amenities.map((amenity, i) => (
-              <span key={i} className="amenity-tag">
-                {amenity}
-              </span>
-            ))}
+        {details.booking_options && (
+          <div className="detail-section">
+            <h5>📱 Booking Options</h5>
+            <div className="booking-options">
+              {details.booking_options.map((option, i) => (
+                <div key={i} className="booking-option">
+                  <strong>{option.provider}</strong>
+                  {option.advance_booking && <span className="feature">Advance Booking</span>}
+                  {option.mobile_payment && <span className="feature">Mobile Payment</span>}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-        
-        <div className="details-section">
-          <h5>UK Payment Methods</h5>
-          <div className="payment-methods">
-            {details.payment_methods.map((method, i) => (
-              <span key={i} className="payment-tag">
-                {method}
-              </span>
-            ))}
-          </div>
-        </div>
+        )}
       </div>
     );
   };
@@ -466,9 +466,9 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
         <div 
           className="chat-bubble" 
           onClick={() => setIsOpen(true)}
-          aria-label="Open UK Parking Assistant"
+          aria-label="Open Parksy - UK Parking Assistant"
         >
-          <div className="bubble-icon">Bot</div>
+          <div className="bubble-icon">🅿️</div>
           <div className="bubble-pulse"></div>
         </div>
       )}
@@ -476,12 +476,12 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
       {isOpen && (
         <>
           <div className="parking-bot-header">
-            <div className="bot-avatar" aria-hidden="true"> Bot</div>
+            <div className="bot-avatar">🅿️</div>
             <div className="bot-title">
-              <h3>UK Parking Assistant</h3>
-              <p>Specialist in UK parking</p>
+              <h3>Parksy - UK Parking</h3>
+              <p>Real-time parking intelligence</p>
             </div>
-            <div className="bot-status-indicator" aria-label="Online"></div>
+            <div className="bot-status-indicator online" aria-label="Online"></div>
             <button 
               className="close-chat" 
               onClick={handleCloseChat}
@@ -496,11 +496,11 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
               {messages.map((msg, index) => (
                 <div 
                   key={`${msg.timestamp}-${index}`} 
-                  className={`message ${msg.isBot ? 'bot' : 'user'}`}
+                  className={`message ${msg.isBot ? 'bot' : 'user'} ${msg.isError ? 'error' : ''} ${msg.isLoading ? 'loading' : ''}`}
                   aria-live={msg.isBot ? "polite" : "off"}
                 >
                   <div className="message-meta">
-                    {msg.isBot && <span className="bot-indicator">UK PARKSY</span>}
+                    {msg.isBot && <span className="bot-indicator">PARKSY</span>}
                     <span className="message-time">
                       {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
@@ -509,7 +509,7 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
                   
                   {msg.suggestions && (
                     <div className="suggestions-container">
-                      <p>Try these UK examples:</p>
+                      <p>Quick suggestions:</p>
                       <div className="suggestion-chips">
                         {msg.suggestions.map((suggestion, i) => (
                           <button 
@@ -525,33 +525,44 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
                     </div>
                   )}
                   
-                  {msg.ukRules && renderUKRules(msg.ukRules)}
+                  {msg.summary && renderSummary(msg.summary)}
                   
-                  {msg.topResults && (
+                  {msg.parkingData && msg.parkingData.length > 0 && (
                     <div className="parking-results">
                       <div className="results-header">
-                        <h4>UK Parking Spots</h4>
-                        <p>Showing {showAllParking ? msg.results.length : 3} of {msg.totalSpots} in {msg.location}</p>
+                        <h4>🅿️ Available Parking</h4>
+                        <p>
+                          Showing {showAllParking ? msg.parkingData.length : Math.min(3, msg.parkingData.length)} 
+                          of {msg.parkingData.length} options
+                          {msg.searchContext?.location && ` in ${msg.searchContext.location}`}
+                        </p>
                       </div>
-                      {renderParkingSpots(showAllParking ? msg.results : msg.topResults)}
-                      {msg.results.length > 3 && (
+                      
+                      {renderParkingSpots(msg.parkingData, showAllParking)}
+                      
+                      {msg.parkingData.length > 3 && (
                         <button 
                           onClick={toggleShowAllParking}
                           className="show-more-button"
-                          aria-label={showAllParking ? 'Show fewer results' : 'Show all results'}
                         >
-                          {showAllParking ? 'Show Less' : `Show All ${msg.totalSpots} UK Spots`}
+                          {showAllParking ? 'Show Less' : `Show All ${msg.parkingData.length} Options`}
                         </button>
                       )}
                     </div>
                   )}
                   
-                  {msg.details && renderParkingDetails(msg.details)}
+                  {msg.areaInsights && renderAreaInsights(msg.areaInsights)}
+                  {msg.recommendations && renderRecommendations(msg.recommendations)}
+                  {msg.tips && renderTips(msg.tips)}
+                  {msg.spotDetails && renderSpotDetails(msg.spotDetails, msg.spotId)}
                 </div>
               ))}
               
               {(loading || typing) && (
-                <div className="message bot typing-indicator" aria-label="Bot is typing">
+                <div className="message bot typing-indicator" aria-label="Parksy is thinking">
+                  <div className="message-meta">
+                    <span className="bot-indicator">PARKSY</span>
+                  </div>
                   <div className="typing-dots">
                     <div></div>
                     <div></div>
@@ -569,7 +580,7 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder="Type a UK location or ask about UK parking..."
+                placeholder="Ask about parking anywhere in the UK..."
                 disabled={loading}
                 autoFocus
                 aria-label="Type your parking question"
@@ -580,7 +591,7 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
                 className="send-button"
                 aria-label="Send message"
               >
-                {loading ? '...' : 'Send'}
+                {loading ? '⏳' : '🚀'}
               </button>
             </div>
           </div>

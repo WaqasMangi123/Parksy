@@ -1,474 +1,413 @@
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'https://parksy-app.onrender.com';
 
-// UK city coordinates mapping
-const UK_CITY_COORDINATES = {
-  london: { lat: 51.5074, lng: -0.1278 },
-  manchester: { lat: 53.4808, lng: -2.2426 },
-  birmingham: { lat: 52.4862, lng: -1.8904 },
-  leeds: { lat: 53.8008, lng: -1.5491 },
-  liverpool: { lat: 53.4084, lng: -2.9916 },
-  bristol: { lat: 51.4545, lng: -2.5879 },
-  sheffield: { lat: 53.3811, lng: -1.4701 },
-  glasgow: { lat: 55.8642, lng: -4.2518 },
-  edinburgh: { lat: 55.9533, lng: -3.1883 }
-};
-
-// Helper Functions
-
-const isUKCity = (location) => {
-  if (!location) return false;
-  return Object.keys(UK_CITY_COORDINATES).some(city => 
-    location.toLowerCase().includes(city)
-  );
-};
-
-const getCityCoordinates = (location) => {
-  if (!location) return { lat: 51.5074, lng: -0.1278 }; // Default to London
-  
-  const cityKey = Object.keys(UK_CITY_COORDINATES).find(city => 
-    location.toLowerCase().includes(city)
-  );
-  
-  return UK_CITY_COORDINATES[cityKey] || { lat: 51.5074, lng: -0.1278 };
-};
-
+// Helper function to provide default UK parking rules
 const getDefaultUKRules = () => [
   "Standard UK parking regulations apply",
   "Check local signage for specific restrictions",
   "Payment required during operational hours",
   "Disabled bays are strictly enforced",
-  "No parking on double yellow lines"
+  "No parking on double yellow lines",
 ];
 
+// Helper function to provide city-specific UK parking rules
 const getCityRules = (city) => {
   const cityLower = city.toLowerCase();
   const rules = [...getDefaultUKRules()];
   
   if (cityLower.includes('london')) {
     rules.push(
-      "Congestion Charge may apply (Mon-Fri 7am-6pm)",
-      "ULEZ charges apply for non-compliant vehicles"
+      "Congestion Charge may apply (Mon-Fri, 7am-6pm)",
+      "ULEZ charges apply for non-compliant vehicles",
     );
   }
   
   if (cityLower.includes('manchester') || cityLower.includes('birmingham')) {
     rules.push(
       "City centre time limits enforced",
-      "Evening restrictions may apply until 8pm"
+      "Evening restrictions may apply until 8pm",
     );
   }
   
   return rules;
 };
 
-const getCityPricing = (city) => {
-  const cityLower = city.toLowerCase();
-  
-  if (cityLower.includes('london')) {
-    return {
-      estimated_hourly: '£4.90-£8.00',
-      estimated_daily: '£30.00-£50.00',
-      notes: ['Central London premium rates', 'Evening discounts available']
-    };
+// Transform API response for parking search to match frontend expectations
+const transformParkingResponse = (apiResponse, location) => {
+  if (!apiResponse || !apiResponse.all_spots?.length) {
+    return generateFallbackData(location);
   }
-  
-  if (cityLower.includes('manchester') || cityLower.includes('birmingham')) {
-    return {
-      estimated_hourly: '£1.50-£3.50',
-      estimated_daily: '£8.00-£20.00',
-      notes: ['City centre rates', 'Retail parking often free for first hours']
-    };
-  }
-  
+
+  const transformedSpots = apiResponse.all_spots.map((spot) => ({
+    id: spot.id || `spot_${Math.random().toString(36).substr(2, 9)}`,
+    title: spot.title || 'Unnamed Parking Spot',
+    address: spot.address || 'Address not available',
+    distance: spot.distance ? parseInt(spot.distance.replace('m', ''), 10) : 500,
+    position: spot.coordinates || { lat: 51.5074, lng: -0.1278 },
+    recommendation_score: spot.recommendation_score || 70,
+    pricing: {
+      hourly_rate: spot.pricing?.hourly_rate || '£2.50-£4.50',
+      payment_methods: spot.pricing?.payment_methods || ['Card', 'Mobile App', 'Cash'],
+      daily_rate: spot.pricing?.daily_rate || '£15.00-£25.00',
+    },
+    availability: {
+      status: spot.availability?.status || 'Available',
+      spaces_available: spot.availability?.spaces_available || 'Unknown',
+    },
+    special_features: spot.special_features || ['CCTV', 'Lighting'],
+    restrictions: spot.restrictions || getDefaultUKRules(),
+    uk_specific: true,
+    analysis: spot.analysis || {},
+    walking_time: spot.walking_time || '5 minutes',
+  }));
+
   return {
-    estimated_hourly: '£1.00-£2.50',
-    estimated_daily: '£5.00-£15.00',
-    notes: ['Local variations apply', 'Check for free periods']
+    message: apiResponse.message || `Found parking options for ${apiResponse.search_context?.location || location}! 😊`,
+    top_recommendations: transformedSpots.slice(0, 5),
+    all_spots: transformedSpots,
+    search_context: {
+      location: apiResponse.search_context?.location || location,
+      local_regulations: getCityRules(apiResponse.search_context?.location || location),
+    },
+    summary: {
+      total_options: apiResponse.summary?.total_options || transformedSpots.length,
+      average_price: apiResponse.summary?.average_price || '£3.00/hour',
+      closest_option: apiResponse.summary?.closest_option || transformedSpots[0],
+      cheapest_option: apiResponse.summary?.cheapest_option || transformedSpots[0],
+    },
+    recommendations: {
+      best_overall: transformedSpots.find(s => s.id === apiResponse.recommendations?.best_overall?.id) || transformedSpots[0],
+      best_value: transformedSpots.find(s => s.id === apiResponse.recommendations?.best_value?.id) || transformedSpots[1] || transformedSpots[0],
+      closest: transformedSpots.find(s => s.id === apiResponse.recommendations?.closest?.id) || transformedSpots[0],
+    },
+    area_insights: {
+      area_type: apiResponse.area_insights?.area_type || 'Urban',
+      parking_density: apiResponse.area_insights?.parking_density || 'Moderate',
+      typical_pricing: apiResponse.area_insights?.typical_pricing || '£2.00-£4.00/hour',
+      best_parking_strategy: apiResponse.area_insights?.best_parking_strategy || 'Arrive early for best spots',
+    },
+    tips: apiResponse.tips || [
+      "Consider public transport for city centre locations",
+      "Check for evening and weekend restrictions",
+      "Look for parking apps that offer discounts"
+    ]
   };
 };
 
-const calculateParkingScore = (spot) => {
-  let score = 70; // Base score
-  
-  // Increase score for good amenities
-  if (spot.uk_analysis?.payment_methods?.includes('App likely available')) score += 10;
-  if (spot.uk_analysis?.recommended_for?.includes('Security')) score += 5;
-  
-  // Decrease score for restrictions
-  if (spot.uk_analysis?.likely_restrictions?.length > 2) score -= 5;
-  
-  return Math.min(100, Math.max(0, score)); // Keep between 0-100
+// Transform API response for parking details to match frontend expectations
+const transformDetailsResponse = (apiResponse, spotId) => {
+  const spot = apiResponse || {};
+
+  return {
+    id: spotId,
+    title: spot.title || 'UK Parking Spot',
+    address: spot.address || 'Address not available',
+    position: spot.coordinates || { lat: 51.5074, lng: -0.1278 },
+    detailed_info: {
+      live_availability: spot.detailed_info?.live_availability || 'Available',
+      nearby_amenities: spot.detailed_info?.nearby_amenities || ['CCTV', 'Lighting'],
+      recent_reviews: spot.detailed_info?.recent_reviews || [
+        { rating: 4, comment: "Good location but a bit pricey" },
+        { rating: 5, comment: "Very convenient with good security" }
+      ],
+      traffic_conditions: spot.detailed_info?.traffic_conditions || "Moderate traffic during peak hours"
+    },
+    booking_options: spot.booking_options?.map((method) => ({
+      provider: method.provider || 'Standard',
+      advance_booking: method.advance_booking !== false,
+      mobile_payment: method.mobile_payment !== false
+    })) || [{ provider: 'Standard', advance_booking: false, mobile_payment: true }],
+    restrictions: spot.restrictions || getDefaultUKRules(),
+    accessibility: spot.accessibility ? 'Available' : 'Standard',
+    type: spot.type || 'Public Parking',
+    location: spot.location || 'UK',
+    last_updated: new Date().toISOString(),
+    uk_specific: true,
+    analysis: spot.analysis || {},
+  };
 };
 
-const getAmenitiesFromSpot = (spot) => {
-  const amenities = [];
-  
-  if (spot.uk_analysis) {
-    if (spot.uk_analysis.type.includes('Multi-storey')) amenities.push('Covered parking');
-    if (spot.uk_analysis.recommended_for?.includes('Security')) amenities.push('Security cameras');
-    if (spot.uk_analysis.accessibility === 'Disabled spaces available') amenities.push('Disabled access');
-  }
-  
-  // Default amenities for UK parking
-  if (amenities.length === 0) {
-    amenities.push('Standard parking', 'CCTV likely', 'Payment kiosk');
-  }
-  
-  return amenities;
-};
-
-const generateFallbackUKData = (location) => {
-  const cityName = location.split(',')[0].trim();
-  const coordinates = getCityCoordinates(location);
-  
+// Generate fallback data for when API fails or returns no results
+const generateFallbackData = (location) => {
+  const city = location.split(',')[0].trim();
   const demoSpots = [
     {
-      id: `fallback_${cityName.toLowerCase()}_1`,
-      title: `${cityName} City Centre Car Park`,
-      address: `City Centre, ${cityName}`,
+      id: `fallback_${city.toLowerCase()}_1`,
+      title: `${city} City Centre Car Park`,
+      address: `City Centre, ${city}`,
       distance: 500,
-      position: coordinates,
-      score: 80,
-      parking_type: {
-        estimated_cost: '£2.50-£4.50/hour',
-        typical_time_limit: 'Max 4 hours'
+      position: { lat: 51.5074 + Math.random() * 0.02 - 0.01, lng: -0.1278 + Math.random() * 0.02 - 0.01 },
+      recommendation_score: 80,
+      pricing: {
+        hourly_rate: '£2.50-£4.50',
+        payment_methods: ['Card', 'Mobile App', 'Cash'],
+        daily_rate: '£15.00-£25.00',
       },
       availability: {
         status: 'Available',
-        message: 'Likely spaces available'
+        spaces_available: 'Likely available',
       },
-      detailed_rules: getDefaultUKRules(),
-      amenities: ['CCTV', 'Payment kiosk', 'Lighting'],
-      payment_methods: ['Card', 'Mobile App', 'Cash'],
-      uk_specific: true
+      special_features: ['CCTV', 'Payment kiosk', 'Lighting'],
+      restrictions: getDefaultUKRules(),
+      uk_specific: true,
+      walking_time: '5 minutes',
     },
     {
-      id: `fallback_${cityName.toLowerCase()}_2`,
-      title: `${cityName} Shopping Centre Parking`,
-      address: `Retail Park, ${cityName}`,
+      id: `fallback_${city.toLowerCase()}_2`,
+      title: `${city} Shopping Centre Parking`,
+      address: `Retail Park, ${city}`,
       distance: 800,
-      position: {
-        lat: coordinates.lat + 0.005,
-        lng: coordinates.lng + 0.005
-      },
-      score: 75,
-      parking_type: {
-        estimated_cost: 'First 2 hours free, then £2/hour',
-        typical_time_limit: 'Customer parking only'
+      position: { lat: 51.5074 + Math.random() * 0.02 - 0.01, lng: -0.1278 + Math.random() * 0.02 - 0.01 },
+      recommendation_score: 75,
+      pricing: {
+        hourly_rate: 'First 2 hours free, then £2/hour',
+        payment_methods: ['Card', 'Mobile App'],
+        daily_rate: '£10.00-£20.00',
       },
       availability: {
         status: 'Available',
-        message: 'Free for shoppers'
+        spaces_available: 'Free for shoppers',
       },
-      detailed_rules: getDefaultUKRules(),
-      amenities: ['CCTV', 'Disabled access'],
-      payment_methods: ['Card', 'Mobile App'],
-      uk_specific: true
-    }
+      special_features: ['CCTV', 'Disabled access'],
+      restrictions: getDefaultUKRules(),
+      uk_specific: true,
+      walking_time: '8 minutes',
+    },
   ];
 
   return {
-    data: {
-      parking_spots: demoSpots,
-      location: cityName,
-      general_rules: getCityRules(cityName),
-      pricing_guide: getCityPricing(cityName),
-      search_radius: '1 mile',
-      last_updated: new Date().toISOString()
+    message: `No live data for ${city}, showing sample parking options! 😊`,
+    top_recommendations: demoSpots,
+    all_spots: demoSpots,
+    search_context: {
+      location: city,
+      local_regulations: getCityRules(city),
     },
-    metadata: {
-      source: 'fallback',
-      timestamp: new Date().toISOString()
-    }
+    summary: {
+      total_options: demoSpots.length,
+      average_price: '£3.00/hour',
+      closest_option: demoSpots[0],
+      cheapest_option: demoSpots[1],
+    },
+    recommendations: {
+      best_overall: demoSpots[0],
+      best_value: demoSpots[1],
+      closest: demoSpots[0],
+    },
+    area_insights: {
+      area_type: 'Urban',
+      parking_density: 'Moderate',
+      typical_pricing: '£2.00-£4.00/hour',
+      best_parking_strategy: 'Arrive early for best spots',
+    },
+    tips: [
+      "Consider public transport for city centre locations",
+      "Check for evening and weekend restrictions",
+      "Look for parking apps that offer discounts"
+    ]
   };
 };
 
-const getFallbackDataForUKCity = (location) => {
-  if (isUKCity(location)) {
-    return generateFallbackUKData(location);
-  }
-  return null;
-};
-
-const getFallbackDetails = (spotId) => {
-  // Extract city from spot ID (format: fallback_[city]_1)
-  const cityMatch = spotId.match(/fallback_([a-z]+)_/i);
-  if (cityMatch && cityMatch[1]) {
-    const city = cityMatch[1];
-    const fallbackData = generateFallbackUKData(city);
-    return {
-      data: fallbackData.data.parking_spots.find(spot => spot.id === spotId) || {}
-    };
-  }
-  return null;
-};
-
-const generateSpotId = () => `spot_${Math.random().toString(36).substr(2, 9)}`;
-
-const calculatePopularityScore = (spotData) => {
-  if (spotData.address?.toLowerCase().includes('city centre')) return 85;
-  if (spotData.address?.toLowerCase().includes('london')) return 90;
-  return 70;
-};
-
-const calculateSafetyScore = (spotData) => {
-  if (spotData.amenities?.includes('Security cameras')) return 85;
-  if (spotData.type?.includes('Multi-storey')) return 80;
-  return 75;
-};
-
 /**
- * Enhanced UK parking search with fallback data
+ * Send a chat message to the parking assistant
+ * @param {string} message - The message to send
+ * @returns {Promise<Object>} - The assistant's response
  */
-export const searchParking = async (location) => {
+export const sendChatMessage = async (message) => {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    // First try to handle parking search queries directly
+    if (message.toLowerCase().includes('parking') || 
+        message.toLowerCase().includes('park') ||
+        message.toLowerCase().includes('where can i') ||
+        message.toLowerCase().includes('find')) {
+      const locationMatch = message.match(/in (.+)|near (.+)/i);
+      const location = locationMatch ? (locationMatch[1] || locationMatch[2] || 'London') : 'London';
+      return await searchParking(location);
+    }
 
+    // Otherwise use the chat API
     const response = await fetch(`${API_BASE_URL}/api/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest'
+        'X-Requested-With': 'XMLHttpRequest',
       },
-      body: JSON.stringify({ 
-        message: `Find parking in ${location}`,
-        user_id: 'web-user' 
+      body: JSON.stringify({
+        message,
+        user_id: 'web-user',
       }),
-      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP ${response.status}: Failed to send chat message`);
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Chat error:', error.message);
+    return {
+      message: "I'm having trouble connecting to the parking service. Here's some sample parking information:",
+      ...generateFallbackData('London')
+    };
+  }
+};
+
+/**
+ * Search for parking in a UK location
+ * @param {string} location - The location to search for parking
+ * @returns {Promise<Object>} - Transformed parking data
+ */
+export const searchParking = async (location) => {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout for Render
+
+    const response = await fetch(`${API_BASE_URL}/api/parking`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      body: JSON.stringify({
+        location,
+        country: 'UK',
+        features: ['availability', 'pricing', 'restrictions']
+      }),
+      signal: controller.signal,
     });
 
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to search for parking');
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP ${response.status}: Failed to search for parking`);
     }
 
     const data = await response.json();
-    
-    // Transform and enhance the response
-    return transformUKParkingResponse(data, location);
-    
+    return transformParkingResponse(data, location);
   } catch (error) {
-    console.error('Parking search error:', error);
-    
-    // Return fallback data for known UK cities
-    const fallbackData = getFallbackDataForUKCity(location);
-    if (fallbackData) {
-      console.warn('Using fallback data for', location);
-      return fallbackData;
-    }
-
-    throw new Error(
-      error.message === 'Failed to fetch' ? 
-      'Network error. Please check your connection.' : 
-      error.message || 'Failed to search for parking spots'
-    );
+    console.error('Parking search error:', error.message);
+    console.warn('Using fallback data for', location);
+    return generateFallbackData(location);
   }
 };
 
 /**
- * Enhanced response transformer with UK-specific data
- */
-const transformUKParkingResponse = (apiResponse, location) => {
-  // Check if we have valid parking spots
-  const hasValidSpots = apiResponse.data?.parking_spots?.length > 0;
-  
-  // If no spots but location is a UK city, generate fallback
-  if (!hasValidSpots && isUKCity(location)) {
-    return generateFallbackUKData(location);
-  }
-
-  // Transform the spots we do have
-  const transformedSpots = (apiResponse.data?.parking_spots || []).map(spot => ({
-    id: spot.id || generateSpotId(),
-    title: spot.title || `${location} Parking`,
-    address: spot.address || 'Address not specified',
-    distance: spot.distance || Math.floor(Math.random() * 1000) + 100,
-    position: spot.position || getCityCoordinates(location),
-    score: calculateParkingScore(spot),
-    parking_type: {
-      estimated_cost: spot.pricing_estimate?.estimated_hourly || '£2.00-£4.00',
-      typical_time_limit: spot.uk_analysis?.likely_restrictions?.join(', ') || 'Check local signs'
-    },
-    availability: {
-      status: 'Available',
-      message: 'Likely spaces available'
-    },
-    detailed_rules: spot.rules_applicable || getDefaultUKRules(),
-    amenities: getAmenitiesFromSpot(spot),
-    payment_methods: spot.uk_analysis?.payment_methods || ['Card', 'Mobile App', 'Cash'],
-    uk_specific: true
-  }));
-
-  return {
-    data: {
-      parking_spots: transformedSpots,
-      location: apiResponse.data?.location || location,
-      general_rules: apiResponse.data?.location_rules || getCityRules(location),
-      pricing_guide: apiResponse.data?.pricing_guide || getCityPricing(location),
-      search_radius: '1 mile',
-      last_updated: new Date().toISOString()
-    },
-    metadata: {
-      source: apiResponse.data ? 'live' : 'fallback',
-      timestamp: new Date().toISOString()
-    }
-  };
-};
-
-/**
- * Get detailed parking information with UK context
+ * Get detailed parking information for a specific spot
+ * @param {string} spotId - The ID of the parking spot
+ * @returns {Promise<Object>} - Transformed parking details
  */
 export const getParkingDetails = async (spotId) => {
   try {
-    // Check cache first
     const cacheKey = `parking-details-${spotId}`;
     const cachedData = sessionStorage.getItem(cacheKey);
-    if (cachedData) return JSON.parse(cachedData);
-
-    const response = await fetch(`${API_BASE_URL}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest'
-      },
-      body: JSON.stringify({ 
-        message: `Get details for parking spot ${spotId}`,
-        user_id: 'web-user'
-      })
-    });
-
-    if (!response.ok) throw new Error('Failed to get parking details');
-
-    const data = await response.json();
-    const transformed = transformUKDetailsResponse(data, spotId);
-    
-    // Cache the response
-    sessionStorage.setItem(cacheKey, JSON.stringify(transformed));
-    return transformed;
-
-  } catch (error) {
-    console.error('Parking details error:', error);
-    
-    // Return fallback details if available
-    const fallbackDetails = getFallbackDetails(spotId);
-    if (fallbackDetails) {
-      console.warn('Using fallback details for spot', spotId);
-      return fallbackDetails;
+    if (cachedData) {
+      return JSON.parse(cachedData);
     }
 
-    throw new Error(
-      error.message || 'Failed to get parking details. Please try again.'
-    );
+    const response = await fetch(`${API_BASE_URL}/api/spot-details/${spotId}`, {
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP ${response.status}: Failed to get parking details`);
+    }
+
+    const data = await response.json();
+    const transformed = transformDetailsResponse(data, spotId);
+
+    sessionStorage.setItem(cacheKey, JSON.stringify(transformed));
+    return transformed;
+  } catch (error) {
+    console.error('Parking details error:', error.message);
+    return transformDetailsResponse({}, spotId); // Return fallback details
   }
 };
 
 /**
- * Enhanced details transformer with UK-specific data
+ * Get area parking analysis for a location
+ * @param {string} location - The location to analyze
+ * @returns {Promise<Object>} - Area analysis data
  */
-const transformUKDetailsResponse = (apiResponse, spotId) => {
-  const spot = apiResponse.data?.parking_spots?.find(s => s.id === spotId) || {};
-  const location = spot.address?.split(',')[1]?.trim() || 'UK';
-
-  return {
-    data: {
-      id: spotId,
-      title: spot.title || 'UK Parking Spot',
-      address: spot.address || 'Address not available',
-      position: spot.position || { lat: 51.5074, lng: -0.1278 }, // Default to London
-      detailed_rules: spot.rules_applicable || getDefaultUKRules(),
-      amenities: getAmenitiesFromSpot(spot),
-      payment_methods: spot.uk_analysis?.payment_methods || ['Card', 'Mobile App', 'Cash'],
-      pricing: spot.pricing_estimate || {
-        estimated_hourly: '£2.00-£4.00',
-        estimated_daily: '£15.00-£25.00',
-        notes: ['Prices may vary by time and day']
+export const getAreaAnalysis = async (location) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/area-analysis`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
       },
-      restrictions: spot.uk_analysis?.likely_restrictions || [
-        "Time limits may apply",
-        "Check for resident permit requirements"
-      ],
-      accessibility: spot.uk_analysis?.accessibility || 'Standard',
-      type: spot.uk_analysis?.type || 'Public Parking',
-      location: location,
-      last_updated: new Date().toISOString(),
-      uk_specific: true
+      body: JSON.stringify({ location }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP ${response.status}: Failed to get area analysis`);
     }
-  };
+
+    return await response.json();
+  } catch (error) {
+    console.error('Area analysis error:', error.message);
+    return {
+      area_type: 'Urban',
+      parking_density: 'Moderate',
+      typical_pricing: '£2.00-£4.00/hour',
+      best_parking_strategy: 'Arrive early for best spots',
+    };
+  }
 };
 
 /**
- * Health check with enhanced UK status reporting
+ * Check API health
+ * @returns {Promise<Object>} - API health status
  */
 export const checkApiHealth = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/health`, {
+    const response = await fetch(`${API_BASE_URL}/health`, {
       headers: {
-        'X-Requested-With': 'XMLHttpRequest'
-      }
+        'X-Requested-With': 'XMLHttpRequest',
+      },
     });
-    
+
     if (!response.ok) {
       return {
         healthy: false,
         status: 'unavailable',
         coverage: 'UK',
-        fallback_mode: true
+        fallback_mode: true,
       };
     }
-    
+
     const data = await response.json();
     return {
-      healthy: data.status === 'healthy',
-      apiVersion: data.version,
-      hereApiConfigured: data.here_api_configured,
-      timestamp: data.timestamp,
-      coverage: data.coverage || 'UK',
-      fallback_mode: !data.here_api_configured
+      healthy: data.status === 'active',
+      apiVersion: data.version || 'unknown',
+      features: data.features || ['parking_search', 'spot_details', 'area_analysis'],
+      timestamp: new Date().toISOString(),
+      coverage: 'UK',
+      fallback_mode: false,
     };
-    
   } catch (error) {
-    console.error('Health check failed:', error);
+    console.error('Health check failed:', error.message);
     return {
       healthy: false,
       error: error.message,
       coverage: 'UK',
-      fallback_mode: true
+      fallback_mode: true,
     };
   }
 };
 
-/**
- * Get extended parking info with UK context
- */
-export const getExtendedParkingInfo = async (spotId) => {
-  try {
-    const [details, health] = await Promise.all([
-      getParkingDetails(spotId),
-      checkApiHealth()
-    ]);
-    
-    return {
-      ...details,
-      systemStatus: health,
-      lastUpdated: new Date().toISOString(),
-      analytics: {
-        popularity: calculatePopularityScore(details.data),
-        safety: calculateSafetyScore(details.data),
-        uk_specific: true
-      }
-    };
-  } catch (error) {
-    console.error('Extended info error:', error);
-    throw error;
-  }
-};
-
-export default {
+const parksyApi = {
+  sendChatMessage,
   searchParking,
   getParkingDetails,
+  getAreaAnalysis,
   checkApiHealth,
-  getExtendedParkingInfo
 };
+
+export default parksyApi;
