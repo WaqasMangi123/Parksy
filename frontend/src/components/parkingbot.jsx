@@ -25,7 +25,7 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
   const [typing, setTyping] = useState(false);
-  const [showAllParking, setShowAllParking] = useState(false);
+  const [showAllParking, setShowAllParking] = useState({});
   const messagesEndRef = useRef(null);
 
   // Sync with parent component's open state
@@ -59,28 +59,31 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
     const currentInput = inputValue;
     setInputValue('');
     setLoading(true);
-    setShowAllParking(false);
     
     try {
       await simulateTyping();
       
       // Send message to backend
       const response = await sendChatMessage(currentInput);
+      console.log('API Response:', response); // Debug log
       
-      // Create bot response based on backend data
+      // Create bot message with proper API response handling
       const botMessage = {
         text: response.message || response.response || "I found some parking options for you!",
         isBot: true,
         timestamp: new Date().toISOString(),
         
-        // Include backend data
+        // Handle API response structure
         apiResponse: response,
         parkingData: response.top_recommendations || [],
+        allParkingData: response.all_parking_options?.spots || response.top_recommendations || [],
         summary: response.summary || {},
         searchContext: response.search_context || {},
         areaInsights: response.area_insights || {},
         tips: response.tips || [],
-        recommendations: response.recommendations || {}
+        recommendations: response.recommendations || {},
+        dataStatus: response.data_status || {},
+        dataSources: response.data_sources || {}
       };
       
       setMessages(prev => [...prev, botMessage]);
@@ -151,8 +154,11 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
     }
   };
 
-  const toggleShowAllParking = () => {
-    setShowAllParking(!showAllParking);
+  const toggleShowAllParking = (messageIndex) => {
+    setShowAllParking(prev => ({
+      ...prev,
+      [messageIndex]: !prev[messageIndex]
+    }));
   };
 
   const handleCloseChat = () => {
@@ -171,22 +177,35 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
   const formatPrice = (pricing) => {
     if (!pricing) return 'Price varies';
     if (typeof pricing === 'string') return pricing;
-    return pricing.hourly_rate || pricing.estimated_cost || 'Price varies';
+    if (pricing.hourly_rate) return pricing.hourly_rate;
+    if (pricing.estimated_cost) return pricing.estimated_cost;
+    return 'Price varies';
   };
 
   const formatDistance = (distance) => {
     if (!distance) return 'Distance unknown';
     if (typeof distance === 'string') return distance;
-    if (distance >= 1000) {
-      return `${(distance / 1000).toFixed(1)} km`;
+    if (typeof distance === 'number') {
+      if (distance >= 1000) {
+        return `${(distance / 1000).toFixed(1)} km`;
+      }
+      return `${distance}m`;
     }
-    return `${distance}m`;
+    return distance;
   };
 
   const formatWalkingTime = (walkingTime, distance) => {
-    if (walkingTime) return `${walkingTime} min walk`;
-    if (distance && typeof distance === 'number') {
-      return `~${Math.ceil(distance / 80)} min walk`;
+    if (walkingTime && typeof walkingTime === 'number') {
+      return `${walkingTime} min walk`;
+    }
+    if (walkingTime && typeof walkingTime === 'string') {
+      return walkingTime.includes('min') ? walkingTime : `${walkingTime} min walk`;
+    }
+    if (distance) {
+      const distanceNum = typeof distance === 'string' ? parseInt(distance.replace(/\D/g, '')) : distance;
+      if (distanceNum) {
+        return `~${Math.ceil(distanceNum / 80)} min walk`;
+      }
     }
     return 'Walking time varies';
   };
@@ -194,7 +213,10 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
   const getAvailabilityClass = (availability) => {
     if (!availability) return 'unknown';
     const status = availability.status || availability;
-    return status.toLowerCase().replace(/\s+/g, '-');
+    if (typeof status === 'string') {
+      return status.toLowerCase().replace(/\s+/g, '-');
+    }
+    return 'unknown';
   };
 
   const getScoreClass = (score) => {
@@ -204,7 +226,7 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
     return 'poor';
   };
 
-  const renderParkingSpots = (spots, showAll = false) => {
+  const renderParkingSpots = (spots, showAll = false, messageIndex = 0) => {
     if (!spots || spots.length === 0) {
       return (
         <div className="no-results">
@@ -254,9 +276,9 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
             <span className="availability-status">
               {spot.availability.status || spot.availability}
             </span>
-            {spot.availability.spaces_available && (
+            {(spot.availability.spaces_available || spot.spaces_available) && (
               <span className="spaces-info">
-                {spot.availability.spaces_available} spaces
+                {spot.availability.spaces_available || spot.spaces_available} spaces available
               </span>
             )}
           </div>
@@ -311,10 +333,16 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
               <span className="value">{summary.average_price}</span>
             </div>
           )}
-          {summary.closest_option && (
+          {summary.closest_option && summary.closest_option.distance && (
             <div className="summary-item">
               <span className="label">Closest Option:</span>
               <span className="value">{summary.closest_option.distance}</span>
+            </div>
+          )}
+          {summary.cheapest_option && summary.cheapest_option.price && (
+            <div className="summary-item">
+              <span className="label">Best Value:</span>
+              <span className="value">{summary.cheapest_option.price}</span>
             </div>
           )}
         </div>
@@ -389,6 +417,38 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
           {recommendations.closest && (
             <div className="recommendation-item">
               <strong>Closest:</strong> {recommendations.closest.title}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderDataStatus = (dataStatus, dataSources) => {
+    if (!dataStatus && !dataSources) return null;
+    
+    return (
+      <div className="data-status-section">
+        <h4>📡 Data Status</h4>
+        <div className="data-status-grid">
+          {dataSources && dataSources.primary_source && (
+            <div className="status-item">
+              <strong>Primary Source:</strong> {dataSources.primary_source}
+            </div>
+          )}
+          {dataSources && dataSources.real_time_spots !== undefined && (
+            <div className="status-item">
+              <strong>Real-time Spots:</strong> {dataSources.real_time_spots}
+            </div>
+          )}
+          {dataSources && dataSources.enhanced_database_spots !== undefined && (
+            <div className="status-item">
+              <strong>Database Spots:</strong> {dataSources.enhanced_database_spots}
+            </div>
+          )}
+          {dataStatus && dataStatus.last_updated && (
+            <div className="status-item">
+              <strong>Last Updated:</strong> {dataStatus.last_updated}
             </div>
           )}
         </div>
@@ -493,9 +553,9 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
           
           <div className="parking-bot-content">
             <div className="parking-bot-messages">
-              {messages.map((msg, index) => (
+              {messages.map((msg, messageIndex) => (
                 <div 
-                  key={`${msg.timestamp}-${index}`} 
+                  key={`${msg.timestamp}-${messageIndex}`} 
                   className={`message ${msg.isBot ? 'bot' : 'user'} ${msg.isError ? 'error' : ''} ${msg.isLoading ? 'loading' : ''}`}
                   aria-live={msg.isBot ? "polite" : "off"}
                 >
@@ -532,20 +592,20 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
                       <div className="results-header">
                         <h4>🅿️ Available Parking</h4>
                         <p>
-                          Showing {showAllParking ? msg.parkingData.length : Math.min(3, msg.parkingData.length)} 
+                          Showing {showAllParking[messageIndex] ? msg.parkingData.length : Math.min(3, msg.parkingData.length)} 
                           of {msg.parkingData.length} options
                           {msg.searchContext?.location && ` in ${msg.searchContext.location}`}
                         </p>
                       </div>
                       
-                      {renderParkingSpots(msg.parkingData, showAllParking)}
+                      {renderParkingSpots(msg.parkingData, showAllParking[messageIndex], messageIndex)}
                       
                       {msg.parkingData.length > 3 && (
                         <button 
-                          onClick={toggleShowAllParking}
+                          onClick={() => toggleShowAllParking(messageIndex)}
                           className="show-more-button"
                         >
-                          {showAllParking ? 'Show Less' : `Show All ${msg.parkingData.length} Options`}
+                          {showAllParking[messageIndex] ? 'Show Less' : `Show All ${msg.parkingData.length} Options`}
                         </button>
                       )}
                     </div>
@@ -554,6 +614,7 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
                   {msg.areaInsights && renderAreaInsights(msg.areaInsights)}
                   {msg.recommendations && renderRecommendations(msg.recommendations)}
                   {msg.tips && renderTips(msg.tips)}
+                  {msg.dataStatus && renderDataStatus(msg.dataStatus, msg.dataSources)}
                   {msg.spotDetails && renderSpotDetails(msg.spotDetails, msg.spotId)}
                 </div>
               ))}
