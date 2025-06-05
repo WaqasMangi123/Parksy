@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { sendChatMessage, checkApiHealth } from '../services/parksyApi';
 import './parkingbot.css';
 
-const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
+const ParkingBot = ({ isOpen: propIsOpen, onClose, onOpen }) => {
   const [isOpen, setIsOpen] = useState(propIsOpen || false);
   const [messages, setMessages] = useState([
     {
@@ -34,21 +34,47 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
   // Default number of locations to show initially
   const DEFAULT_LOCATIONS_SHOW = 4;
 
+  // Handle opening the chat
+  const handleOpenChat = useCallback(() => {
+    setIsOpen(true);
+    onOpen?.();
+    // Focus input after a small delay to ensure the widget is rendered
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+      }
+    }, 150);
+  }, [onOpen]);
+
+  // Handle closing the chat
+  const handleCloseChat = useCallback(() => {
+    setIsOpen(false);
+    onClose?.();
+  }, [onClose]);
+
+  // Update state when prop changes
   useEffect(() => {
-    if (propIsOpen !== undefined) {
+    if (propIsOpen !== undefined && propIsOpen !== isOpen) {
       setIsOpen(propIsOpen);
-    }
-    if (isOpen && inputRef.current) {
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 100);
     }
   }, [propIsOpen, isOpen]);
 
+  // Focus input when chat opens
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      const timer = setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
+
+  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Check API health on mount
   useEffect(() => {
     const checkHealth = async () => {
       try {
@@ -433,11 +459,6 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
     }));
   };
 
-  const handleCloseChat = () => {
-    setIsOpen(false);
-    onClose?.();
-  };
-
   const handleSuggestionClick = (suggestion) => {
     setInputValue(suggestion);
     setTimeout(() => {
@@ -593,8 +614,9 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
       {!isOpen && (
         <button
           className="parksy-bubble"
-          onClick={() => setIsOpen(true)}
+          onClick={handleOpenChat}
           aria-label="Open Parksy Chatbot"
+          type="button"
         >
           <span className="bubble-icon">🅿️</span>
           <span className="bubble-pulse"></span>
@@ -618,6 +640,7 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
               className="close-button"
               onClick={handleCloseChat}
               aria-label="Close chatbot"
+              type="button"
             >
               ×
             </button>
@@ -655,6 +678,7 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
                             className="suggestion-button"
                             onClick={() => handleSuggestionClick(suggestion)}
                             aria-label={`Try: ${suggestion}`}
+                            type="button"
                           >
                             {suggestion}
                           </button>
@@ -668,6 +692,7 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
                       className="retry-button"
                       onClick={handleRetry}
                       aria-label="Retry query"
+                      type="button"
                     >
                       🔄 Retry
                     </button>
@@ -697,6 +722,7 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
                           aria-label={
                             showAllParking[messageIndex] ? 'Show fewer spots' : 'Show all spots'
                           }
+                          type="button"
                         >
                           {showAllParking[messageIndex]
                             ? `🔼 Show Fewer Locations (${DEFAULT_LOCATIONS_SHOW})`
@@ -739,6 +765,7 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
               disabled={loading || !inputValue.trim()}
               className="send-button"
               aria-label="Send message"
+              type="button"
             >
               {loading ? '⏳' : '🚗'}
             </button>

@@ -1,4 +1,4 @@
-/* Enhanced ParkingBot Professional CSS - Top to Bottom Layout */
+/* Enhanced ParkingBot Professional CSS - Mobile Optimized & AI Response Support */
 
 /* Container and positioning */
 .parksy-container {
@@ -7,7 +7,7 @@
   right: 20px;
   z-index: 1000;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
 .parksy-container.open {
@@ -46,6 +46,7 @@
 .bubble-icon {
   font-size: 24px;
   z-index: 2;
+  color: white;
 }
 
 .bubble-pulse {
@@ -122,6 +123,7 @@
   align-items: center;
   justify-content: space-between;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
 }
 
 .header-left {
@@ -419,7 +421,7 @@
   color: white;
   padding: 6px 12px;
   border-radius: 16px;
-  font-size: 12px;
+  cynicism: 12px;
   font-weight: 700;
   flex-shrink: 0;
   box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
@@ -747,6 +749,7 @@
   padding: 16px 20px;
   background: white;
   border-top: 1px solid #e2e8f0;
+  flex-shrink: 0;
 }
 
 .parksy-input input {
@@ -806,6 +809,7 @@
   color: #94a3b8;
   background: #f8fafc;
   border-top: 1px solid #e2e8f0;
+  flex-shrink: 0;
 }
 
 /* Retry button */
@@ -827,23 +831,55 @@
   transform: translateY(-1px);
 }
 
-/* Responsive design */
+/* Enhanced Mobile Responsive Design */
 @media (max-width: 768px) {
   .parksy-container {
-    bottom: 10px;
-    right: 10px;
-    left: 10px;
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 1000;
     width: auto;
+    height: auto;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+  }
+  
+  .parksy-container:not(.open) {
+    opacity: 1;
+    transform: translateY(0);
   }
   
   .parksy-container.open {
-    width: auto;
-    max-width: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    height: -webkit-fill-available;
+    opacity: 1;
+    transform: translateY(0);
+    z-index: 2000;
+    padding: 0;
   }
   
   .parksy-widget {
-    height: calc(100vh - 100px);
+    display: none;
+    width: 100%;
+    height: 100vh;
+    height: -webkit-fill-available;
     max-height: none;
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+    border-radius: 0;
+    margin: 0;
+    box-shadow: none;
+    border: none;
+    flex-direction: column;
+  }
+  
+  .parksy-container.open .parksy-widget {
+    display: flex;
   }
   
   .parksy-bubble {
@@ -851,20 +887,33 @@
     height: 56px;
   }
   
+  .bubble-icon {
+    font-size: 22px;
+  }
+  
   .bubble-text {
     display: none;
   }
   
+  .parksy-header {
+    padding: 16px 20px;
+    border-radius: 0;
+  }
+  
   .parksy-messages {
     padding: 16px;
+    height: calc(100vh - 140px);
+    height: calc(-webkit-fill-available - 140px);
+    overflow-y: auto;
   }
   
   .message-content {
-    max-width: 95%;
+    max-width: 90%;
   }
   
   .parking-spot-card {
-    padding: 20px;
+    padding: 18px;
+    margin-bottom: 16px;
   }
   
   .spot-header {
@@ -880,30 +929,51 @@
   
   .detail-card {
     padding: 14px 16px;
+    gap: 14px;
+  }
+  
+  .detail-icon {
+    font-size: 20px;
+    width: 28px;
+  }
+  
+  .parksy-input {
+    padding: 16px 20px;
+    border-radius: 0;
+  }
+  
+  .parksy-footer {
+    padding: 12px 20px;
+    border-radius: 0;
   }
 }
 
 @media (max-width: 480px) {
-  .parksy-widget {
-    border-radius: 16px;
-    height: calc(100vh - 80px);
-  }
-  
   .parksy-header {
-    padding: 12px 16px;
+    padding: 14px 16px;
   }
   
   .header-info h3 {
     font-size: 16px;
   }
   
+  .parksy-messages {
+    padding: 14px;
+  }
+  
   .parksy-input {
-    padding: 12px 16px;
+    padding: 14px 16px;
+  }
+  
+  .parksy-input input {
+    padding: 10px 14px;
+    font-size: 16px;
   }
   
   .send-button {
     width: 40px;
     height: 40px;
+    font-size: 16px;
   }
   
   .detail-card {
@@ -915,8 +985,13 @@
     font-size: 14px;
   }
   
+  .detail-icon {
+    font-size: 18px;
+    width: 24px;
+  }
+  
   .parking-spot-card {
-    padding: 18px;
+    padding: 16px;
   }
   
   .spot-title {
@@ -924,6 +999,63 @@
   }
   
   .parking-results {
-    padding: 18px;
+    padding: 16px;
+  }
+  
+  .results-header h4 {
+    font-size: 16px;
+  }
+  
+  .results-header p {
+    font-size: 13px;
+  }
+  
+  .spot-address {
+    font-size: 13px;
+    margin-bottom: 16px;
+  }
+  
+  .spot-description {
+    font-size: 12px;
+    padding: 12px;
+    margin-bottom: 16px;
+  }
+  
+  .feature-tag {
+    padding: 5px 12px;
+    font-size: 11px;
+  }
+  
+  .spot-restrictions,
+  .spot-accessibility {
+    padding: 14px;
+    font-size: 12px;
+  }
+  
+  .show-more-button {
+    padding: 14px;
+    font-size: 13px;
+  }
+  
+  .data-status-section {
+    padding: 14px;
+  }
+  
+  .parksy-footer {
+    padding: 10px 16px;
+    font-size: 10px;
+  }
+}
+
+/* iOS specific fixes */
+@supports (-webkit-touch-callout: none) {
+  .parksy-widget {
+    height: 100vh;
+    height: -webkit-fill-available;
+  }
+  
+  .parksy-messages {
+    height: calc(100vh - 140px);
+    height: calc(-webkit-fill-available - 140px);
   }
 }
