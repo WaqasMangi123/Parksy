@@ -39,7 +39,9 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
       setIsOpen(propIsOpen);
     }
     if (isOpen && inputRef.current) {
-      inputRef.current.focus();
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
     }
   }, [propIsOpen, isOpen]);
 
@@ -336,6 +338,31 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
     return features;
   };
 
+  // Function to extract AI response text (non-parking data)
+  const extractAIResponse = (text) => {
+    // Remove parking data sections but keep the conversational parts
+    let cleanText = text;
+    
+    // Remove structured parking data patterns
+    cleanText = cleanText.replace(/\*\*[^*]+\*\*\s*\([^)]+\)[^]*?(?=\*\*[^*]+\*\*|\n\n|$)/gi, '');
+    
+    // Remove data status sections
+    cleanText = cleanText.replace(/\*\*📡 Data Status\*\*[^]*?(?=\n\n|$)/gi, '');
+    
+    // Remove parking options headers
+    cleanText = cleanText.replace(/\*\*🅿️ Parking Options\*\*[^]*?(?=\n\n|$)/gi, '');
+    
+    // Clean up multiple newlines and extra whitespace
+    cleanText = cleanText.replace(/\n{3,}/g, '\n\n').trim();
+    
+    // If there's meaningful content left, return it
+    if (cleanText.length > 50 && !cleanText.match(/^\s*\*\*[^*]+\*\*\s*$/)) {
+      return cleanText;
+    }
+    
+    return null;
+  };
+
   const handleSendMessage = async () => {
     if (!inputValue.trim() || loading) return;
 
@@ -357,15 +384,19 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
       // Parse parking data from the text response
       const parsedParkingData = parseParkingDataFromText(response.message);
       
+      // Extract AI response text
+      const aiResponseText = extractAIResponse(response.message);
+      
       const botMessage = {
-        text: response.message,
+        text: aiResponseText || response.message,
         isBot: true,
         timestamp: response.search_context?.timestamp || new Date().toISOString(),
         parkingData: parsedParkingData.length > 0 ? parsedParkingData : (response.top_recommendations || []),
         allParkingData: response.all_spots || [],
         searchContext: response.search_context || {},
         dataStatus: response.data_status || {},
-        hasStructuredData: parsedParkingData.length > 0
+        hasStructuredData: parsedParkingData.length > 0,
+        showText: !parsedParkingData.length > 0 || aiResponseText !== null
       };
 
       setMessages((prev) => [...prev, botMessage]);
@@ -409,14 +440,18 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
 
   const handleSuggestionClick = (suggestion) => {
     setInputValue(suggestion);
-    inputRef.current?.focus();
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 100);
   };
 
   const handleRetry = () => {
     const lastUserMessage = messages.slice().reverse().find((msg) => !msg.isBot)?.text;
     if (lastUserMessage) {
       setInputValue(lastUserMessage);
-      handleSendMessage();
+      setTimeout(() => {
+        handleSendMessage();
+      }, 100);
     }
   };
 
@@ -598,8 +633,8 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose }) => {
               >
                 {msg.isBot && <span className="bot-avatar">🅿️</span>}
                 <div className="message-content">
-                  {/* Show original text only if no structured parking data */}
-                  {(!msg.hasStructuredData || !msg.parkingData || msg.parkingData.length === 0) && (
+                  {/* Show AI response text when available */}
+                  {(msg.showText !== false && msg.text) && (
                     <div className="message-text">{msg.text}</div>
                   )}
                   
