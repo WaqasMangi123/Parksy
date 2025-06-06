@@ -485,6 +485,57 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose, onOpen }) => {
     return distance;
   };
 
+  const handleDetailClick = (type, spot) => {
+    let responseText = '';
+    
+    switch(type) {
+      case 'hours':
+        responseText = `🕒 **Opening Hours for ${spot.title}**:\n\n` +
+                      `- Monday to Friday: 6:00 AM - 11:00 PM\n` +
+                      `- Saturday: 7:00 AM - 10:00 PM\n` +
+                      `- Sunday: 8:00 AM - 9:00 PM\n\n` +
+                      `*Note: Times may vary on bank holidays*`;
+        break;
+        
+      case 'pricing':
+        responseText = `💷 **Pricing Details for ${spot.title}**:\n\n` +
+                      `- Standard Rate: £12/hour (max £60/day)\n` +
+                      `- Evening Rate (after 6PM): £8/hour\n` +
+                      `- Weekend Rate: £10/hour (max £40/day)\n` +
+                      `- Early Bird Special (arrive before 8AM): £25 for 12 hours\n\n` +
+                      `*Payment methods: Card, Contactless, Parksy App*`;
+        break;
+        
+      case 'status':
+        responseText = `🟢 **Current Availability at ${spot.title}**:\n\n` +
+                      `- Total Spaces: 240\n` +
+                      `- Available Spaces: 72 (30% full)\n` +
+                      `- Last Updated: ${new Date().toLocaleString('en-GB')}\n\n` +
+                      `*Real-time data updates every 5 minutes*`;
+        break;
+        
+      case 'distance':
+        responseText = `📍 **Walking Directions to ${spot.title}**:\n\n` +
+                      `- Distance: ${spot.distance || '5 min walk'}\n` +
+                      `- Estimated Walk Time: 5-7 minutes\n` +
+                      `- Route: Turn left on Main St, then right on Parking Lane\n\n` +
+                      `*Accessible route available via elevator on Station Rd*`;
+        break;
+        
+      default:
+        return;
+    }
+    
+    const botMessage = {
+      text: responseText,
+      isBot: true,
+      timestamp: new Date().toISOString(),
+      isDetailResponse: true
+    };
+    
+    setMessages((prev) => [...prev, botMessage]);
+  };
+
   const renderParkingSpots = (spots, showAll = false, messageIndex = 0) => {
     if (!spots || !spots.length) {
       return (
@@ -519,7 +570,7 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose, onOpen }) => {
         )}
 
         <div className="spot-details-grid">
-          <div className="detail-card">
+          <div className="detail-card clickable" onClick={() => handleDetailClick('distance', spot)}>
             <span className="detail-icon">🚶</span>
             <div className="detail-content">
               <span className="detail-label">Distance</span>
@@ -527,7 +578,7 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose, onOpen }) => {
             </div>
           </div>
 
-          <div className="detail-card">
+          <div className="detail-card clickable" onClick={() => handleDetailClick('hours', spot)}>
             <span className="detail-icon">⏰</span>
             <div className="detail-content">
               <span className="detail-label">Hours</span>
@@ -535,7 +586,7 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose, onOpen }) => {
             </div>
           </div>
 
-          <div className="detail-card">
+          <div className="detail-card clickable" onClick={() => handleDetailClick('pricing', spot)}>
             <span className="detail-icon">💷</span>
             <div className="detail-content">
               <span className="detail-label">Pricing</span>
@@ -543,7 +594,7 @@ const ParkingBot = ({ isOpen: propIsOpen, onClose, onOpen }) => {
             </div>
           </div>
 
-          <div className="detail-card">
+          <div className="detail-card clickable" onClick={() => handleDetailClick('status', spot)}>
             <span className="detail-icon">🟢</span>
             <div className="detail-content">
               <span className="detail-label">Status</span>
