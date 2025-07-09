@@ -25,7 +25,7 @@ function Login({ setAuth }) {
   const location = useLocation();
 
   // Debug: Log the API URL to verify it's loaded correctly
-  console.log('Using hardcoded API URL: http://localhost:3001/api/');
+  console.log('Using hardcoded API URL: https://parksy-backend.onrender.com/api/');
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -93,7 +93,7 @@ function Login({ setAuth }) {
 
       // Use the same URL pattern as register component
       const response = await axios.post(
-        "http://localhost:3001/api/auth/login",
+        "https://parksy-backend.onrender.com/api/auth/login",
         loginData,
         {
           headers: { "Content-Type": "application/json" },
@@ -214,7 +214,7 @@ function Login({ setAuth }) {
       }
 
       const response = await axios.post(
-        "http://localhost:3001/api/auth/resend-verification",
+        "https://parksy-backend.onrender.com/api/auth/resend-verification",
         { email },
         {
           headers: { "Content-Type": "application/json" },

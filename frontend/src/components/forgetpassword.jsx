@@ -33,7 +33,7 @@ const ForgotPasswordPage = () => {
     setMessage('');
 
     try {
-      const response = await axios.post('http://localhost:3001/api/auth/forgot-password', { 
+      const response = await axios.post('https://parksy-backend.onrender.com/api/auth/forgot-password', { 
         email: email.trim().toLowerCase() 
       });
       setMessage(response.data.message);
