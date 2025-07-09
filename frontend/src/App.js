@@ -10,6 +10,14 @@ import SuccessStories from './components/listyourspace';
 import Profile from './components/privacypolicy';
 import Blog from './components/termsandconditions';
 import ParkingFinder from './components/parkingfinder';
+import ParkingListingThirdParty from './components/home'; // New import
+
+// Auth components
+import Login from './components/login';
+import Register from './components/register';
+import ForgotPassword from './components/forgetpassword';
+import ResetPassword from './components/resetpassword';
+import EmailVerification from './components/emailverification';
 
 // Chatbot component
 import ParkingBot from './components/parkingbot';
@@ -21,17 +29,20 @@ import Footer from './components/Footer';
 // Auth Context
 import { AuthProvider } from './context/AuthContext';
 
-// Layout components
-const SimpleLayout = ({ children }) => (
-  <main className="main-content">{children}</main>
-);
-
-const LayoutWithNavFooter = ({ children }) => (
+// Layout wrapper with navbar and footer
+const Layout = ({ children }) => (
   <>
     <Navbar />
-    <SimpleLayout>{children}</SimpleLayout>
+    <main className="main-content">{children}</main>
     <Footer />
   </>
+);
+
+// Auth layout wrapper (different styling if needed)
+const AuthLayout = ({ children }) => (
+  <div className="auth-layout">
+    <main className="main-content">{children}</main>
+  </div>
 );
 
 function App() {
@@ -42,21 +53,29 @@ function App() {
         <ParkingBot />
         
         <Routes>
-          {/* ========== ROUTES WITH NAVBAR & FOOTER ========== */}
-          <Route path="/" element={<LayoutWithNavFooter><MainPage /></LayoutWithNavFooter>} />
-          <Route path="/about" element={<LayoutWithNavFooter><About /></LayoutWithNavFooter>} />
-          <Route path="/contact" element={<LayoutWithNavFooter><Contact /></LayoutWithNavFooter>} />
-          <Route path="/guidance" element={<LayoutWithNavFooter><Guidance /></LayoutWithNavFooter>} />
-          <Route path="/parkingfinder" element={<LayoutWithNavFooter><ParkingFinder /></LayoutWithNavFooter>} />
-          <Route path="/listyourspace" element={<LayoutWithNavFooter><SuccessStories /></LayoutWithNavFooter>} />
+          {/* ========== PUBLIC ROUTES WITH LAYOUT ========== */}
+          <Route path="/" element={<Layout><MainPage /></Layout>} />
+          <Route path="/about" element={<Layout><About /></Layout>} />
+          <Route path="/contact" element={<Layout><Contact /></Layout>} />
+          <Route path="/guidance" element={<Layout><Guidance /></Layout>} />
+          <Route path="/parkingfinder" element={<Layout><ParkingFinder /></Layout>} />
+          <Route path="/listyourspace" element={<Layout><SuccessStories /></Layout>} />
+          <Route path="/home" element={<Layout><ParkingListingThirdParty /></Layout>} /> {/* New route */}
 
-          {/* ========== ROUTES WITHOUT NAVBAR/FOOTER ========== */}
-          <Route path="/privacypolicy" element={<SimpleLayout><Profile /></SimpleLayout>} />
-          <Route path="/termsandconditions" element={<SimpleLayout><Blog /></SimpleLayout>} />
-          <Route path="/blog/:id" element={<SimpleLayout><Blog /></SimpleLayout>} />
+          {/* ========== AUTH ROUTES ========== */}
+          <Route path="/login" element={<AuthLayout><Login /></AuthLayout>} />
+          <Route path="/register" element={<AuthLayout><Register /></AuthLayout>} />
+          <Route path="/forgot-password" element={<AuthLayout><ForgotPassword /></AuthLayout>} />
+          <Route path="/reset-password" element={<AuthLayout><ResetPassword /></AuthLayout>} />
+          <Route path="/verify-email" element={<AuthLayout><EmailVerification /></AuthLayout>} />
+
+          {/* ========== SIMPLE ROUTES WITHOUT NAVBAR/FOOTER ========== */}
+          <Route path="/privacypolicy" element={<Profile />} />
+          <Route path="/termsandconditions" element={<Blog />} />
+          <Route path="/blog/:id" element={<Blog />} />
 
           {/* ========== ERROR ROUTE ========== */}
-          <Route path="*" element={<SimpleLayout><div className="not-found">Page Not Found</div></SimpleLayout>} />
+          <Route path="*" element={<Layout><div className="not-found">Page Not Found</div></Layout>} />
         </Routes>
       </AuthProvider>
     </Router>
