@@ -22,6 +22,9 @@ import EmailVerification from './components/emailverification';
 // Chatbot component
 import ParkingBot from './components/parkingbot';
 
+// Contact Widget component
+import ContactWidget from './components/contactwidget';
+
 // Layout components
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
@@ -45,6 +48,19 @@ const AuthLayout = ({ children }) => (
   </div>
 );
 
+// Home layout wrapper with ContactWidget
+const HomeLayout = ({ children }) => (
+  <>
+    <Navbar />
+    <main className="main-content">
+      {children}
+      {/* Contact Widget only appears on home page */}
+      <ContactWidget />
+    </main>
+    <Footer />
+  </>
+);
+
 function App() {
   return (
     <Router>
@@ -60,20 +76,23 @@ function App() {
           <Route path="/guidance" element={<Layout><Guidance /></Layout>} />
           <Route path="/parkingfinder" element={<Layout><ParkingFinder /></Layout>} />
           <Route path="/listyourspace" element={<Layout><SuccessStories /></Layout>} />
-          <Route path="/home" element={<Layout><ParkingListingThirdParty /></Layout>} /> {/* New route */}
-
+          
+          {/* HOME ROUTE WITH CONTACT WIDGET */}
+          <Route path="/home" element={<HomeLayout><ParkingListingThirdParty /></HomeLayout>} />
+          
           {/* ========== AUTH ROUTES ========== */}
           <Route path="/login" element={<AuthLayout><Login /></AuthLayout>} />
           <Route path="/register" element={<AuthLayout><Register /></AuthLayout>} />
           <Route path="/forgot-password" element={<AuthLayout><ForgotPassword /></AuthLayout>} />
-          <Route path="/reset-password" element={<AuthLayout><ResetPassword /></AuthLayout>} />
+          {/* FIXED: Added :token parameter to match the URL structure */}
+          <Route path="/reset-password/:token" element={<AuthLayout><ResetPassword /></AuthLayout>} />
           <Route path="/verify-email" element={<AuthLayout><EmailVerification /></AuthLayout>} />
-
+          
           {/* ========== SIMPLE ROUTES WITHOUT NAVBAR/FOOTER ========== */}
           <Route path="/privacypolicy" element={<Profile />} />
           <Route path="/termsandconditions" element={<Blog />} />
           <Route path="/blog/:id" element={<Blog />} />
-
+          
           {/* ========== ERROR ROUTE ========== */}
           <Route path="*" element={<Layout><div className="not-found">Page Not Found</div></Layout>} />
         </Routes>

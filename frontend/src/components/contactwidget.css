@@ -1,0 +1,554 @@
+/* ContactWidget.css - Professional Emergency Contact Widget */
+
+.emergency-widget-container {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  z-index: 9999;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Emergency Toggle Button */
+.emergency-toggle-btn {
+  position: relative;
+  background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 70px;
+  height: 70px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 
+    0 8px 32px rgba(220, 38, 38, 0.3),
+    0 4px 16px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.emergency-toggle-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.1) 50%, transparent 70%);
+  transform: translateX(-100%);
+  transition: transform 0.6s ease;
+}
+
+.emergency-toggle-btn:hover::before {
+  transform: translateX(100%);
+}
+
+.emergency-toggle-btn:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 
+    0 12px 40px rgba(220, 38, 38, 0.4),
+    0 8px 24px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.emergency-toggle-btn:active {
+  transform: translateY(0) scale(0.95);
+}
+
+.emergency-icon {
+  width: 32px;
+  height: 32px;
+  transition: transform 0.3s ease;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+}
+
+.emergency-toggle-btn:hover .emergency-icon {
+  transform: rotate(-10deg) scale(1.1);
+}
+
+/* Pulse Animation for Emergency Badge */
+.emergency-pulse-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #fbbf24;
+  color: #92400e;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  animation: emergencyPulse 2s infinite;
+  box-shadow: 0 2px 8px rgba(251, 191, 36, 0.4);
+}
+
+@keyframes emergencyPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+}
+
+/* Modal Overlay */
+.emergency-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+/* Modal Container */
+.emergency-modal {
+  background: white;
+  border-radius: 24px;
+  box-shadow: 
+    0 25px 50px -12px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Modal Header */
+.emergency-header {
+  background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+  color: white;
+  padding: 32px 24px 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+.emergency-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #fbbf24, #f59e0b, #fbbf24);
+  animation: emergencyStripe 2s ease-in-out infinite;
+}
+
+@keyframes emergencyStripe {
+  0%, 100% { transform: translateX(-100%); }
+  50% { transform: translateX(100%); }
+}
+
+.emergency-close-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: white;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(10px);
+}
+
+.emergency-close-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: rotate(90deg);
+}
+
+.emergency-header-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.emergency-icon-container {
+  background: rgba(255, 255, 255, 0.15);
+  padding: 12px;
+  border-radius: 16px;
+  backdrop-filter: blur(10px);
+}
+
+.emergency-title {
+  font-size: 24px;
+  font-weight: 800;
+  margin: 0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.emergency-subtitle {
+  font-size: 14px;
+  opacity: 0.9;
+  margin: 4px 0 0;
+  font-weight: 500;
+}
+
+/* Modal Content */
+.emergency-content {
+  padding: 32px 24px;
+  max-height: 60vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #dc2626 #f1f5f9;
+}
+
+.emergency-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.emergency-content::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 3px;
+}
+
+.emergency-content::-webkit-scrollbar-thumb {
+  background: #dc2626;
+  border-radius: 3px;
+}
+
+/* Success State */
+.emergency-success {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.emergency-success-icon {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 24px;
+  animation: successBounce 0.6s ease-out;
+}
+
+@keyframes successBounce {
+  0% { transform: scale(0); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+.emergency-success-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #065f46;
+  margin: 0 0 12px;
+}
+
+.emergency-success-message {
+  color: #047857;
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.emergency-ticket-id {
+  background: #f0f9ff;
+  border: 2px solid #bae6fd;
+  border-radius: 12px;
+  padding: 16px;
+  margin: 20px 0;
+}
+
+.emergency-ticket-label {
+  font-size: 12px;
+  color: #0369a1;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.emergency-ticket-number {
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e40af;
+  margin-top: 4px;
+}
+
+/* Form Styles */
+.emergency-form {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.emergency-error-alert {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: errorShake 0.5s ease-out;
+}
+
+@keyframes errorShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.emergency-error-text {
+  color: #991b1b;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Form Groups */
+.emergency-form-group {
+  position: relative;
+}
+
+.emergency-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 8px;
+  position: relative;
+}
+
+.emergency-required {
+  color: #dc2626;
+  margin-left: 4px;
+}
+
+.emergency-input, .emergency-select, .emergency-textarea {
+  width: 100%;
+  padding: 16px 20px;
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  font-size: 16px;
+  transition: all 0.3s ease;
+  background: white;
+  font-family: inherit;
+}
+
+.emergency-input:focus, .emergency-select:focus, .emergency-textarea:focus {
+  outline: none;
+  border-color: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+  transform: translateY(-1px);
+}
+
+.emergency-input.error, .emergency-select.error, .emergency-textarea.error {
+  border-color: #ef4444;
+  background: #fef2f2;
+}
+
+.emergency-textarea {
+  resize: none;
+  min-height: 120px;
+  font-family: inherit;
+}
+
+.emergency-input-error {
+  color: #dc2626;
+  font-size: 12px;
+  margin-top: 6px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Character Counter */
+.emergency-char-counter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.emergency-char-count {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Submit Button */
+.emergency-submit-btn {
+  background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+  color: white;
+  border: none;
+  padding: 18px 24px;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.emergency-submit-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.1) 50%, transparent 70%);
+  transform: translateX(-100%);
+  transition: transform 0.6s ease;
+}
+
+.emergency-submit-btn:hover::before {
+  transform: translateX(100%);
+}
+
+.emergency-submit-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(220, 38, 38, 0.3);
+}
+
+.emergency-submit-btn:active {
+  transform: translateY(0);
+}
+
+.emergency-submit-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.emergency-submit-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.emergency-spinner {
+  width: 20px;
+  height: 20px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Close Button */
+.emergency-close-modal-btn {
+  background: #dc2626;
+  color: white;
+  border: none;
+  padding: 12px 32px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.emergency-close-modal-btn:hover {
+  background: #991b1b;
+  transform: translateY(-1px);
+}
+
+/* Footer Note */
+.emergency-footer-note {
+  text-align: center;
+  color: #6b7280;
+  font-size: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+  line-height: 1.4;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+  .emergency-widget-container {
+    bottom: 15px;
+    left: 15px;
+  }
+  
+  .emergency-toggle-btn {
+    width: 60px;
+    height: 60px;
+  }
+  
+  .emergency-icon {
+    width: 24px;
+    height: 24px;
+  }
+  
+  .emergency-pulse-badge {
+    width: 24px;
+    height: 24px;
+    font-size: 12px;
+    top: -6px;
+    right: -6px;
+  }
+  
+  .emergency-modal-overlay {
+    padding: 10px;
+  }
+  
+  .emergency-modal {
+    max-width: 95vw;
+    border-radius: 16px;
+  }
+  
+  .emergency-header {
+    padding: 24px 20px 20px;
+  }
+  
+  .emergency-title {
+    font-size: 20px;
+  }
+  
+  .emergency-subtitle {
+    font-size: 13px;
+  }
+  
+  .emergency-content {
+    padding: 24px 20px;
+    max-height: 50vh;
+  }
+  
+  .emergency-form {
+    gap: 20px;
+  }
+  
+  .emergency-input, .emergency-select, .emergency-textarea {
+    padding: 14px 16px;
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+  
+  .emergency-submit-btn {
+    padding: 16px 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .emergency-modal {
+    max-height: 95vh;
+  }
+  
+  .emergency-content {
+    max-height: 45vh;
+  }
+  
+  .emergency-header-content {
+    gap: 12px;
+  }
+  
+  .emergency-icon-container {
+    padding: 10px;
+  }
+}
