@@ -72,11 +72,11 @@ const validateRegisterInput = (req, res, next) => {
 };
 
 const validateLoginInput = (req, res, next) => {
-  const { email } = req.body;
-  if (!email) {
+  const { email, password } = req.body;
+  if (!email || !password) {
     return res.status(400).json({ 
       success: false,
-      message: "Email is required" 
+      message: "Email and password are required" 
     });
   }
   next();
@@ -196,18 +196,28 @@ router.post("/verify", async (req, res) => {
   }
 });
 
-// 🔹 User Login
+// 🔹 User Login - FIXED VERSION
 router.post("/login", validateLoginInput, async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, password } = req.body;
     const trimmedEmail = email.trim().toLowerCase();
 
-    const user = await User.findOne({ email: trimmedEmail });
+    // Find user and include password field for comparison
+    const user = await User.findOne({ email: trimmedEmail }).select('+password');
     
     if (!user) {
       return res.status(401).json({ 
         success: false,
-        message: "Account not found" 
+        message: "Invalid email or password" 
+      });
+    }
+
+    // Check password before anything else
+    const isPasswordValid = await bcrypt.compare(password.trim(), user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ 
+        success: false,
+        message: "Invalid email or password"
       });
     }
 
@@ -506,7 +516,6 @@ router.get("/active-users", async (req, res) => {
     });
   }
 });
-// ... (All your existing code remains exactly the same until the end)
 
 // 🔹 Delete User (New Endpoint - Add this just before module.exports)
 router.delete("/users/:id", async (req, res) => {
@@ -545,5 +554,4 @@ router.delete("/users/:id", async (req, res) => {
   }
 });
 
-module.exports = router;
 module.exports = router;
