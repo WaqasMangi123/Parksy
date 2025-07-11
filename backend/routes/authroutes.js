@@ -203,10 +203,10 @@ router.post("/verify", async (req, res) => {
   }
 });
 
-// 🔹 FIXED: User Login with Proper Password Validation
+// 🔹 FIXED: User Login with Direct bcrypt Comparison
 router.post("/login", validateLoginInput, async (req, res) => {
   try {
-    const { email, password } = req.body; // ✅ Extract both email AND password
+    const { email, password } = req.body;
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedPassword = password.trim();
 
@@ -214,7 +214,7 @@ router.post("/login", validateLoginInput, async (req, res) => {
     console.log("Email received:", trimmedEmail);
     console.log("Password received:", trimmedPassword ? "***PROVIDED***" : "***EMPTY***");
 
-    // ✅ Find user and explicitly include password field (your model has select: false)
+    // ✅ Find user and explicitly include password field
     const user = await User.findOne({ email: trimmedEmail }).select('+password +verificationCode +verificationCodeExpires');
     
     console.log("User found:", user ? "YES" : "NO");
@@ -228,7 +228,7 @@ router.post("/login", validateLoginInput, async (req, res) => {
       console.log("❌ User not found");
       return res.status(401).json({ 
         success: false,
-        message: "Invalid email or password" // Generic message for security
+        message: "Invalid email or password"
       });
     }
 
@@ -241,9 +241,9 @@ router.post("/login", validateLoginInput, async (req, res) => {
       });
     }
 
-    // ✅ CRITICAL: Compare the provided password with stored hash using the model method
-    console.log("Comparing passwords...");
-    const isPasswordValid = await user.comparePassword(trimmedPassword);
+    // ✅ CRITICAL: Use direct bcrypt comparison instead of model method
+    console.log("Comparing passwords with bcrypt.compare...");
+    const isPasswordValid = await bcrypt.compare(trimmedPassword, user.password);
     console.log("Password valid:", isPasswordValid);
     
     if (!isPasswordValid) {
@@ -255,7 +255,12 @@ router.post("/login", validateLoginInput, async (req, res) => {
     }
 
     console.log("✅ Login successful");
-    // ✅ Only generate token if password is correct
+    
+    // Update last login time
+    user.lastLogin = new Date();
+    await user.save();
+
+    // Generate JWT token
     const token = jwt.sign(
       { 
         id: user._id,
