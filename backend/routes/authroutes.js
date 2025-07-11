@@ -13,7 +13,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
 // Nodemailer Setup
-const transporter = nodemailer.createTransport({
+const transporter = nodemailer.createTransporter({
   service: "gmail",
   auth: { 
     user: EMAIL_USER, 
@@ -71,12 +71,19 @@ const validateRegisterInput = (req, res, next) => {
   next();
 };
 
+// ✅ FIXED: Login validation middleware now checks both email AND password
 const validateLoginInput = (req, res, next) => {
-  const { email } = req.body;
+  const { email, password } = req.body;
   if (!email) {
     return res.status(400).json({ 
       success: false,
       message: "Email is required" 
+    });
+  }
+  if (!password) {
+    return res.status(400).json({ 
+      success: false,
+      message: "Password is required" 
     });
   }
   next();
@@ -196,18 +203,20 @@ router.post("/verify", async (req, res) => {
   }
 });
 
-// 🔹 User Login
+// 🔹 FIXED: User Login with Proper Password Validation
 router.post("/login", validateLoginInput, async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, password } = req.body; // ✅ Extract both email AND password
     const trimmedEmail = email.trim().toLowerCase();
+    const trimmedPassword = password.trim();
 
-    const user = await User.findOne({ email: trimmedEmail });
+    // ✅ Find user and include password field (might be excluded by default in your User model)
+    const user = await User.findOne({ email: trimmedEmail }).select('+password');
     
     if (!user) {
       return res.status(401).json({ 
         success: false,
-        message: "Account not found" 
+        message: "Invalid email or password" // Generic message for security
       });
     }
 
@@ -219,7 +228,16 @@ router.post("/login", validateLoginInput, async (req, res) => {
       });
     }
 
-    // Generate token
+    // ✅ CRITICAL: Compare the provided password with stored hash
+    const isPasswordValid = await bcrypt.compare(trimmedPassword, user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ 
+        success: false,
+        message: "Invalid email or password" 
+      });
+    }
+
+    // ✅ Only generate token if password is correct
     const token = jwt.sign(
       { 
         id: user._id,
@@ -283,7 +301,7 @@ router.post("/forgot-password", async (req, res) => {
     await user.save();
 
     // Send email with reset link
-    const resetUrl = `https://parksy-frontend.onrender.com/reset-password/${resetToken}`;
+    const resetUrl = `https://parksy-backend.onrender.com/reset-password/${resetToken}`;
     await transporter.sendMail({
       from: `"Scholarship Portal" <${EMAIL_USER}>`,
       to: user.email,
@@ -506,9 +524,8 @@ router.get("/active-users", async (req, res) => {
     });
   }
 });
-// ... (All your existing code remains exactly the same until the end)
 
-// 🔹 Delete User (New Endpoint - Add this just before module.exports)
+// 🔹 Delete User (New Endpoint)
 router.delete("/users/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -545,5 +562,4 @@ router.delete("/users/:id", async (req, res) => {
   }
 });
 
-module.exports = router;
 module.exports = router;
