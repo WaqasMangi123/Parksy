@@ -210,10 +210,22 @@ router.post("/login", validateLoginInput, async (req, res) => {
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedPassword = password.trim();
 
-    // ✅ Find user and include password field (might be excluded by default in your User model)
-    const user = await User.findOne({ email: trimmedEmail }).select('+password');
+    console.log("=== LOGIN DEBUG ===");
+    console.log("Email received:", trimmedEmail);
+    console.log("Password received:", trimmedPassword ? "***PROVIDED***" : "***EMPTY***");
+
+    // ✅ Find user and explicitly include password field (your model has select: false)
+    const user = await User.findOne({ email: trimmedEmail }).select('+password +verificationCode +verificationCodeExpires');
+    
+    console.log("User found:", user ? "YES" : "NO");
+    if (user) {
+      console.log("User verified:", user.verified);
+      console.log("User has password field:", user.password ? "YES" : "NO");
+      console.log("Password hash length:", user.password ? user.password.length : "NO PASSWORD");
+    }
     
     if (!user) {
+      console.log("❌ User not found");
       return res.status(401).json({ 
         success: false,
         message: "Invalid email or password" // Generic message for security
@@ -221,6 +233,7 @@ router.post("/login", validateLoginInput, async (req, res) => {
     }
 
     if (!user.verified) {
+      console.log("❌ User not verified");
       return res.status(403).json({ 
         success: false,
         isVerified: false,
@@ -228,15 +241,20 @@ router.post("/login", validateLoginInput, async (req, res) => {
       });
     }
 
-    // ✅ CRITICAL: Compare the provided password with stored hash
-    const isPasswordValid = await bcrypt.compare(trimmedPassword, user.password);
+    // ✅ CRITICAL: Compare the provided password with stored hash using the model method
+    console.log("Comparing passwords...");
+    const isPasswordValid = await user.comparePassword(trimmedPassword);
+    console.log("Password valid:", isPasswordValid);
+    
     if (!isPasswordValid) {
+      console.log("❌ Password comparison failed");
       return res.status(401).json({ 
         success: false,
         message: "Invalid email or password" 
       });
     }
 
+    console.log("✅ Login successful");
     // ✅ Only generate token if password is correct
     const token = jwt.sign(
       { 
@@ -301,7 +319,7 @@ router.post("/forgot-password", async (req, res) => {
     await user.save();
 
     // Send email with reset link
-    const resetUrl = `https://parksy-backend.onrender.com/reset-password/${resetToken}`;
+    const resetUrl = `https://parksy.uk/reset-password/${resetToken}`;
     await transporter.sendMail({
       from: `"Scholarship Portal" <${EMAIL_USER}>`,
       to: user.email,
