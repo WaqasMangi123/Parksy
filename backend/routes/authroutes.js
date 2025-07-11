@@ -30,7 +30,7 @@ const generateVerificationCode = () => Math.floor(100000 + Math.random() * 90000
 const sendVerificationEmail = async (email, verificationCode) => {
   try {
     await transporter.sendMail({
-      from: `"Scholarship Portal" <${EMAIL_USER}>`,
+      from: `"Parksy Portal" <${EMAIL_USER}>`,
       to: email,
       subject: "Verify Your Email Address",
       html: `
@@ -62,33 +62,61 @@ router.use(async (req, res, next) => {
 // Input Validation Middleware
 const validateRegisterInput = (req, res, next) => {
   const { username, email, password } = req.body;
+  
   if (!username || !email || !password) {
     return res.status(400).json({ 
       success: false,
-      message: "All fields are required" 
+      message: "Username, email and password are required" 
     });
   }
+  
+  if (username.trim().length < 3) {
+    return res.status(400).json({ 
+      success: false,
+      message: "Username must be at least 3 characters" 
+    });
+  }
+  
+  if (password.length < 8) {
+    return res.status(400).json({ 
+      success: false,
+      message: "Password must be at least 8 characters" 
+    });
+  }
+  
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ 
+      success: false,
+      message: "Please enter a valid email address" 
+    });
+  }
+  
   next();
 };
 
 const validateLoginInput = (req, res, next) => {
   const { email, password } = req.body;
-  if (!email) {
+  
+  if (!email || !password) {
     return res.status(400).json({ 
       success: false,
-      message: "Email is required" 
+      message: "Email and password are required" 
     });
   }
-  if (!password) {
+  
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
     return res.status(400).json({ 
       success: false,
-      message: "Password is required" 
+      message: "Please enter a valid email address" 
     });
   }
+  
   next();
 };
 
-// 🔹 FIXED: User Registration - Let schema handle password hashing
+// 🔹 User Registration - Let schema handle password hashing
 router.post("/register", validateRegisterInput, async (req, res) => {
   try {
     const { username, email, password } = req.body;
@@ -100,29 +128,28 @@ router.post("/register", validateRegisterInput, async (req, res) => {
     if (existingUser) {
       return res.status(400).json({ 
         success: false,
-        message: "Email is already registered" 
+        message: "An account with this email already exists" 
       });
     }
 
-    // ✅ REMOVED manual hashing - let User schema handle it
     const verificationCode = generateVerificationCode();
 
     const newUser = new User({
       username: username.trim(),
       email: trimmedEmail,
-      password: trimmedPassword, // ✅ Pass plain password, schema will hash it
+      password: trimmedPassword, // Schema will hash it
       verified: false,
       verificationCode,
       verificationCodeExpires: Date.now() + 10 * 60 * 1000, // 10 minutes
       role: 'user'
     });
 
-    await newUser.save(); // Schema pre('save') middleware will hash the password
+    await newUser.save();
     await sendVerificationEmail(newUser.email, verificationCode);
 
     res.status(201).json({ 
       success: true,
-      message: "Registration successful! Please check your email for verification code.",
+      message: "Account created successfully! Please check your email for verification code.",
       userId: newUser._id 
     });
 
@@ -130,7 +157,7 @@ router.post("/register", validateRegisterInput, async (req, res) => {
     console.error("Registration Error:", err);
     res.status(500).json({ 
       success: false,
-      message: "Server error during registration",
+      message: "Server error during registration. Please try again.",
       error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
@@ -142,10 +169,17 @@ router.post("/verify", async (req, res) => {
     const { email, verificationCode } = req.body;
     const trimmedEmail = email.trim().toLowerCase();
 
-    if (!trimmedEmail || !verificationCode || !/^\d{6}$/.test(verificationCode)) {
+    if (!trimmedEmail || !verificationCode) {
       return res.status(400).json({ 
         success: false,
-        message: "Invalid verification code format" 
+        message: "Email and verification code are required" 
+      });
+    }
+
+    if (!/^\d{6}$/.test(verificationCode)) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Verification code must be 6 digits" 
       });
     }
 
@@ -181,7 +215,7 @@ router.post("/verify", async (req, res) => {
 
     res.status(200).json({ 
       success: true,
-      message: "Email successfully verified!",
+      message: "Email verified successfully! You are now logged in.",
       token,
       user: {
         id: user._id,
@@ -195,12 +229,12 @@ router.post("/verify", async (req, res) => {
     console.error("Verification Error:", err);
     res.status(500).json({ 
       success: false,
-      message: "Server error during verification"
+      message: "Server error during verification. Please try again."
     });
   }
 });
 
-// 🔹 FIXED: User Login with proper password validation
+// 🔹 User Login with detailed error messages
 router.post("/login", validateLoginInput, async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -213,7 +247,7 @@ router.post("/login", validateLoginInput, async (req, res) => {
     if (!user) {
       return res.status(401).json({ 
         success: false,
-        message: "Invalid email or password"
+        message: "No account found with this email address"
       });
     }
 
@@ -221,14 +255,14 @@ router.post("/login", validateLoginInput, async (req, res) => {
       return res.status(403).json({ 
         success: false,
         isVerified: false,
-        message: "Please verify your email first"
+        message: "Please verify your email before logging in. Check your inbox for the verification code."
       });
     }
 
     if (!user.password) {
       return res.status(500).json({ 
         success: false,
-        message: "Server error during login"
+        message: "Account error. Please contact support."
       });
     }
 
@@ -238,7 +272,7 @@ router.post("/login", validateLoginInput, async (req, res) => {
     if (!isPasswordValid) {
       return res.status(401).json({ 
         success: false,
-        message: "Invalid email or password"
+        message: "Incorrect password. Please try again."
       });
     }
 
@@ -267,7 +301,7 @@ router.post("/login", validateLoginInput, async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "Login successful!",
+      message: "Welcome back! Login successful.",
       token,
       user: userResponse
     });
@@ -276,7 +310,57 @@ router.post("/login", validateLoginInput, async (req, res) => {
     console.error("Login Error:", err);
     res.status(500).json({ 
       success: false,
-      message: "Server error during login"
+      message: "Server error during login. Please try again."
+    });
+  }
+});
+
+// 🔹 Resend Verification Email
+router.post("/resend-verification", async (req, res) => {
+  try {
+    const { email } = req.body;
+    const trimmedEmail = email.trim().toLowerCase();
+
+    if (!trimmedEmail) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Email is required" 
+      });
+    }
+
+    const user = await User.findOne({ email: trimmedEmail });
+    if (!user) {
+      return res.status(404).json({ 
+        success: false,
+        message: "No account found with this email address" 
+      });
+    }
+
+    if (user.verified) {
+      return res.status(400).json({ 
+        success: false,
+        message: "This account is already verified" 
+      });
+    }
+
+    // Generate new verification code
+    const verificationCode = generateVerificationCode();
+    user.verificationCode = verificationCode;
+    user.verificationCodeExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+    await user.save();
+
+    await sendVerificationEmail(user.email, verificationCode);
+
+    res.status(200).json({ 
+      success: true,
+      message: "Verification email sent! Please check your inbox." 
+    });
+
+  } catch (err) {
+    console.error("Resend Verification Error:", err);
+    res.status(500).json({ 
+      success: false,
+      message: "Failed to send verification email. Please try again."
     });
   }
 });
@@ -298,7 +382,7 @@ router.post("/forgot-password", async (req, res) => {
     if (!user) {
       return res.status(200).json({ 
         success: true,
-        message: "If an account exists, a reset link has been sent" 
+        message: "If an account exists with this email, a reset link has been sent" 
       });
     }
 
@@ -311,7 +395,7 @@ router.post("/forgot-password", async (req, res) => {
     // Send email with reset link
     const resetUrl = `https://parksy.uk/#/reset-password/${resetToken}`;
     await transporter.sendMail({
-      from: `"Scholarship Portal" <${EMAIL_USER}>`,
+      from: `"Parksy Portal" <${EMAIL_USER}>`,
       to: user.email,
       subject: "Password Reset Request",
       html: `
@@ -398,7 +482,7 @@ router.post("/validate-reset-token", async (req, res) => {
   }
 });
 
-// 🔹 Reset Password - Let schema handle password hashing
+// 🔹 Reset Password
 router.post("/reset-password", async (req, res) => {
   try {
     const { token, newPassword } = req.body;
@@ -428,41 +512,42 @@ router.post("/reset-password", async (req, res) => {
     if (!user) {
       return res.status(400).json({ 
         success: false,
-        message: "Invalid or expired token" 
+        message: "Invalid or expired reset token" 
       });
     }
 
-    // Check if new password is same as old using the model method
+    // Check if new password is same as old
     const isSamePassword = await user.comparePassword(newPassword.trim());
     if (isSamePassword) {
       return res.status(400).json({ 
         success: false,
-        message: "New password must be different" 
+        message: "New password must be different from your current password" 
       });
     }
 
-    // ✅ Let schema handle password hashing
-    user.password = newPassword.trim(); // Schema will hash this automatically
+    // Let schema handle password hashing
+    user.password = newPassword.trim();
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
-    await user.save(); // Schema pre('save') will hash the new password
+    await user.save();
 
     // Send confirmation email
     await transporter.sendMail({
-      from: `"Scholarship Portal" <${EMAIL_USER}>`,
+      from: `"Parksy Portal" <${EMAIL_USER}>`,
       to: user.email,
-      subject: "Password Changed",
+      subject: "Password Changed Successfully",
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2 style="color: #2563eb;">Password Updated</h2>
           <p>Your password was successfully changed.</p>
+          <p>If you didn't make this change, please contact support immediately.</p>
         </div>
       `,
     });
 
     res.status(200).json({ 
       success: true,
-      message: "Password updated successfully!" 
+      message: "Password updated successfully! You can now login with your new password." 
     });
 
   } catch (err) {
