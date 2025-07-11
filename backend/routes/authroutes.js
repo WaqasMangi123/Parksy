@@ -319,7 +319,7 @@ router.post("/forgot-password", async (req, res) => {
     await user.save();
 
     // Send email with reset link
-    const resetUrl = `https://parksy.uk/reset-password/${resetToken}`;
+    const resetUrl = `https://parksy.uk/#/reset-password/${resetToken}`;
     await transporter.sendMail({
       from: `"Scholarship Portal" <${EMAIL_USER}>`,
       to: user.email,
