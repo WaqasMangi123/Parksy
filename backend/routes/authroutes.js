@@ -49,7 +49,7 @@ const sendVerificationEmail = async (email, verificationCode) => {
 
 // Middleware to update lastActive timestamp
 router.use(async (req, res, next) => {
-  if (req.user) { // Assuming you have user data from JWT
+  if (req.user) {
     try {
       await User.findByIdAndUpdate(req.user.id, { lastActive: new Date() });
     } catch (err) {
@@ -71,7 +71,6 @@ const validateRegisterInput = (req, res, next) => {
   next();
 };
 
-// ✅ FIXED: Login validation middleware now checks both email AND password
 const validateLoginInput = (req, res, next) => {
   const { email, password } = req.body;
   if (!email) {
@@ -89,7 +88,7 @@ const validateLoginInput = (req, res, next) => {
   next();
 };
 
-// 🔹 User Registration
+// 🔹 FIXED: User Registration - Let schema handle password hashing
 router.post("/register", validateRegisterInput, async (req, res) => {
   try {
     const { username, email, password } = req.body;
@@ -105,22 +104,20 @@ router.post("/register", validateRegisterInput, async (req, res) => {
       });
     }
 
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(trimmedPassword, salt);
+    // ✅ REMOVED manual hashing - let User schema handle it
     const verificationCode = generateVerificationCode();
 
     const newUser = new User({
       username: username.trim(),
       email: trimmedEmail,
-      password: hashedPassword,
+      password: trimmedPassword, // ✅ Pass plain password, schema will hash it
       verified: false,
       verificationCode,
       verificationCodeExpires: Date.now() + 10 * 60 * 1000, // 10 minutes
       role: 'user'
     });
 
-    await newUser.save();
+    await newUser.save(); // Schema pre('save') middleware will hash the password
     await sendVerificationEmail(newUser.email, verificationCode);
 
     res.status(201).json({ 
@@ -203,21 +200,20 @@ router.post("/verify", async (req, res) => {
   }
 });
 
-// 🔹 FIXED: User Login with Direct bcrypt Comparison + Response Debug
+// 🔹 FIXED: User Login with proper password validation
 router.post("/login", validateLoginInput, async (req, res) => {
   try {
     const { email, password } = req.body;
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedPassword = password.trim();
 
-    // ✅ Find user and explicitly include password field
+    // Find user and include password field
     const user = await User.findOne({ email: trimmedEmail }).select('+password +verificationCode +verificationCodeExpires');
     
     if (!user) {
       return res.status(401).json({ 
         success: false,
-        message: "Invalid email or password",
-        debug: "User not found"
+        message: "Invalid email or password"
       });
     }
 
@@ -225,27 +221,24 @@ router.post("/login", validateLoginInput, async (req, res) => {
       return res.status(403).json({ 
         success: false,
         isVerified: false,
-        message: "Please verify your email first",
-        debug: "User not verified"
+        message: "Please verify your email first"
       });
     }
 
     if (!user.password) {
       return res.status(500).json({ 
         success: false,
-        message: "Server error during login",
-        debug: "Password field missing from database"
+        message: "Server error during login"
       });
     }
 
-    // ✅ CRITICAL: Use direct bcrypt comparison instead of model method
-    const isPasswordValid = await bcrypt.compare(trimmedPassword, user.password);
+    // Use the User model's comparePassword method
+    const isPasswordValid = await user.comparePassword(trimmedPassword);
     
     if (!isPasswordValid) {
       return res.status(401).json({ 
         success: false,
-        message: "Invalid email or password",
-        debug: "Password comparison failed"
+        message: "Invalid email or password"
       });
     }
 
@@ -276,16 +269,14 @@ router.post("/login", validateLoginInput, async (req, res) => {
       success: true,
       message: "Login successful!",
       token,
-      user: userResponse,
-      debug: "Login completed successfully"
+      user: userResponse
     });
 
   } catch (err) {
     console.error("Login Error:", err);
     res.status(500).json({ 
       success: false,
-      message: "Server error during login",
-      debug: `Server error: ${err.message}`
+      message: "Server error during login"
     });
   }
 });
@@ -305,7 +296,6 @@ router.post("/forgot-password", async (req, res) => {
 
     const user = await User.findOne({ email: trimmedEmail });
     if (!user) {
-      // Return generic success to prevent email enumeration
       return res.status(200).json({ 
         success: true,
         message: "If an account exists, a reset link has been sent" 
@@ -366,10 +356,8 @@ router.post("/validate-reset-token", async (req, res) => {
       });
     }
 
-    // Verify JWT token
     const decoded = jwt.verify(token, JWT_SECRET);
     
-    // Find user with matching token
     const user = await User.findOne({
       _id: decoded.id,
       resetPasswordToken: token,
@@ -410,7 +398,7 @@ router.post("/validate-reset-token", async (req, res) => {
   }
 });
 
-// 🔹 Reset Password
+// 🔹 Reset Password - Let schema handle password hashing
 router.post("/reset-password", async (req, res) => {
   try {
     const { token, newPassword } = req.body;
@@ -429,10 +417,8 @@ router.post("/reset-password", async (req, res) => {
       });
     }
 
-    // Verify token
     const decoded = jwt.verify(token, JWT_SECRET);
     
-    // Find user with matching token
     const user = await User.findOne({
       _id: decoded.id,
       resetPasswordToken: token,
@@ -446,8 +432,8 @@ router.post("/reset-password", async (req, res) => {
       });
     }
 
-    // Check if new password is same as old
-    const isSamePassword = await bcrypt.compare(newPassword.trim(), user.password);
+    // Check if new password is same as old using the model method
+    const isSamePassword = await user.comparePassword(newPassword.trim());
     if (isSamePassword) {
       return res.status(400).json({ 
         success: false,
@@ -455,13 +441,11 @@ router.post("/reset-password", async (req, res) => {
       });
     }
 
-    // Update password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(newPassword.trim(), salt);
-    user.password = hashedPassword;
+    // ✅ Let schema handle password hashing
+    user.password = newPassword.trim(); // Schema will hash this automatically
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
-    await user.save();
+    await user.save(); // Schema pre('save') will hash the new password
 
     // Send confirmation email
     await transporter.sendMail({
@@ -490,7 +474,7 @@ router.post("/reset-password", async (req, res) => {
   }
 });
 
-// 🔹 Get All Users (New Endpoint)
+// 🔹 Get All Users
 router.get("/users", async (req, res) => {
   try {
     const users = await User.find({}, 'username email role createdAt lastActive verified')
@@ -518,7 +502,7 @@ router.get("/users", async (req, res) => {
   }
 });
 
-// 🔹 Get Active Users (New Endpoint)
+// 🔹 Get Active Users
 router.get("/active-users", async (req, res) => {
   try {
     const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
@@ -543,12 +527,11 @@ router.get("/active-users", async (req, res) => {
   }
 });
 
-// 🔹 Delete User (New Endpoint)
+// 🔹 Delete User
 router.delete("/users/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Check if user exists
     const user = await User.findById(id);
     if (!user) {
       return res.status(404).json({
@@ -557,7 +540,6 @@ router.delete("/users/:id", async (req, res) => {
       });
     }
 
-    // Delete the user
     await User.findByIdAndDelete(id);
 
     res.status(200).json({
