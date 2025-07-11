@@ -16,7 +16,7 @@ import ParkingListingThirdParty from './components/home'; // New import
 import Login from './components/login';
 import Register from './components/register';
 import ForgotPassword from './components/forgetpassword';
-import ResetPassword from './components/resetpassword';
+import ResetPassword from './components/resetpassword'; // ✅ This now matches the export
 import EmailVerification from './components/emailverification';
 
 // Chatbot component
@@ -45,6 +45,17 @@ const Layout = ({ children }) => (
 const AuthLayout = ({ children }) => (
   <div className="auth-layout">
     <main className="main-content">{children}</main>
+  </div>
+);
+
+// Auth layout wrapper WITH ContactWidget (for login page)
+const AuthLayoutWithWidget = ({ children }) => (
+  <div className="auth-layout">
+    <main className="main-content">
+      {children}
+      {/* Contact Widget appears on login page */}
+      <ContactWidget />
+    </main>
   </div>
 );
 
@@ -81,10 +92,13 @@ function App() {
           <Route path="/home" element={<HomeLayout><ParkingListingThirdParty /></HomeLayout>} />
           
           {/* ========== AUTH ROUTES ========== */}
-          <Route path="/login" element={<AuthLayout><Login /></AuthLayout>} />
+          {/* LOGIN PAGE WITH CONTACT WIDGET */}
+          <Route path="/login" element={<AuthLayoutWithWidget><Login /></AuthLayoutWithWidget>} />
+          
+          {/* OTHER AUTH ROUTES WITHOUT CONTACT WIDGET */}
           <Route path="/register" element={<AuthLayout><Register /></AuthLayout>} />
           <Route path="/forgot-password" element={<AuthLayout><ForgotPassword /></AuthLayout>} />
-          {/* FIXED: Added :token parameter to match the URL structure */}
+          {/* ✅ FIXED: Component name now matches the export */}
           <Route path="/reset-password/:token" element={<AuthLayout><ResetPassword /></AuthLayout>} />
           <Route path="/verify-email" element={<AuthLayout><EmailVerification /></AuthLayout>} />
           
