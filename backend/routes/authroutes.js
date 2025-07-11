@@ -203,59 +203,52 @@ router.post("/verify", async (req, res) => {
   }
 });
 
-// 🔹 FIXED: User Login with Direct bcrypt Comparison
+// 🔹 FIXED: User Login with Direct bcrypt Comparison + Response Debug
 router.post("/login", validateLoginInput, async (req, res) => {
   try {
     const { email, password } = req.body;
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedPassword = password.trim();
 
-    console.log("=== LOGIN DEBUG ===");
-    console.log("Email received:", trimmedEmail);
-    console.log("Password received:", trimmedPassword ? "***PROVIDED***" : "***EMPTY***");
-
     // ✅ Find user and explicitly include password field
     const user = await User.findOne({ email: trimmedEmail }).select('+password +verificationCode +verificationCodeExpires');
     
-    console.log("User found:", user ? "YES" : "NO");
-    if (user) {
-      console.log("User verified:", user.verified);
-      console.log("User has password field:", user.password ? "YES" : "NO");
-      console.log("Password hash length:", user.password ? user.password.length : "NO PASSWORD");
-    }
-    
     if (!user) {
-      console.log("❌ User not found");
       return res.status(401).json({ 
         success: false,
-        message: "Invalid email or password"
+        message: "Invalid email or password",
+        debug: "User not found"
       });
     }
 
     if (!user.verified) {
-      console.log("❌ User not verified");
       return res.status(403).json({ 
         success: false,
         isVerified: false,
-        message: "Please verify your email first" 
+        message: "Please verify your email first",
+        debug: "User not verified"
+      });
+    }
+
+    if (!user.password) {
+      return res.status(500).json({ 
+        success: false,
+        message: "Server error during login",
+        debug: "Password field missing from database"
       });
     }
 
     // ✅ CRITICAL: Use direct bcrypt comparison instead of model method
-    console.log("Comparing passwords with bcrypt.compare...");
     const isPasswordValid = await bcrypt.compare(trimmedPassword, user.password);
-    console.log("Password valid:", isPasswordValid);
     
     if (!isPasswordValid) {
-      console.log("❌ Password comparison failed");
       return res.status(401).json({ 
         success: false,
-        message: "Invalid email or password" 
+        message: "Invalid email or password",
+        debug: "Password comparison failed"
       });
     }
 
-    console.log("✅ Login successful");
-    
     // Update last login time
     user.lastLogin = new Date();
     await user.save();
@@ -283,14 +276,16 @@ router.post("/login", validateLoginInput, async (req, res) => {
       success: true,
       message: "Login successful!",
       token,
-      user: userResponse
+      user: userResponse,
+      debug: "Login completed successfully"
     });
 
   } catch (err) {
     console.error("Login Error:", err);
     res.status(500).json({ 
       success: false,
-      message: "Server error during login"
+      message: "Server error during login",
+      debug: `Server error: ${err.message}`
     });
   }
 });
