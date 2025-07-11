@@ -1,144 +1,560 @@
 const express = require('express');
 const router = express.Router();
-const nodemailer = require('nodemailer');
+const contactController = require('../controllers/contactcontroller');
+const EmergencyContact = require('../models/emergencycontact');
 
-// Create reusable transporter object using the default SMTP transport
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  tls: {
-    rejectUnauthorized: false
+// Emergency contact form submission route
+router.post('/submit', contactController.submitContactForm);
+
+// Get inquiry types for dropdown (for frontend)
+router.get('/inquiry-types', contactController.getInquiryTypes);
+
+// ==================== ADMIN ROUTES ====================
+
+// Get all emergency contacts with filtering and pagination
+router.get('/admin/all', contactController.getAllEmergencyContacts);
+
+// Get dashboard statistics
+router.get('/admin/stats', contactController.getDashboardStats);
+
+// Get single emergency contact by ID
+router.get('/admin/:id', async (req, res) => {
+  try {
+    const contact = await EmergencyContact.findById(req.params.id);
+    if (!contact) {
+      return res.status(404).json({
+        success: false,
+        message: 'Emergency contact not found'
+      });
+    }
+    res.status(200).json({
+      success: true,
+      data: contact
+    });
+  } catch (error) {
+    console.error('Error fetching emergency contact:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching emergency contact'
+    });
   }
 });
 
-// Contact form submission route
-router.post('/submit', async (req, res) => {
+// Update emergency contact status
+router.put('/admin/:id/status', contactController.updateEmergencyContactStatus);
+
+// Add admin response to emergency contact
+router.put('/admin/:id/response', async (req, res) => {
   try {
-    const { name, email, phone, inquiryType, message } = req.body;
-
-    // Validate required fields
-    if (!name || !email || !inquiryType || !message) {
+    const { id } = req.params;
+    const { adminResponse, assignedTo } = req.body;
+    
+    if (!adminResponse) {
       return res.status(400).json({
         success: false,
-        message: 'Please fill all required fields',
+        message: 'Admin response is required'
       });
     }
-
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({
+    
+    const contact = await EmergencyContact.findByIdAndUpdate(
+      id,
+      {
+        adminResponse,
+        responseDate: new Date(),
+        status: 'IN_PROGRESS',
+        assignedTo: assignedTo || undefined
+      },
+      { new: true }
+    );
+    
+    if (!contact) {
+      return res.status(404).json({
         success: false,
-        message: 'Please enter a valid email address',
+        message: 'Emergency contact not found'
       });
     }
-
-    // Email to admin
-    const adminMailOptions = {
-      from: `"Parksy Support" <${process.env.EMAIL_USER}>`,
-      to: process.env.EMAIL_USER, // Admin email address
-      subject: `🚗 Parksy Contact Form - ${inquiryType} from ${name}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
-          <div style="text-align: center; margin-bottom: 30px;">
-            <h1 style="color: #2563eb; margin: 0;">🚗 Parksy</h1>
-            <h2 style="color: #374151; margin: 10px 0;">New Contact Form Submission</h2>
-          </div>
-          
-          <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-            <h3 style="color: #1f2937; margin-top: 0;">Contact Details</h3>
-            <p><strong>👤 Name:</strong> ${name}</p>
-            <p><strong>📧 Email:</strong> ${email}</p>
-            <p><strong>📱 Phone:</strong> ${phone || 'Not provided'}</p>
-          </div>
-          
-          <div style="background-color: #fef3c7; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-            <h3 style="color: #92400e; margin-top: 0;">Inquiry Details</h3>
-            <p><strong>🏷️ Issue Type:</strong> ${inquiryType}</p>
-          </div>
-          
-          <div style="background-color: #f0f9ff; padding: 20px; border-radius: 8px;">
-            <h3 style="color: #0c4a6e; margin-top: 0;">💬 Message</h3>
-            <p style="background-color: white; padding: 15px; border-radius: 5px; border-left: 4px solid #2563eb;">${message}</p>
-          </div>
-          
-          <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
-            <p style="color: #6b7280; font-size: 14px;">
-              This message was sent via Parksy Contact Widget<br/>
-              <span style="color: #9ca3af;">Received on ${new Date().toLocaleString()}</span>
-            </p>
-          </div>
-        </div>
-      `,
-    };
-
-    // Email to user (confirmation)
-    const userMailOptions = {
-      from: `"Parksy Support Team" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: '🚗 Thank you for contacting Parksy - We\'ve received your message!',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
-          <div style="text-align: center; margin-bottom: 30px;">
-            <h1 style="color: #2563eb; margin: 0;">🚗 Parksy</h1>
-            <h2 style="color: #16a34a;">Thank you for reaching out!</h2>
-          </div>
-          
-          <div style="background-color: #f0fdf4; padding: 20px; border-radius: 8px; border-left: 4px solid #16a34a; margin-bottom: 20px;">
-            <h3 style="color: #15803d; margin-top: 0;">Hi ${name}! 👋</h3>
-            <p style="color: #166534;">We've successfully received your message about <strong>"${inquiryType}"</strong> and our support team will get back to you within 24 hours.</p>
-          </div>
-          
-          <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-            <h3 style="color: #374151; margin-top: 0;">📋 Your Submission Summary</h3>
-            <p><strong>Issue Type:</strong> ${inquiryType}</p>
-            <p><strong>Your Message:</strong></p>
-            <div style="background-color: white; padding: 15px; border-radius: 5px; border-left: 4px solid #2563eb;">
-              ${message}
-            </div>
-          </div>
-          
-          <div style="background-color: #fef9e7; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-            <h3 style="color: #a16207; margin-top: 0;">🎯 What happens next?</h3>
-            <ul style="color: #92400e; margin: 0; padding-left: 20px;">
-              <li>Our support team will review your inquiry</li>
-              <li>You'll receive a detailed response within 24 hours</li>
-              <li>For urgent parking issues, we'll prioritize your request</li>
-            </ul>
-          </div>
-          
-          <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
-            <p style="color: #2563eb; font-weight: bold;">Need immediate assistance?</p>
-            <p style="color: #6b7280; font-size: 14px;">
-              Visit our FAQ section or contact us directly at support@parksy.com
-            </p>
-            <br/>
-            <p style="color: #6b7280; font-size: 12px;">
-              Best regards,<br/>
-              <strong>The Parksy Support Team</strong> 🚗
-            </p>
-          </div>
-        </div>
-      `,
-    };
-
-    // Send both emails
-    await transporter.sendMail(adminMailOptions);
-    await transporter.sendMail(userMailOptions);
-
+    
     res.status(200).json({
       success: true,
-      message: 'Thank you for contacting us! We\'ve sent a confirmation to your email and will respond within 24 hours.',
+      message: 'Admin response added successfully',
+      data: contact
     });
   } catch (error) {
-    console.error('Error sending email:', error);
+    console.error('Error adding admin response:', error);
     res.status(500).json({
       success: false,
-      message: 'Something went wrong. Please try again later.',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: 'Error adding admin response'
+    });
+  }
+});
+
+// Assign emergency contact to admin
+router.put('/admin/:id/assign', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { assignedTo } = req.body;
+    
+    if (!assignedTo) {
+      return res.status(400).json({
+        success: false,
+        message: 'Assigned admin is required'
+      });
+    }
+    
+    const contact = await EmergencyContact.findByIdAndUpdate(
+      id,
+      { assignedTo },
+      { new: true }
+    );
+    
+    if (!contact) {
+      return res.status(404).json({
+        success: false,
+        message: 'Emergency contact not found'
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: 'Emergency contact assigned successfully',
+      data: contact
+    });
+  } catch (error) {
+    console.error('Error assigning emergency contact:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error assigning emergency contact'
+    });
+  }
+});
+
+// Add tags to emergency contact
+router.put('/admin/:id/tags', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { tags } = req.body;
+    
+    if (!Array.isArray(tags)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tags must be an array'
+      });
+    }
+    
+    const contact = await EmergencyContact.findByIdAndUpdate(
+      id,
+      { tags },
+      { new: true }
+    );
+    
+    if (!contact) {
+      return res.status(404).json({
+        success: false,
+        message: 'Emergency contact not found'
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: 'Tags updated successfully',
+      data: contact
+    });
+  } catch (error) {
+    console.error('Error updating tags:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating tags'
+    });
+  }
+});
+
+// Delete emergency contact (soft delete - change status to CLOSED)
+router.delete('/admin/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const contact = await EmergencyContact.findByIdAndUpdate(
+      id,
+      { status: 'CLOSED' },
+      { new: true }
+    );
+    
+    if (!contact) {
+      return res.status(404).json({
+        success: false,
+        message: 'Emergency contact not found'
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: 'Emergency contact closed successfully',
+      data: contact
+    });
+  } catch (error) {
+    console.error('Error closing emergency contact:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error closing emergency contact'
+    });
+  }
+});
+
+// Get overdue emergency contacts
+router.get('/admin/overdue/list', async (req, res) => {
+  try {
+    const contacts = await EmergencyContact.find({
+      status: { $in: ['OPEN', 'IN_PROGRESS'] }
+    }).sort({ createdAt: -1 });
+    
+    const overdueContacts = contacts.filter(contact => contact.isOverdue());
+    
+    res.status(200).json({
+      success: true,
+      data: overdueContacts,
+      count: overdueContacts.length
+    });
+  } catch (error) {
+    console.error('Error fetching overdue contacts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching overdue contacts'
+    });
+  }
+});
+
+// Get emergency contacts by status
+router.get('/admin/status/:status', async (req, res) => {
+  try {
+    const { status } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    
+    const validStatuses = ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'];
+    if (!validStatuses.includes(status.toUpperCase())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Valid statuses: ' + validStatuses.join(', ')
+      });
+    }
+    
+    const contacts = await EmergencyContact.find({ status: status.toUpperCase() })
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .exec();
+    
+    const total = await EmergencyContact.countDocuments({ status: status.toUpperCase() });
+    
+    res.status(200).json({
+      success: true,
+      data: contacts,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+      total
+    });
+  } catch (error) {
+    console.error('Error fetching contacts by status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching contacts by status'
+    });
+  }
+});
+
+// Get emergency contacts by priority
+router.get('/admin/priority/:priority', async (req, res) => {
+  try {
+    const { priority } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    
+    if (!['HIGH', 'NORMAL'].includes(priority.toUpperCase())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid priority. Valid priorities: HIGH, NORMAL'
+      });
+    }
+    
+    const contacts = await EmergencyContact.find({ priority: priority.toUpperCase() })
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .exec();
+    
+    const total = await EmergencyContact.countDocuments({ priority: priority.toUpperCase() });
+    
+    res.status(200).json({
+      success: true,
+      data: contacts,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+      total
+    });
+  } catch (error) {
+    console.error('Error fetching contacts by priority:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching contacts by priority'
+    });
+  }
+});
+
+// Search emergency contacts
+router.get('/admin/search', async (req, res) => {
+  try {
+    const { q, page = 1, limit = 10 } = req.query;
+    
+    if (!q) {
+      return res.status(400).json({
+        success: false,
+        message: 'Search query is required'
+      });
+    }
+    
+    const searchRegex = new RegExp(q, 'i');
+    
+    const contacts = await EmergencyContact.find({
+      $or: [
+        { name: searchRegex },
+        { email: searchRegex },
+        { phone: searchRegex },
+        { ticketId: searchRegex },
+        { inquiryType: searchRegex },
+        { message: searchRegex }
+      ]
+    })
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .exec();
+    
+    const total = await EmergencyContact.countDocuments({
+      $or: [
+        { name: searchRegex },
+        { email: searchRegex },
+        { phone: searchRegex },
+        { ticketId: searchRegex },
+        { inquiryType: searchRegex },
+        { message: searchRegex }
+      ]
+    });
+    
+    res.status(200).json({
+      success: true,
+      data: contacts,
+      totalPages: Math.ceil(total / parseInt(limit)),
+      currentPage: parseInt(page),
+      total,
+      searchQuery: q
+    });
+  } catch (error) {
+    console.error('Error searching contacts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error searching contacts'
+    });
+  }
+});
+
+// Get emergency contacts within date range
+router.get('/admin/date-range', async (req, res) => {
+  try {
+    const { startDate, endDate, page = 1, limit = 10 } = req.query;
+    
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'Start date and end date are required'
+      });
+    }
+    
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid date format'
+      });
+    }
+    
+    const contacts = await EmergencyContact.find({
+      createdAt: {
+        $gte: start,
+        $lte: end
+      }
+    })
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .exec();
+    
+    const total = await EmergencyContact.countDocuments({
+      createdAt: {
+        $gte: start,
+        $lte: end
+      }
+    });
+    
+    res.status(200).json({
+      success: true,
+      data: contacts,
+      totalPages: Math.ceil(total / parseInt(limit)),
+      currentPage: parseInt(page),
+      total,
+      dateRange: { startDate, endDate }
+    });
+  } catch (error) {
+    console.error('Error fetching contacts by date range:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching contacts by date range'
+    });
+  }
+});
+
+// Export emergency contacts to CSV (for admin reporting)
+router.get('/admin/export/csv', async (req, res) => {
+  try {
+    const { status, priority, startDate, endDate } = req.query;
+    
+    // Build filter
+    const filter = {};
+    if (status) filter.status = status.toUpperCase();
+    if (priority) filter.priority = priority.toUpperCase();
+    if (startDate && endDate) {
+      filter.createdAt = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      };
+    }
+    
+    const contacts = await EmergencyContact.find(filter)
+      .sort({ createdAt: -1 })
+      .exec();
+    
+    // Create CSV headers
+    const csvHeaders = [
+      'Ticket ID',
+      'Name',
+      'Email',
+      'Phone',
+      'Inquiry Type',
+      'Priority',
+      'Status',
+      'Message',
+      'Created At',
+      'Response Date',
+      'Assigned To',
+      'Admin Response'
+    ];
+    
+    // Convert data to CSV format
+    const csvData = contacts.map(contact => [
+      contact.ticketId,
+      contact.name,
+      contact.email,
+      contact.phone,
+      contact.inquiryType,
+      contact.priority,
+      contact.status,
+      contact.message.replace(/,/g, ';'), // Replace commas in message
+      contact.createdAt.toISOString(),
+      contact.responseDate ? contact.responseDate.toISOString() : '',
+      contact.assignedTo || '',
+      contact.adminResponse ? contact.adminResponse.replace(/,/g, ';') : ''
+    ]);
+    
+    // Combine headers and data
+    const csvContent = [csvHeaders, ...csvData]
+      .map(row => row.map(field => `"${field}"`).join(','))
+      .join('\n');
+    
+    // Set response headers for CSV download
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="emergency_contacts_${new Date().toISOString().split('T')[0]}.csv"`);
+    
+    res.status(200).send(csvContent);
+  } catch (error) {
+    console.error('Error exporting contacts to CSV:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error exporting contacts to CSV'
+    });
+  }
+});
+
+// Get response time analytics
+router.get('/admin/analytics/response-time', async (req, res) => {
+  try {
+    const analytics = await EmergencyContact.aggregate([
+      {
+        $match: {
+          responseDate: { $exists: true }
+        }
+      },
+      {
+        $addFields: {
+          responseTimeHours: {
+            $divide: [
+              { $subtract: ['$responseDate', '$createdAt'] },
+              1000 * 60 * 60 // Convert to hours
+            ]
+          }
+        }
+      },
+      {
+        $group: {
+          _id: '$priority',
+          avgResponseTime: { $avg: '$responseTimeHours' },
+          minResponseTime: { $min: '$responseTimeHours' },
+          maxResponseTime: { $max: '$responseTimeHours' },
+          totalTickets: { $sum: 1 }
+        }
+      }
+    ]);
+    
+    res.status(200).json({
+      success: true,
+      data: analytics
+    });
+  } catch (error) {
+    console.error('Error fetching response time analytics:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching response time analytics'
+    });
+  }
+});
+
+// Get inquiry type distribution
+router.get('/admin/analytics/inquiry-types', async (req, res) => {
+  try {
+    const distribution = await EmergencyContact.aggregate([
+      {
+        $group: {
+          _id: '$inquiryType',
+          count: { $sum: 1 },
+          highPriorityCount: {
+            $sum: { $cond: [{ $eq: ['$priority', 'HIGH'] }, 1, 0] }
+          }
+        }
+      },
+      {
+        $sort: { count: -1 }
+      }
+    ]);
+    
+    res.status(200).json({
+      success: true,
+      data: distribution
+    });
+  } catch (error) {
+    console.error('Error fetching inquiry type distribution:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching inquiry type distribution'
     });
   }
 });
