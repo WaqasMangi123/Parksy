@@ -4,7 +4,7 @@ import axios from "axios";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { motion, AnimatePresence } from "framer-motion";
-import "./login.css"; // Import the CSS file
+import "./login.css";
 
 const backgroundImages = [
   "https://images.unsplash.com/photo-1522202176988-66273c2fd55f?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1471&q=80",
@@ -23,9 +23,6 @@ function Login({ setAuth }) {
   const [currentBgIndex, setCurrentBgIndex] = useState(0);
   const navigate = useNavigate();
   const location = useLocation();
-
-  // Debug: Log the API URL to verify it's loaded correctly
-  console.log('Using hardcoded API URL: https://parksy-backend.onrender.com/api/');
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -66,7 +63,7 @@ function Login({ setAuth }) {
     if (!formData.email.trim()) {
       newErrors.email = "Email is required";
     } else if (!emailRegex.test(formData.email)) {
-      newErrors.email = "Please enter a valid email";
+      newErrors.email = "Please enter a valid email address";
     }
 
     if (!formData.password) {
@@ -91,18 +88,18 @@ function Login({ setAuth }) {
         password: formData.password
       };
 
-      // Use the same URL pattern as register component
       const response = await axios.post(
         "https://parksy-backend.onrender.com/api/auth/login",
         loginData,
         {
           headers: { "Content-Type": "application/json" },
-          timeout: 15000, // Increased timeout for production server
-          withCredentials: false // Explicitly set for CORS
+          timeout: 15000,
+          withCredentials: false
         }
       );
 
       if (response.data.success) {
+        // Store authentication data
         localStorage.setItem("token", response.data.token);
         localStorage.setItem("user", JSON.stringify(response.data.user));
 
@@ -114,7 +111,8 @@ function Login({ setAuth }) {
           });
         }
 
-        toast.success("Login successful! Redirecting...", {
+        // Show success message
+        toast.success(response.data.message || "Login successful! Welcome back!", {
           position: "top-center",
           autoClose: 2000,
           hideProgressBar: false,
@@ -123,11 +121,18 @@ function Login({ setAuth }) {
           draggable: true,
           progress: undefined,
           theme: "colored",
-          style: { background: "#10b981" }
+          style: { 
+            background: "linear-gradient(135deg, #10b981, #059669)",
+            color: "white",
+            fontWeight: "500"
+          }
         });
 
-        const redirectTo = location.state?.from?.pathname || "/home";
-        navigate(redirectTo);
+        // Redirect after a short delay
+        setTimeout(() => {
+          const redirectTo = location.state?.from?.pathname || "/home";
+          navigate(redirectTo);
+        }, 1500);
       }
     } catch (err) {
       console.error('Login error:', err);
@@ -142,20 +147,78 @@ function Login({ setAuth }) {
     let shouldResendVerification = false;
     
     if (err.response) {
-      console.log('Error response:', err.response);
-      if (err.response.data?.message) {
-        errorMessage = err.response.data.message;
-        if (err.response.status === 403 && err.response.data?.isVerified === false) {
-          shouldResendVerification = true;
-        }
-      } else if (err.response.status === 401) {
-        errorMessage = "Invalid email or password";
-      } else if (err.response.status === 403) {
-        errorMessage = "Please verify your email first.";
+      const { status, data } = err.response;
+      
+      if (data?.message) {
+        errorMessage = data.message;
+      }
+
+      // Check if email verification is needed
+      if (status === 403 && (data?.isVerified === false || errorMessage.includes("verify"))) {
         shouldResendVerification = true;
-      } else if (err.response.status === 404) {
-        errorMessage = "Server endpoint not found. Please check server configuration.";
-      } else if (err.response.status === 500) {
+      }
+
+      // Handle specific error cases with custom styling
+      if (status === 401) {
+        if (errorMessage.includes("password")) {
+          // Incorrect password - show in red
+          toast.error(errorMessage, {
+            position: "top-center",
+            autoClose: 4000,
+            hideProgressBar: false,
+            closeOnClick: true,
+            pauseOnHover: true,
+            draggable: true,
+            progress: undefined,
+            theme: "colored",
+            style: { 
+              background: "linear-gradient(135deg, #ef4444, #dc2626)",
+              color: "white",
+              fontWeight: "500"
+            }
+          });
+        } else {
+          // Email not found - show in orange
+          toast.error(errorMessage, {
+            position: "top-center",
+            autoClose: 4000,
+            hideProgressBar: false,
+            closeOnClick: true,
+            pauseOnHover: true,
+            draggable: true,
+            progress: undefined,
+            theme: "colored",
+            style: { 
+              background: "linear-gradient(135deg, #f97316, #ea580c)",
+              color: "white",
+              fontWeight: "500"
+            }
+          });
+        }
+        return; // Exit early for these cases
+      }
+
+      if (status === 400) {
+        // Validation errors - show in yellow
+        toast.warn(errorMessage, {
+          position: "top-center",
+          autoClose: 4000,
+          hideProgressBar: false,
+          closeOnClick: true,
+          pauseOnHover: true,
+          draggable: true,
+          progress: undefined,
+          theme: "colored",
+          style: { 
+            background: "linear-gradient(135deg, #f59e0b, #d97706)",
+            color: "white",
+            fontWeight: "500"
+          }
+        });
+        return;
+      }
+
+      if (status === 500) {
         errorMessage = "Server error. Please try again later.";
       }
     } else if (err.code === "ECONNABORTED") {
@@ -166,23 +229,35 @@ function Login({ setAuth }) {
       errorMessage = "Network error. Please check your internet connection.";
     }
 
-    const toastId = toast.error(
-      <div className="error-toast-content">
-        <p className="error-message">{errorMessage}</p>
-        {shouldResendVerification && (
+    // Handle email verification case with resend option
+    if (shouldResendVerification) {
+      const toastId = toast.error(
+        <div className="verification-toast-content">
+          <p className="error-message">{errorMessage}</p>
           <motion.button 
             onClick={() => {
               toast.dismiss(toastId);
               handleResendVerification();
             }}
-            className="resend-button"
+            className="resend-verification-button"
             disabled={isResending}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
+            style={{
+              marginTop: "10px",
+              padding: "8px 16px",
+              backgroundColor: "#3b82f6",
+              color: "white",
+              border: "none",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontSize: "14px",
+              fontWeight: "500"
+            }}
           >
             {isResending ? (
               <>
-                <svg className="spinner-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <svg className="spinner-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" style={{width: "16px", height: "16px", marginRight: "8px"}}>
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
@@ -190,15 +265,36 @@ function Login({ setAuth }) {
               </>
             ) : "Resend verification email"}
           </motion.button>
-        )}
-      </div>,
-      { 
+        </div>,
+        { 
+          position: "top-center",
+          autoClose: false,
+          closeOnClick: false,
+          style: { 
+            background: "linear-gradient(135deg, #8b5cf6, #7c3aed)",
+            color: "white",
+            fontWeight: "500"
+          }
+        }
+      );
+    } else {
+      // Default error toast
+      toast.error(errorMessage, {
         position: "top-center",
-        autoClose: false,
-        closeOnClick: false,
-        className: "error-toast"
-      }
-    );
+        autoClose: 4000,
+        hideProgressBar: false,
+        closeOnClick: true,
+        pauseOnHover: true,
+        draggable: true,
+        progress: undefined,
+        theme: "colored",
+        style: { 
+          background: "linear-gradient(135deg, #ef4444, #dc2626)",
+          color: "white",
+          fontWeight: "500"
+        }
+      });
+    }
   };
 
   const handleResendVerification = async () => {
@@ -208,7 +304,11 @@ function Login({ setAuth }) {
       if (!email) {
         toast.error("Please enter your email first", {
           position: "top-center",
-          className: "error-toast"
+          style: { 
+            background: "linear-gradient(135deg, #f97316, #ea580c)",
+            color: "white",
+            fontWeight: "500"
+          }
         });
         return;
       }
@@ -224,18 +324,27 @@ function Login({ setAuth }) {
       );
 
       if (response.data.success) {
-        toast.success("Verification email resent! Check your inbox.", {
+        toast.success(response.data.message || "Verification email sent! Check your inbox.", {
           position: "top-center",
-          className: "success-toast"
+          style: { 
+            background: "linear-gradient(135deg, #10b981, #059669)",
+            color: "white",
+            fontWeight: "500"
+          }
         });
       } else {
         throw new Error(response.data.message || "Failed to resend verification");
       }
     } catch (err) {
       console.error("Resend error:", err);
-      toast.error(err.response?.data?.message || "Failed to resend verification email", {
+      const errorMessage = err.response?.data?.message || "Failed to resend verification email";
+      toast.error(errorMessage, {
         position: "top-center",
-        className: "error-toast"
+        style: { 
+          background: "linear-gradient(135deg, #ef4444, #dc2626)",
+          color: "white",
+          fontWeight: "500"
+        }
       });
     } finally {
       setIsResending(false);
@@ -336,7 +445,7 @@ function Login({ setAuth }) {
                   <div className="input-container">
                     <div className="input-icon">
                       <svg className="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                        <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 616 0z" clipRule="evenodd" />
                       </svg>
                     </div>
                     <input
@@ -424,7 +533,7 @@ function Login({ setAuth }) {
                     ) : (
                       <>
                         <svg className="button-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                          <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 616 0z" clipRule="evenodd" />
                         </svg>
                         Sign in
                       </>
