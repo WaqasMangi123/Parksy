@@ -44,6 +44,44 @@ const ContactWidget = () => {
     }
   };
 
+  const formatPhoneNumber = (value) => {
+    // Remove all non-digit characters
+    const phoneNumber = value.replace(/[^\d]/g, '');
+    
+    // Format as (XXX) XXX-XXXX for US numbers
+    if (phoneNumber.length <= 3) {
+      return phoneNumber;
+    } else if (phoneNumber.length <= 6) {
+      return `(${phoneNumber.slice(0, 3)}) ${phoneNumber.slice(3)}`;
+    } else {
+      return `(${phoneNumber.slice(0, 3)}) ${phoneNumber.slice(3, 6)}-${phoneNumber.slice(6, 10)}`;
+    }
+  };
+
+  const handlePhoneChange = (e) => {
+    const formatted = formatPhoneNumber(e.target.value);
+    setFormData(prev => ({
+      ...prev,
+      phone: formatted
+    }));
+    
+    // Clear error when user starts typing
+    if (errors.phone) {
+      setErrors(prev => ({
+        ...prev,
+        phone: ''
+      }));
+    }
+  };
+
+  const validatePhone = (phone) => {
+    // Remove formatting to check digits only
+    const digitsOnly = phone.replace(/[^\d]/g, '');
+    
+    // Check if it's a valid phone number (7-15 digits)
+    return digitsOnly.length >= 7 && digitsOnly.length <= 15;
+  };
+
   const validateForm = () => {
     const newErrors = {};
     
@@ -57,14 +95,20 @@ const ContactWidget = () => {
       newErrors.email = 'Please enter a valid email';
     }
     
+    if (!formData.phone.trim()) {
+      newErrors.phone = 'Phone number is required for emergency contact';
+    } else if (!validatePhone(formData.phone)) {
+      newErrors.phone = 'Please enter a valid phone number (7-15 digits)';
+    }
+    
     if (!formData.inquiryType) {
-      newErrors.inquiryType = 'Please select an issue type';
+      newErrors.inquiryType = 'Please select an emergency type';
     }
     
     if (!formData.message.trim()) {
-      newErrors.message = 'Message is required';
+      newErrors.message = 'Emergency details are required';
     } else if (formData.message.trim().length < 10) {
-      newErrors.message = 'Message must be at least 10 characters';
+      newErrors.message = 'Emergency details must be at least 10 characters';
     }
     
     setErrors(newErrors);
@@ -82,10 +126,13 @@ const ContactWidget = () => {
     setSubmitStatus(null);
     
     try {
+      // Clean phone number for submission (remove formatting)
+      const cleanPhone = formData.phone.replace(/[^\d+]/g, '');
+      
       const response = await axios.post('https://parksy-backend.onrender.com/api/contact/submit', {
         name: formData.name.trim(),
         email: formData.email.trim().toLowerCase(),
-        phone: formData.phone.trim(),
+        phone: cleanPhone,
         inquiryType: formData.inquiryType,
         message: formData.message.trim()
       });
@@ -95,7 +142,8 @@ const ContactWidget = () => {
           type: 'success',
           message: response.data.message,
           ticketId: response.data.ticketId,
-          priority: response.data.priority
+          priority: response.data.priority,
+          dbId: response.data.dbId
         });
         setFormData({
           name: '',
@@ -115,7 +163,7 @@ const ContactWidget = () => {
       
       const errorMessage = error.response?.data?.message || 
                           error.message || 
-                          'Emergency request failed. Please try again.';
+                          'Emergency request failed. Please try again or call our emergency hotline.';
       
       setSubmitStatus({
         type: 'error',
@@ -220,11 +268,42 @@ const ContactWidget = () => {
                     <p className="emergency-success-message">{submitStatus.message}</p>
                     
                     {submitStatus.ticketId && (
-                      <div className="emergency-ticket-id">
-                        <p className="emergency-ticket-label">Emergency Ticket ID</p>
-                        <p className="emergency-ticket-number">{submitStatus.ticketId}</p>
+                      <div className="emergency-ticket-info">
+                        <div className="emergency-ticket-id">
+                          <p className="emergency-ticket-label">Emergency Ticket ID</p>
+                          <p className="emergency-ticket-number">{submitStatus.ticketId}</p>
+                        </div>
+                        {submitStatus.priority && (
+                          <div className="emergency-priority-badge">
+                            <span className={`priority-${submitStatus.priority.toLowerCase()}`}>
+                              {submitStatus.priority} PRIORITY
+                            </span>
+                          </div>
+                        )}
+                        {submitStatus.dbId && (
+                          <p className="emergency-db-info">
+                            Database Reference: {submitStatus.dbId}
+                          </p>
+                        )}
                       </div>
                     )}
+                    
+                    <div className="emergency-next-steps">
+                      <h4>What happens next?</h4>
+                      <ul>
+                        <li>📧 Confirmation email sent to your inbox</li>
+                        <li>📱 Our team may call you for urgent matters</li>
+                        <li>⚡ {submitStatus.priority === 'HIGH' ? 'Response within 2 hours' : 'Response within 24 hours'}</li>
+                        <li>💾 Your emergency request is saved in our system</li>
+                        <li>🔍 You can reference your ticket ID for follow-ups</li>
+                      </ul>
+                    </div>
+                    
+                    <div className="emergency-contact-info">
+                      <h4>Emergency Contact Info:</h4>
+                      <p>📧 support@parksy.com</p>
+                      <p>📱 Emergency Hotline: +1-800-PARKSY-911</p>
+                    </div>
                     
                     <button
                       onClick={() => {
@@ -264,6 +343,7 @@ const ContactWidget = () => {
                         onChange={handleInputChange}
                         className={`emergency-input ${errors.name ? 'error' : ''}`}
                         placeholder="Enter your full name"
+                        maxLength="100"
                       />
                       {errors.name && (
                         <div className="emergency-input-error">
@@ -299,20 +379,30 @@ const ContactWidget = () => {
                       )}
                     </div>
 
-                    {/* Phone Field */}
+                    {/* Phone Field - Now Required */}
                     <div className="emergency-form-group">
                       <label htmlFor="phone" className="emergency-label">
-                        Phone Number (Optional)
+                        Phone Number <span className="emergency-required">*</span>
+                        <span className="emergency-field-note">Required for emergency contact</span>
                       </label>
                       <input
                         type="tel"
                         id="phone"
                         name="phone"
                         value={formData.phone}
-                        onChange={handleInputChange}
-                        className="emergency-input"
+                        onChange={handlePhoneChange}
+                        className={`emergency-input ${errors.phone ? 'error' : ''}`}
                         placeholder="+1 (555) 123-4567"
+                        maxLength="20"
                       />
+                      {errors.phone && (
+                        <div className="emergency-input-error">
+                          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          {errors.phone}
+                        </div>
+                      )}
                     </div>
 
                     {/* Emergency Type */}
@@ -357,6 +447,7 @@ const ContactWidget = () => {
                         className={`emergency-textarea ${errors.message ? 'error' : ''}`}
                         placeholder="Please describe your emergency situation in detail..."
                         maxLength="1000"
+                        rows="4"
                       />
                       <div className="emergency-char-counter">
                         {errors.message && (
@@ -402,6 +493,8 @@ const ContactWidget = () => {
 
                     <div className="emergency-footer-note">
                       🚨 <strong>Emergency Response:</strong> High priority issues receive immediate attention.<br/>
+                      📱 <strong>Phone Required:</strong> We may call you for urgent matters.<br/>
+                      💾 <strong>Data Saved:</strong> Your request will be saved in our system for tracking.<br/>
                       For life-threatening emergencies, please call 911 or your local emergency services.
                     </div>
                   </form>
