@@ -26,18 +26,10 @@ if (missingVars.length > 0) {
 const app = express();
 const server = http.createServer(app);
 
-// Define allowed origins
-const allowedOrigins = [
-  'https://parksy.uk',
-  'http://localhost:3000',
-  'http://localhost:3001',
-  process.env.CLIENT_URL
-].filter(Boolean); // Remove any undefined values
-
-// Socket.io setup with proper CORS
+// Socket.io setup
 const io = socketio(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: process.env.CLIENT_URL || 'http://localhost:3000',
     methods: ['GET', 'POST'],
     credentials: true
   },
@@ -50,33 +42,13 @@ app.disable('x-powered-by');
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Fixed CORS configuration
+// CORS configuration
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log(`❌ CORS blocked origin: ${origin}`);
-      callback(new Error(`Origin ${origin} not allowed by CORS`));
-    }
-  },
+  origin: process.env.CLIENT_URL || '*',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-  optionsSuccessStatus: 200
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
-
-// Handle preflight OPTIONS requests
-app.options('*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin);
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
-  res.sendStatus(200);
-});
 
 // Rate limiting
 const limiter = rateLimit({
@@ -122,12 +94,6 @@ io.of('/notifications').on('connection', (socket) => {
   });
 });
 
-// Add CORS logging middleware for debugging
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path} - Origin: ${req.headers.origin || 'none'}`);
-  next();
-});
-
 // Routes
 app.use('/api/auth', require('./routes/authroutes'));
 app.use('/api/admin', require('./routes/adminroutes')); // Auth middleware is inside the route
@@ -145,17 +111,7 @@ app.get('/api/health', (req, res) => {
     status: 'OK',
     database: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
     environment: process.env.NODE_ENV || 'development',
-    uptime: process.uptime(),
-    allowedOrigins: allowedOrigins
-  });
-});
-
-// Test CORS endpoint
-app.get('/api/test-cors', (req, res) => {
-  res.json({
-    message: 'CORS test successful',
-    origin: req.headers.origin,
-    timestamp: new Date().toISOString()
+    uptime: process.uptime()
   });
 });
 
@@ -193,5 +149,4 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`✅ Allowed Origins: ${allowedOrigins.join(', ')}`);
 });
