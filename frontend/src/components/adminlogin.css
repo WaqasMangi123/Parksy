@@ -586,7 +586,43 @@ body {
   opacity: 0.9;
 }
 
-/* Enhanced Development Helper */
+/* Connection Status Indicator */
+.connection-status {
+  padding: 0.8rem 1rem;
+  border-radius: 12px;
+  margin-bottom: 1.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+  backdrop-filter: blur(10px);
+}
+
+.connection-status.error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ffffff;
+}
+
+.connection-status.connected {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #ffffff;
+}
+
+/* Status indicators in dev helper */
+.status-checking {
+  color: #fbbf24;
+}
+
+.status-connected {
+  color: #22c55e;
+}
+
+.status-error {
+  color: #ef4444;
+}
+
+/* Enhanced dev helper */
 .dev-helper {
   background: rgba(251, 191, 36, 0.15);
   border: 1px solid rgba(251, 191, 36, 0.3);
@@ -617,12 +653,13 @@ body {
 
 .dev-info {
   color: #ffffff;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   text-align: center;
   margin-top: 0.6rem;
   opacity: 0.9;
   font-weight: 600;
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.3);
+  line-height: 1.4;
 }
 
 /* Enhanced Form Fields */
