@@ -10,14 +10,19 @@ import SuccessStories from './components/listyourspace';
 import Profile from './components/privacypolicy';
 import Blog from './components/termsandconditions';
 import ParkingFinder from './components/parkingfinder';
-import ParkingListingThirdParty from './components/home'; // New import
+import ParkingListingThirdParty from './components/home';
+import AdminEmergencyContactRequest from './components/adminemergencycontactrequest';
 
 // Auth components
 import Login from './components/login';
 import Register from './components/register';
 import ForgotPassword from './components/forgetpassword';
-import ResetPassword from './components/resetpassword'; // ✅ This now matches the export
+import ResetPassword from './components/resetpassword';
 import EmailVerification from './components/emailverification';
+
+// Admin components
+import AdminLogin from './components/adminlogin'; // Fixed typo from 'adminogin'
+import AdminDashboard from './components/admindashboard';
 
 // Chatbot component
 import ParkingBot from './components/parkingbot';
@@ -32,6 +37,37 @@ import Footer from './components/Footer';
 // Auth Context
 import { AuthProvider } from './context/AuthContext';
 
+// Protected Route Component for Admin
+const AdminProtectedRoute = ({ children }) => {
+  const adminToken = localStorage.getItem('adminToken');
+  
+  if (!adminToken) {
+    // Redirect to admin login if no token
+    window.location.href = '/admin/login';
+    return null;
+  }
+  
+  // Verify token is valid
+  try {
+    const tokenPayload = JSON.parse(atob(adminToken.split('.')[1]));
+    const currentTime = Date.now() / 1000;
+    
+    if (tokenPayload.exp < currentTime) {
+      // Token expired
+      localStorage.removeItem('adminToken');
+      window.location.href = '/admin/login';
+      return null;
+    }
+  } catch (error) {
+    // Invalid token format
+    localStorage.removeItem('adminToken');
+    window.location.href = '/admin/login';
+    return null;
+  }
+  
+  return children;
+};
+
 // Layout wrapper with navbar and footer
 const Layout = ({ children }) => (
   <>
@@ -41,68 +77,101 @@ const Layout = ({ children }) => (
   </>
 );
 
-// Auth layout wrapper (different styling if needed)
+// Auth layout wrapper
 const AuthLayout = ({ children }) => (
   <div className="auth-layout">
     <main className="main-content">{children}</main>
   </div>
 );
 
-// Auth layout wrapper WITH ContactWidget (for login page)
+// Auth layout with ContactWidget
 const AuthLayoutWithWidget = ({ children }) => (
   <div className="auth-layout">
     <main className="main-content">
       {children}
-      {/* Contact Widget appears on login page */}
       <ContactWidget />
     </main>
   </div>
 );
 
-// Home layout wrapper with ContactWidget
+// Home layout with ContactWidget
 const HomeLayout = ({ children }) => (
   <>
     <Navbar />
     <main className="main-content">
       {children}
-      {/* Contact Widget only appears on home page */}
       <ContactWidget />
     </main>
     <Footer />
   </>
 );
 
+// Admin layout wrapper (no navbar/footer for admin)
+const AdminLayout = ({ children }) => (
+  <div className="admin-layout">
+    <main className="admin-main-content">{children}</main>
+  </div>
+);
+
 function App() {
   return (
     <Router>
       <AuthProvider>
-        {/* ParkingBot Chatbot - appears on all pages */}
         <ParkingBot />
         
         <Routes>
-          {/* ========== PUBLIC ROUTES WITH LAYOUT ========== */}
+          {/* ========== PUBLIC ROUTES ========== */}
           <Route path="/" element={<Layout><MainPage /></Layout>} />
           <Route path="/about" element={<Layout><About /></Layout>} />
           <Route path="/contact" element={<Layout><Contact /></Layout>} />
           <Route path="/guidance" element={<Layout><Guidance /></Layout>} />
           <Route path="/parkingfinder" element={<Layout><ParkingFinder /></Layout>} />
           <Route path="/listyourspace" element={<Layout><SuccessStories /></Layout>} />
+          <Route path="/emergency-contacts" element={<Layout><AdminEmergencyContactRequest /></Layout>} />
           
-          {/* HOME ROUTE WITH CONTACT WIDGET */}
+          {/* HOME ROUTE WITH WIDGET */}
           <Route path="/home" element={<HomeLayout><ParkingListingThirdParty /></HomeLayout>} />
           
           {/* ========== AUTH ROUTES ========== */}
-          {/* LOGIN PAGE WITH CONTACT WIDGET */}
           <Route path="/login" element={<AuthLayoutWithWidget><Login /></AuthLayoutWithWidget>} />
-          
-          {/* OTHER AUTH ROUTES WITHOUT CONTACT WIDGET */}
           <Route path="/register" element={<AuthLayout><Register /></AuthLayout>} />
           <Route path="/forgot-password" element={<AuthLayout><ForgotPassword /></AuthLayout>} />
-          {/* ✅ FIXED: Component name now matches the export */}
           <Route path="/reset-password/:token" element={<AuthLayout><ResetPassword /></AuthLayout>} />
           <Route path="/verify-email" element={<AuthLayout><EmailVerification /></AuthLayout>} />
           
-          {/* ========== SIMPLE ROUTES WITHOUT NAVBAR/FOOTER ========== */}
+          {/* ========== ADMIN ROUTES ========== */}
+          <Route 
+            path="/admin/login" 
+            element={
+              <AdminLayout>
+                <AdminLogin />
+              </AdminLayout>
+            } 
+          />
+          
+          <Route 
+            path="/admin/dashboard" 
+            element={
+              <AdminLayout>
+                <AdminProtectedRoute>
+                  <AdminDashboard />
+                </AdminProtectedRoute>
+              </AdminLayout>
+            } 
+          />
+          
+          <Route 
+            path="/admin" 
+            element={
+              <AdminLayout>
+                <AdminProtectedRoute>
+                  <AdminDashboard />
+                </AdminProtectedRoute>
+              </AdminLayout>
+            } 
+          />
+          
+          {/* ========== SIMPLE PAGES ========== */}
           <Route path="/privacypolicy" element={<Profile />} />
           <Route path="/termsandconditions" element={<Blog />} />
           <Route path="/blog/:id" element={<Blog />} />
