@@ -423,80 +423,79 @@ const ParksyHero = () => {
         </motion.div>
       </section>
 
-      {/* How It Works Section */}
-      <section id="how-it-works" className="how-it-works-section">
-        <div className="works-container">
-          <motion.h2
-            className="works-title"
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6 }}
-          >
-            How Parksy Works
-          </motion.h2>
-          
-          <motion.p
-            className="works-subtitle"
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.1 }}
-          >
-            Three simple steps to find your perfect parking spot
-          </motion.p>
-          
-          <div className="steps-container">
-            <motion.div
-              className="step"
-              initial={{ opacity: 0, y: 50 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.6 }}
-              whileHover={{ y: -10 }}
-            >
-              <div className="step-number">1</div>
-              <div className="step-content">
-                <h3>Search Any Location</h3>
-                <p>Enter your destination or let us detect your current location to find nearby parking options.</p>
-              </div>
-              <div className="step-connector"></div>
-            </motion.div>
-            
-            <motion.div
-              className="step"
-              initial={{ opacity: 0, y: 50 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.6, delay: 0.2 }}
-              whileHover={{ y: -10 }}
-            >
-              <div className="step-number">2</div>
-              <div className="step-content">
-                <h3>View Pricing & Space Types</h3>
-                <p>Compare all available options with transparent pricing, restrictions, and amenities.</p>
-              </div>
-              <div className="step-connector"></div>
-            </motion.div>
-            
-            <motion.div
-              className="step"
-              initial={{ opacity: 0, y: 50 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.6, delay: 0.4 }}
-              whileHover={{ y: -10 }}
-            >
-              <div className="step-number">3</div>
-              <div className="step-content">
-                <h3>Park Instantly or Pre-Book</h3>
-                <p>Secure your spot with instant access or reserve in advance for peace of mind.</p>
-              </div>
-            </motion.div>
-          </div>
+     {/* How It Works Section */}
+<section id="how-it-works" className="how-it-works">
+  <div className="how-it-works__container">
+    <motion.h2
+      className="how-it-works__title"
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.6 }}
+    >
+      How Parksy Works
+    </motion.h2>
+    
+    <motion.p
+      className="how-it-works__subtitle"
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.6, delay: 0.1 }}
+    >
+      Three simple steps to find your perfect parking spot
+    </motion.p>
+    
+    <div className="how-it-works__steps">
+      <motion.div
+        className="how-it-works__step"
+        initial={{ opacity: 0, y: 50 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.6 }}
+        whileHover={{ y: -10 }}
+      >
+        <div className="how-it-works__step-number">1</div>
+        <div className="how-it-works__step-content">
+          <h3>Search Any Location</h3>
+          <p>Enter your destination or let us detect your current location to find nearby parking options.</p>
         </div>
-      </section>
-
+        <div className="how-it-works__step-connector"></div>
+      </motion.div>
+      
+      <motion.div
+        className="how-it-works__step"
+        initial={{ opacity: 0, y: 50 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.6, delay: 0.2 }}
+        whileHover={{ y: -10 }}
+      >
+        <div className="how-it-works__step-number">2</div>
+        <div className="how-it-works__step-content">
+          <h3>View Pricing & Space Types</h3>
+          <p>Compare all available options with transparent pricing, restrictions, and amenities.</p>
+        </div>
+        <div className="how-it-works__step-connector"></div>
+      </motion.div>
+      
+      <motion.div
+        className="how-it-works__step"
+        initial={{ opacity: 0, y: 50 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.6, delay: 0.4 }}
+        whileHover={{ y: -10 }}
+      >
+        <div className="how-it-works__step-number">3</div>
+        <div className="how-it-works__step-content">
+          <h3>Park Instantly or Pre-Book</h3>
+          <p>Secure your spot with instant access or reserve in advance for peace of mind.</p>
+        </div>
+      </motion.div>
+    </div>
+  </div>
+</section>
       {/* AI Chat Section */}
       <section className="ai-chat-section">
         <motion.div 

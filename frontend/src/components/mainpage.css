@@ -8,9 +8,9 @@
   --accent: #00c853;
   --error: #ff5252;
   --text-dark: #1e293b;
-  --text-medium: #475569;
-  --text-light: #f8fafc;
-  --gray-light: #f1f5f9;
+  --text-medium: #252627;
+  --text-light: #646566;
+  --gray-light: #252627;
   --gray-medium: #e2e8f0;
   --gray-dark: #64748b;
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -762,25 +762,25 @@ img {
   }
 }
 /* ===== How It Works Section - Responsive ===== */
-.how-it-works-section {
+.how-it-works {
   padding: 60px 0; /* Reduced padding for mobile */
   background: white;
 }
 
-.works-container {
+.how-it-works__container {
   max-width: 1000px;
   margin: 0 auto;
   text-align: center;
   padding: 0 20px; /* Added side padding for mobile */
 }
 
-.works-title {
+.how-it-works__title {
   font-size: clamp(1.8rem, 5vw, 2.5rem); /* Responsive font size */
   margin-bottom: 0.8rem; /* Adjusted spacing */
   line-height: 1.3;
 }
 
-.works-subtitle {
+.how-it-works__subtitle {
   font-size: clamp(1rem, 3vw, 1.2rem); /* Responsive font size */
   color: var(--gray-dark);
   margin-bottom: 2rem; /* Reduced spacing */
@@ -788,14 +788,14 @@ img {
   padding: 0 10px; /* Prevent text from touching edges */
 }
 
-.steps-container {
+.how-it-works__steps {
   display: flex;
   flex-direction: column;
   gap: 30px; /* Reduced gap for mobile */
   position: relative;
 }
 
-.step {
+.how-it-works__step {
   display: flex;
   flex-direction: column; /* Stack vertically on mobile */
   align-items: center; /* Center align for mobile */
@@ -809,7 +809,7 @@ img {
   text-align: center; /* Center text on mobile */
 }
 
-.step-number {
+.how-it-works__step-number {
   width: 50px; /* Slightly smaller */
   height: 50px;
   background: linear-gradient(135deg, var(--primary), var(--primary-dark));
@@ -822,24 +822,24 @@ img {
   font-weight: 700;
 }
 
-.step-content {
+.how-it-works__step-content {
   text-align: center; /* Center text on mobile */
 }
 
-.step-content h3 {
+.how-it-works__step-content h3 {
   font-size: 1.3rem; /* Slightly smaller */
   color: var(--text-dark);
   margin-bottom: 8px; /* Reduced spacing */
   line-height: 1.4;
 }
 
-.step-content p {
+.how-it-works__step-content p {
   color: var(--gray-dark);
   line-height: 1.6;
   font-size: 0.95rem; /* Slightly smaller */
 }
 
-.step-connector {
+.how-it-works__step-connector {
   position: absolute;
   left: 50%; /* Center the connector */
   top: 80px; /* Adjusted position */
@@ -852,24 +852,24 @@ img {
 
 /* Tablet and Desktop Styles */
 @media (min-width: 768px) {
-  .how-it-works-section {
+  .how-it-works {
     padding: 80px 0; /* More padding on larger screens */
   }
   
-  .works-title {
+  .how-it-works__title {
     margin-bottom: 1rem;
   }
   
-  .works-subtitle {
+  .how-it-works__subtitle {
     margin-bottom: 3rem;
     padding: 0;
   }
   
-  .steps-container {
+  .how-it-works__steps {
     gap: 40px;
   }
   
-  .step {
+  .how-it-works__step {
     flex-direction: row; /* Side by side layout */
     align-items: flex-start;
     gap: 30px;
@@ -878,11 +878,11 @@ img {
     box-shadow: var(--shadow-lg);
   }
   
-  .step-content {
+  .how-it-works__step-content {
     text-align: left; /* Original text alignment */
   }
   
-  .step-connector {
+  .how-it-works__step-connector {
     display: block; /* Show connector */
     left: 45px; /* Original position */
     top: 90px;
@@ -890,7 +890,7 @@ img {
     transform: none; /* Reset transform */
   }
   
-  .step:hover {
+  .how-it-works__step:hover {
     transform: translateY(-5px);
     box-shadow: var(--shadow-xl);
   }
@@ -898,25 +898,24 @@ img {
 
 /* Small devices optimization */
 @media (max-width: 400px) {
-  .step {
+  .how-it-works__step {
     padding: 20px 15px;
   }
   
-  .step-number {
+  .how-it-works__step-number {
     width: 45px;
     height: 45px;
     font-size: 1.3rem;
   }
   
-  .step-content h3 {
+  .how-it-works__step-content h3 {
     font-size: 1.2rem;
   }
   
-  .step-content p {
+  .how-it-works__step-content p {
     font-size: 0.9rem;
   }
 }
-
 /* ===== AI Chat Section ===== */
 .ai-chat-section {
   padding: 100px 0;

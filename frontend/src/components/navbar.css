@@ -45,18 +45,16 @@ body {
 }
 
 .logo {
-    height: 82px;
+    height: 73px;
     transition: transform 0.3s ease, height 0.3s ease;
 }
 
 .navbar.scrolled .logo {
-    height: 88px;
+    height: 55px; /* Reduced from 88px to 55px to make it smaller when scrolled */
 }
-
 .logo:hover {
     transform: scale(1.05);
 }
-
 /* Desktop Navigation */
 .desktop-nav {
     display: flex;

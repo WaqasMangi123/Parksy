@@ -61,13 +61,10 @@ const Navbar = () => {
   };
 
   const handleLogout = () => {
-    // Clear user data from localStorage
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
     setIsUserDropdownOpen(false);
-    
-    // Redirect to home page
     navigate('/');
   };
 
@@ -91,42 +88,18 @@ const Navbar = () => {
               <Link to="/about" className={`nav-link ${location.pathname === '/about' ? 'active' : ''}`}>About</Link>
             </li>
             
-            {/* Find Parking Dropdown */}
-            <li 
-              className={`nav-item ${isDropdownOpen('parking') ? 'active' : ''}`}
-              onMouseEnter={() => handleDropdown('parking')}
-              onMouseLeave={() => handleDropdown('parking')}
-            >
-              <div className="dropdown-trigger">
-                <Link to="/parkingfinder" className={`nav-link ${location.pathname.includes('/parkingfinder') ? 'active' : ''}`}>
-                  <span>Find Parking</span>
-                </Link>
-                {isDropdownOpen('parking') ? <FaChevronUp /> : <FaChevronDown />}
-              </div>
-              <ul className="dropdown-menu">
-                <li><Link to="/parkingfinder/nearme" className="dropdown-link">Near Me</Link></li>
-                <li><Link to="/parkingfinder/bycity" className="dropdown-link">By City</Link></li>
-                <li><Link to="/parkingfinder/airports" className="dropdown-link">Airports</Link></li>
-              </ul>
+            {/* Simplified Find Parking - No Dropdown */}
+            <li>
+              <Link to="/parkingfinder" className={`nav-link ${location.pathname.includes('/parkingfinder') ? 'active' : ''}`}>
+                Find Parking
+              </Link>
             </li>
 
-            {/* List Space Dropdown */}
-            <li 
-              className={`nav-item ${isDropdownOpen('list') ? 'active' : ''}`}
-              onMouseEnter={() => handleDropdown('list')}
-              onMouseLeave={() => handleDropdown('list')}
-            >
-              <div className="dropdown-trigger">
-                <Link to="/listyourspace" className={`nav-link ${location.pathname.includes('/listyourspace') ? 'active' : ''}`}>
-                  <span>List Space</span>
-                </Link>
-                {isDropdownOpen('list') ? <FaChevronUp /> : <FaChevronDown />}
-              </div>
-              <ul className="dropdown-menu">
-                <li><Link to="/listyourspace/how-it-works" className="dropdown-link">How It Works</Link></li>
-                <li><Link to="/listyourspace/pricing" className="dropdown-link">Pricing</Link></li>
-                <li><Link to="/listyourspace/requirements" className="dropdown-link">Requirements</Link></li>
-              </ul>
+            {/* Simplified List Space - No Dropdown */}
+            <li>
+              <Link to="/listyourspace" className={`nav-link ${location.pathname.includes('/listyourspace') ? 'active' : ''}`}>
+                List Space
+              </Link>
             </li>
 
             <li>
@@ -138,9 +111,6 @@ const Navbar = () => {
           </ul>
 
           <div className="nav-actions">
-            <Link to="/privacypolicy" className="terms-link">Privacy Policy</Link>
-            <Link to="/termsandconditions" className="terms-link">Terms & Conditions</Link>
-            
             {/* User Authentication Section */}
             <div className="auth-section">
               {user ? (
@@ -254,52 +224,17 @@ const Navbar = () => {
           <li>
             <Link to="/about" className="mobile-nav-link" onClick={toggleMobileMenu}>About</Link>
           </li>
-
-          {/* Find Parking Dropdown */}
-          <li className="mobile-dropdown">
-            <div 
-              className="mobile-dropdown-trigger" 
-              onClick={() => handleDropdown('mobile-parking')}
-            >
-              <span>Find Parking</span>
-              {isDropdownOpen('mobile-parking') ? <FaChevronUp /> : <FaChevronDown />}
-            </div>
-            <ul className={`mobile-dropdown-menu ${isDropdownOpen('mobile-parking') ? "open" : ""}`}>
-              <li><Link to="/parkingfinder" className="mobile-dropdown-link" onClick={toggleMobileMenu}>All Parking</Link></li>
-              <li><Link to="/parkingfinder/nearme" className="mobile-dropdown-link" onClick={toggleMobileMenu}>Near Me</Link></li>
-              <li><Link to="/parkingfinder/bycity" className="mobile-dropdown-link" onClick={toggleMobileMenu}>By City</Link></li>
-              <li><Link to="/parkingfinder/airports" className="mobile-dropdown-link" onClick={toggleMobileMenu}>Airports</Link></li>
-            </ul>
+          <li>
+            <Link to="/parkingfinder" className="mobile-nav-link" onClick={toggleMobileMenu}>Find Parking</Link>
           </li>
-
-          {/* List Space Dropdown */}
-          <li className="mobile-dropdown">
-            <div 
-              className="mobile-dropdown-trigger" 
-              onClick={() => handleDropdown('mobile-list')}
-            >
-              <span>List Space</span>
-              {isDropdownOpen('mobile-list') ? <FaChevronUp /> : <FaChevronDown />}
-            </div>
-            <ul className={`mobile-dropdown-menu ${isDropdownOpen('mobile-list') ? "open" : ""}`}>
-              <li><Link to="/listyourspace" className="mobile-dropdown-link" onClick={toggleMobileMenu}>Overview</Link></li>
-              <li><Link to="/listyourspace/how-it-works" className="mobile-dropdown-link" onClick={toggleMobileMenu}>How It Works</Link></li>
-              <li><Link to="/listyourspace/pricing" className="mobile-dropdown-link" onClick={toggleMobileMenu}>Pricing</Link></li>
-              <li><Link to="/listyourspace/requirements" className="mobile-dropdown-link" onClick={toggleMobileMenu}>Requirements</Link></li>
-            </ul>
+          <li>
+            <Link to="/listyourspace" className="mobile-nav-link" onClick={toggleMobileMenu}>List Space</Link>
           </li>
-
           <li>
             <Link to="/guidance" className="mobile-nav-link" onClick={toggleMobileMenu}>Guidance</Link>
           </li>
           <li>
             <Link to="/contact" className="mobile-nav-link" onClick={toggleMobileMenu}>Contact</Link>
-          </li>
-          <li>
-            <Link to="/privacypolicy" className="mobile-terms-link" onClick={toggleMobileMenu}>Privacy Policy</Link>
-          </li>
-          <li>
-            <Link to="/termsandconditions" className="mobile-terms-link" onClick={toggleMobileMenu}>Terms & Conditions</Link>
           </li>
         </ul>
       </div>

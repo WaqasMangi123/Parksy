@@ -1,113 +1,423 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { MapPin, Zap, Grid3X3, Map, Search, Clock, Star, ChevronRight, X, Loader2, AlertCircle } from "lucide-react";
 import "./home.css";
+import { useAuth } from "../context/AuthContext";
 
-const ParkingDashboard = () => {
+// Animation Variants
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.1,
+      delayChildren: 0.2
+    }
+  }
+};
+
+const cardVariants = {
+  hidden: { y: 20, opacity: 0 },
+  visible: {
+    y: 0,
+    opacity: 1,
+    transition: {
+      duration: 0.5,
+      ease: "easeOut"
+    }
+  },
+  hover: {
+    y: -5,
+    boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1)"
+  }
+};
+
+const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoicGFya3N5dWsiLCJhIjoiY21kODNsaG0yMGw3bzJscXN1bmlkbHk4ZiJ9.DaA0-wfNgf-1PIhJyHXCxg';
+const OPENCHARGE_API_KEY = '89499cfe-4016-4300-a570-2e435f249707';
+
+const isYourParkingSpaceListing = (spot) => {
+  return spot.provider === "YourParkingSpace" || spot.id.toString().startsWith("yps");
+};
+
+const GlobalParkingFinder = () => {
+  const { user } = useAuth();
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  
   const [selectedFilter, setSelectedFilter] = useState("all");
   const [selectedSpot, setSelectedSpot] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [currentLocation, setCurrentLocation] = useState("Islamabad, Pakistan");
-  const [viewMode, setViewMode] = useState("grid"); // grid or map
+  const [currentLocation, setCurrentLocation] = useState("Loading location...");
+  const [viewMode, setViewMode] = useState("boxes");
+  const [evStations, setEvStations] = useState([]);
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [bookingStep, setBookingStep] = useState(1);
+  const [userLocation, setUserLocation] = useState(null);
+  const [locationError, setLocationError] = useState(null);
+  const [mapError, setMapError] = useState(null);
+  const [bookingStatus, setBookingStatus] = useState(null);
+  const [isGeneratingLink, setIsGeneratingLink] = useState(false);
 
-  // Dummy parking spots data
-  const parkingSpots = [
+  const [bookingDetails, setBookingDetails] = useState({
+    date: new Date().toISOString().split('T')[0],
+    startTime: "09:00",
+    duration: 2,
+    vehicle: ""
+  });
+
+  // Sample parking data
+  const [globalParkingSpots] = useState([
     {
-      id: 1,
-      name: "Blue Area Parking Plaza",
-      address: "Blue Area, Islamabad",
-      distance: "0.5 km",
-      price: 50,
+      id: "yps-1",
+      name: "Mayfair Secure Parking",
+      provider: "YourParkingSpace",
+      address: "Berkeley Square, Mayfair",
+      postcode: "W1J 6BX",
+      distance: "0.3 miles",
+      price: 6.50,
       priceUnit: "hour",
-      rating: 4.8,
-      reviews: 142,
-      availability: "available",
-      spots: { total: 150, available: 45 },
-      features: ["CCTV", "Security", "Covered", "24/7"],
-      image: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&h=300&fit=crop",
-      coords: { lat: 33.6844, lng: 73.0479 }
-    },
-    {
-      id: 2,
-      name: "F-6 Commercial Center",
-      address: "F-6 Markaz, Islamabad",
-      distance: "1.2 km",
-      price: 40,
-      priceUnit: "hour",
-      rating: 4.6,
-      reviews: 98,
-      availability: "available",
-      spots: { total: 80, available: 12 },
-      features: ["Security", "Covered", "EV Charging"],
-      image: "https://images.unsplash.com/photo-1558618047-3c8c76ca7d13?w=400&h=300&fit=crop",
-      coords: { lat: 33.6938, lng: 73.0651 }
-    },
-    {
-      id: 3,
-      name: "Centaurus Mall Parking",
-      address: "F-8, Islamabad",
-      distance: "2.1 km",
-      price: 60,
-      priceUnit: "hour",
+      dailyRate: 45.00,
       rating: 4.9,
-      reviews: 267,
-      availability: "limited",
-      spots: { total: 200, available: 8 },
-      features: ["CCTV", "Security", "Covered", "Valet", "EV Charging"],
-      image: "https://images.unsplash.com/photo-1590674899484-d5640e854abe?w=400&h=300&fit=crop",
-      coords: { lat: 33.6974, lng: 73.0515 }
+      reviews: 428,
+      availability: "available",
+      spots: { total: 120, available: 42 },
+      features: ["24/7 Security", "EV Charging", "Valet Service", "Covered", "Contactless Payment"],
+      image: "https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=800&auto=format",
+      coords: { lat: 51.5115, lng: -0.1471 },
+      hasEVCharging: true,
+      operatingHours: "24/7",
+      city: "London",
+      country: "UK"
     },
     {
-      id: 4,
-      name: "Sector G-9 Parking",
-      address: "G-9 Markaz, Islamabad",
-      distance: "3.0 km",
-      price: 35,
+      id: "airport-1",
+      name: "Heathrow Terminal 5 Parking",
+      provider: "AirportParkingCo",
+      address: "Heathrow Airport",
+      postcode: "TW6 1QG",
+      distance: "2.1 miles",
+      price: 8.00,
       priceUnit: "hour",
-      rating: 4.3,
-      reviews: 76,
-      availability: "full",
-      spots: { total: 60, available: 0 },
-      features: ["Security", "Open Air"],
-      image: "https://images.unsplash.com/photo-1553708881-112abc53fe54?w=400&h=300&fit=crop",
-      coords: { lat: 33.6890, lng: 73.0470 }
-    },
-    {
-      id: 5,
-      name: "Jinnah Convention Centre",
-      address: "Serena Chowk, Islamabad",
-      distance: "1.8 km",
-      price: 70,
-      priceUnit: "hour",
+      dailyRate: 55.00,
       rating: 4.7,
-      reviews: 189,
+      reviews: 512,
       availability: "available",
-      spots: { total: 120, available: 32 },
-      features: ["CCTV", "Security", "Covered", "Valet"],
-      image: "https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=400&h=300&fit=crop",
-      coords: { lat: 33.6908, lng: 73.0542 }
-    },
-    {
-      id: 6,
-      name: "Pakistan Monument Parking",
-      address: "Shakarparian, Islamabad",
-      distance: "4.2 km",
-      price: 30,
-      priceUnit: "hour",
-      rating: 4.4,
-      reviews: 134,
-      availability: "available",
-      spots: { total: 90, available: 67 },
-      features: ["Security", "Open Air", "Tourist Area"],
-      image: "https://images.unsplash.com/photo-1449824913935-59a10b8d2000?w=400&h=300&fit=crop",
-      coords: { lat: 33.6938, lng: 73.0651 }
+      spots: { total: 200, available: 35 },
+      features: ["24/7 Security", "Covered", "Shuttle Service"],
+      image: "https://images.unsplash.com/photo-1486401899868-0e435ed85128?w=800&auto=format",
+      coords: { lat: 51.4694, lng: -0.4506 },
+      hasEVCharging: true,
+      operatingHours: "24/7",
+      city: "London",
+      country: "UK"
     }
-  ];
+  ]);
 
-  const [filteredSpots, setFilteredSpots] = useState(parkingSpots);
+  const [filteredSpots, setFilteredSpots] = useState(globalParkingSpots);
 
-  // Filter spots based on search and availability
+  // Stable function to get location name
+  const getLocationName = useCallback(async (lat, lng) => {
+    try {
+      const response = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_ACCESS_TOKEN}`
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        const features = data.features;
+        let city = '';
+        let country = '';
+        
+        for (const feature of features) {
+          if (feature.place_type.includes('place')) {
+            city = feature.text;
+          }
+          if (feature.place_type.includes('country')) {
+            country = feature.text;
+          }
+        }
+        
+        if (city && country) {
+          setCurrentLocation(`${city}, ${country}`);
+        } else if (country) {
+          setCurrentLocation(country);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching location name:', error);
+      setCurrentLocation("Location unavailable");
+    }
+  }, []);
+
+  // Fetch EV stations with cleanup
+  const fetchEVStations = useCallback(async () => {
+    const abortController = new AbortController();
+    
+    try {
+      setIsLoading(true);
+      const coords = userLocation || { lat: 51.5074, lng: -0.1278 };
+      const url = new URL('https://api.openchargemap.io/v3/poi');
+      url.searchParams.append('key', OPENCHARGE_API_KEY);
+      url.searchParams.append('latitude', coords.lat);
+      url.searchParams.append('longitude', coords.lng);
+      url.searchParams.append('distance', 50);
+      url.searchParams.append('maxresults', 100);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        signal: abortController.signal
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      const validStations = data.filter(station => 
+        station.AddressInfo && 
+        station.AddressInfo.Latitude && 
+        station.AddressInfo.Longitude &&
+        station.StatusType?.IsOperational
+      );
+      setEvStations(validStations);
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        console.error('Error fetching EV stations:', error);
+        setMapError('Failed to load charging stations. Please try again later.');
+      }
+    } finally {
+      if (!abortController.signal.aborted) {
+        setIsLoading(false);
+      }
+    }
+
+    return () => abortController.abort();
+  }, [userLocation]);
+
+  // Initialize map with cleanup
+  const initializeMap = useCallback(() => {
+    if (!mapLoaded || !mapRef.current || mapInstanceRef.current) return;
+
+    try {
+      const centerCoords = userLocation || { lat: 51.5074, lng: -0.1278 };
+
+      const map = new window.mapboxgl.Map({
+        container: mapRef.current,
+        style: 'mapbox://styles/mapbox/streets-v12',
+        center: [centerCoords.lng, centerCoords.lat],
+        zoom: 12,
+        pitch: 45,
+        bearing: 0,
+        antialias: true,
+        attributionControl: false
+      });
+
+      map.addControl(new window.mapboxgl.NavigationControl(), 'top-right');
+
+      const logo = document.createElement('div');
+      logo.className = 'map-logo';
+      logo.innerHTML = 'ParkFinder';
+      map.getContainer().appendChild(logo);
+
+      map.on('load', () => {
+        // Add 3D buildings layer
+        map.addLayer({
+          'id': '3d-buildings',
+          'source': 'composite',
+          'source-layer': 'building',
+          'filter': ['==', 'extrude', 'true'],
+          'type': 'fill-extrusion',
+          'minzoom': 14,
+          'paint': {
+            'fill-extrusion-color': '#E5E7EB',
+            'fill-extrusion-height': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              14, 0,
+              14.05, ['get', 'height']
+            ],
+            'fill-extrusion-base': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              14, 0,
+              14.05, ['get', 'min_height']
+            ],
+            'fill-extrusion-opacity': 0.8
+          }
+        });
+
+        // Add user location marker
+        if (userLocation) {
+          const el = document.createElement('div');
+          el.className = 'user-marker';
+          new window.mapboxgl.Marker(el)
+            .setLngLat([userLocation.lng, userLocation.lat])
+            .addTo(map);
+        }
+
+        // Add parking markers
+        globalParkingSpots.forEach(spot => {
+          const el = document.createElement('div');
+          el.className = `parking-marker ${spot.availability} ${isYourParkingSpaceListing(spot) ? 'yps' : 'airport'}`;
+          el.innerHTML = `<div class="marker-inner"><span>£${spot.price}</span></div>`;
+
+          const popupContent = document.createElement('div');
+          popupContent.className = 'map-popup';
+          popupContent.innerHTML = `
+            <h4>${spot.name}</h4>
+            <p>${spot.address}, ${spot.city}</p>
+            <div class="popup-details">
+              <span class="availability ${spot.availability}">
+                ${spot.spots.available} spaces
+              </span>
+              <span class="rating">
+                ${spot.rating} ★
+              </span>
+            </div>
+            ${spot.hasEVCharging ? '<div class="ev-indicator">⚡ EV Charging</div>' : ''}
+            <div class="provider-badge">
+              ${isYourParkingSpaceListing(spot) ? 'YourParkingSpace' : 'Airport Parking'}
+            </div>
+          `;
+
+          new window.mapboxgl.Marker(el)
+            .setLngLat([spot.coords.lng, spot.coords.lat])
+            .setPopup(new window.mapboxgl.Popup({ offset: 25 }).setDOMContent(popupContent))
+            .addTo(map);
+        });
+
+        // Add EV charging markers
+        evStations.forEach(station => {
+          if (station.AddressInfo) {
+            const el = document.createElement('div');
+            el.className = 'ev-marker';
+            el.innerHTML = `<div class="ev-marker-inner">⚡</div>`;
+
+            const connections = station.Connections || [];
+            const fastChargers = connections.filter(conn => conn.PowerKW > 50).length;
+
+            const popupContent = document.createElement('div');
+            popupContent.className = 'map-popup';
+            popupContent.innerHTML = `
+              <h4>${station.AddressInfo.Title || 'EV Charging Station'}</h4>
+              <p>${station.AddressInfo.AddressLine1 || ''}</p>
+              <div class="popup-details">
+                <div class="connectors">
+                  <span>${connections.length} connector${connections.length !== 1 ? 's' : ''}</span>
+                  ${fastChargers > 0 ? `<span class="fast-chargers">${fastChargers} fast charger${fastChargers !== 1 ? 's' : ''}</span>` : ''}
+                </div>
+                <div class="operator">
+                  ${station.OperatorInfo?.Title ? `<span>${station.OperatorInfo.Title}</span>` : ''}
+                </div>
+              </div>
+            `;
+
+            new window.mapboxgl.Marker(el)
+              .setLngLat([station.AddressInfo.Longitude, station.AddressInfo.Latitude])
+              .setPopup(new window.mapboxgl.Popup({ offset: 25 }).setDOMContent(popupContent))
+              .addTo(map);
+          }
+        });
+      });
+
+      mapInstanceRef.current = map;
+    } catch (error) {
+      console.error('Map initialization error:', error);
+      setMapError('Failed to initialize map. Please try again later.');
+    }
+  }, [mapLoaded, userLocation, globalParkingSpots, evStations]);
+
+  // Load Mapbox resources
   useEffect(() => {
-    let filtered = parkingSpots;
+    if (typeof window !== 'undefined' && !window.mapboxgl) {
+      const script = document.createElement('script');
+      script.src = 'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js';
+      script.onload = () => {
+        const link = document.createElement('link');
+        link.href = 'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css';
+        link.rel = 'stylesheet';
+        document.head.appendChild(link);
+        window.mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
+        setMapLoaded(true);
+      };
+      script.onerror = () => {
+        setMapError('Failed to load map resources. Please try again later.');
+      };
+      document.head.appendChild(script);
+    } else if (window.mapboxgl) {
+      window.mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
+      setMapLoaded(true);
+    }
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, []);
+
+  // Get user location
+  useEffect(() => {
+    const getLocation = async () => {
+      if (navigator.geolocation) {
+        try {
+          const position = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true,
+              timeout: 5000,
+              maximumAge: 0
+            });
+          });
+          
+          const coords = {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          };
+          setUserLocation(coords);
+          
+          if (!currentLocation || currentLocation === "Loading location...") {
+            await getLocationName(coords.lat, coords.lng);
+          }
+        } catch (error) {
+          console.log("Location error:", error);
+          const defaultCoords = { lat: 51.5074, lng: -0.1278 };
+          setUserLocation(defaultCoords);
+          setCurrentLocation("London, UK");
+          setLocationError("Location access denied. Showing default location.");
+        }
+      } else {
+        const defaultCoords = { lat: 51.5074, lng: -0.1278 };
+        setUserLocation(defaultCoords);
+        setCurrentLocation("London, UK");
+        setLocationError("Geolocation is not supported by this browser.");
+      }
+    };
+
+    getLocation();
+  }, [getLocationName]);
+
+  // Initialize map when in map view mode
+  useEffect(() => {
+    if (viewMode === 'map' && mapLoaded && !mapInstanceRef.current) {
+      initializeMap();
+    }
+  }, [viewMode, mapLoaded, initializeMap]);
+
+  // Fetch EV stations when in map view
+  useEffect(() => {
+    if (viewMode === 'map' && mapLoaded && evStations.length === 0) {
+      fetchEVStations();
+    }
+  }, [viewMode, mapLoaded, evStations.length, fetchEVStations]);
+
+  // Filter parking spots
+  useEffect(() => {
+    let filtered = globalParkingSpots;
 
     if (selectedFilter !== "all") {
       filtered = filtered.filter(spot => spot.availability === selectedFilter);
@@ -116,369 +426,529 @@ const ParkingDashboard = () => {
     if (searchQuery) {
       filtered = filtered.filter(spot => 
         spot.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        spot.address.toLowerCase().includes(searchQuery.toLowerCase())
+        spot.address.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        spot.postcode.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        spot.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        spot.country.toLowerCase().includes(searchQuery.toLowerCase())
       );
     }
 
     setFilteredSpots(filtered);
-  }, [selectedFilter, searchQuery]);
+  }, [selectedFilter, searchQuery, globalParkingSpots]);
 
-  // Animation variants
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: {
-        staggerChildren: 0.1,
-        delayChildren: 0.2
+  // Booking handlers
+  const handleBookingChange = (e) => {
+    const { name, value } = e.target;
+    setBookingDetails(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  const handleBookingSubmit = async (e) => {
+    e.preventDefault();
+    setBookingStatus(null);
+    
+    try {
+      // Simulate booking API call
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const bookingId = `AP-${Math.random().toString(36).substr(2, 8).toUpperCase()}`;
+      
+      setBookingStatus({
+        success: true,
+        message: `Booking confirmed at ${selectedSpot.name}`,
+        details: { bookingId }
+      });
+      
+      setBookingStep(2);
+    } catch (error) {
+      setBookingStatus({
+        success: false,
+        message: "Booking failed. Please try again.",
+        error: error.message
+      });
+    }
+  };
+
+  // Parking Card Component
+  const ParkingCard = ({ spot }) => {
+    const isYPS = isYourParkingSpaceListing(spot);
+    const isAvailable = spot.availability === "available";
+
+    const handleBookClick = async (e) => {
+      e.stopPropagation();
+      if (!isAvailable) return;
+      
+      if (isYPS) {
+        setIsGeneratingLink(true);
+        try {
+          const destinationUrl = `https://www.yourparkingspace.co.uk/space/${spot.id}`;
+          window.open(destinationUrl, '_blank');
+        } catch (error) {
+          console.error("Failed to open booking link:", error);
+        } finally {
+          setIsGeneratingLink(false);
+        }
+      } else {
+        setSelectedSpot(spot);
       }
-    }
-  };
+    };
 
-  const itemVariants = {
-    hidden: { y: 20, opacity: 0 },
-    visible: {
-      y: 0,
-      opacity: 1,
-      transition: {
-        duration: 0.5,
-        ease: [0.16, 1, 0.3, 1]
-      }
-    }
-  };
+    return (
+      <motion.div
+        className="parking-card"
+        variants={cardVariants}
+        whileHover="hover"
+        onClick={() => setSelectedSpot(spot)}
+      >
+        <div className="card-image">
+          <img src={spot.image} alt={spot.name} />
+          <div className={`availability-badge ${spot.availability}`}>
+            {spot.availability === "available" ? "Available" : 
+             spot.availability === "limited" ? "Limited" : "Full"}
+          </div>
+          {spot.hasEVCharging && (
+            <div className="ev-badge">
+              <Zap size={14} />
+              EV Charging
+            </div>
+          )}
+          {isYPS && (
+            <div className="provider-badge yps">
+              YourParkingSpace
+            </div>
+          )}
+        </div>
 
-  const cardVariants = {
-    hidden: { y: 20, opacity: 0 },
-    visible: {
-      y: 0,
-      opacity: 1,
-      transition: {
-        duration: 0.4,
-        ease: [0.16, 1, 0.3, 1]
-      }
-    },
-    hover: {
-      y: -8,
-      scale: 1.02,
-      transition: {
-        duration: 0.3,
-        ease: "easeOut"
-      }
-    }
-  };
+        <div className="card-content">
+          <div className="card-header">
+            <h3>{spot.name}</h3>
+            <div className="rating">
+              <Star size={14} fill="#fbbf24" />
+              <span>{spot.rating}</span>
+              <span>({spot.reviews})</span>
+            </div>
+          </div>
 
-  const getAvailabilityColor = (availability) => {
-    switch (availability) {
-      case "available": return "#10b981";
-      case "limited": return "#f59e0b";
-      case "full": return "#ef4444";
-      default: return "#6b7280";
-    }
-  };
+          <div className="location">
+            <MapPin size={14} />
+            <span>{spot.address}, {spot.city}</span>
+          </div>
 
-  const getAvailabilityText = (availability) => {
-    switch (availability) {
-      case "available": return "Available";
-      case "limited": return "Limited";
-      case "full": return "Full";
-      default: return "Unknown";
-    }
-  };
+          <div className="pricing">
+            <div className="hourly-rate">
+              <span className="price">£{spot.price}</span>
+              <span className="unit">/hour</span>
+            </div>
+            <div className="daily-rate">
+              £{spot.dailyRate} daily max
+            </div>
+          </div>
 
-  const handleBookSpot = (spot) => {
-    setSelectedSpot(spot);
-  };
+          <div className="details">
+            <div className="spaces">
+              {spot.spots.available} spaces available
+            </div>
+            <div className="distance">
+              {spot.distance} away
+            </div>
+          </div>
 
-  const handleCloseModal = () => {
-    setSelectedSpot(null);
-  };
+          <div className="features">
+            {spot.features.slice(0, 3).map((feature, index) => (
+              <span key={index} className="feature-tag">
+                {feature}
+              </span>
+            ))}
+          </div>
 
-  const handleConfirmBooking = () => {
-    // Here you would integrate with the third-party API
-    alert(`Booking confirmed for ${selectedSpot.name}!`);
-    setSelectedSpot(null);
+          <motion.button
+            className={`book-btn ${!isAvailable ? "disabled" : ""}`}
+            whileHover={isAvailable ? { scale: 1.02 } : {}}
+            onClick={handleBookClick}
+            disabled={!isAvailable || (isYPS && isGeneratingLink)}
+          >
+            {isGeneratingLink && isYPS ? (
+              <Loader2 size={16} className="spinner" />
+            ) : isAvailable ? (
+              <>
+                {isYPS ? "Book on YPS" : "Book Now"}
+                <ChevronRight size={16} />
+              </>
+            ) : spot.availability === "limited" ? "Limited" : "Full"}
+          </motion.button>
+        </div>
+      </motion.div>
+    );
   };
 
   return (
     <div className="parking-dashboard">
-      {/* Header Section */}
-      <motion.div 
-        className="dashboard-header"
-        initial={{ y: -20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.6 }}
-      >
-        <div className="header-content">
-          <div className="header-main">
-            <h1 className="dashboard-title">
-              Find Your Perfect <span className="highlight">Parking Spot</span>
-            </h1>
-            <p className="dashboard-subtitle">
-              Discover and book secure parking spaces in {currentLocation}
-            </p>
-          </div>
-          <div className="header-stats">
-            <div className="stat-item">
-              <div className="stat-number">50+</div>
-              <div className="stat-label">Locations</div>
-            </div>
-            <div className="stat-item">
-              <div className="stat-number">1.2K+</div>
-              <div className="stat-label">Happy Customers</div>
-            </div>
-            <div className="stat-item">
-              <div className="stat-number">24/7</div>
-              <div className="stat-label">Support</div>
-            </div>
-          </div>
-        </div>
-      </motion.div>
+      <header className="dashboard-header">
+        <motion.div 
+          className="header-content"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8 }}
+        >
+          <h1>Global <span>Parking</span> Finder</h1>
+          <p>Find and book secure parking worldwide with EV charging</p>
+        </motion.div>
+      </header>
 
-      {/* Search and Filters */}
-      <motion.div 
-        className="search-filters"
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.6, delay: 0.2 }}
-      >
-        <div className="search-bar">
-          <div className="search-input-container">
-            <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <circle cx="11" cy="11" r="8"></circle>
-              <path d="m21 21-4.35-4.35"></path>
-            </svg>
-            <input
-              type="text"
-              placeholder="Search parking spots, locations..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="search-input"
-            />
-          </div>
-          <div className="location-selector">
-            <svg className="location-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-              <circle cx="12" cy="10" r="3"></circle>
-            </svg>
-            <span>{currentLocation}</span>
-          </div>
-        </div>
-
-        <div className="filter-tabs">
-          {["all", "available", "limited", "full"].map((filter) => (
-            <motion.button
-              key={filter}
-              className={`filter-tab ${selectedFilter === filter ? "active" : ""}`}
-              onClick={() => setSelectedFilter(filter)}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              {filter === "all" ? "All Spots" : getAvailabilityText(filter)}
-            </motion.button>
-          ))}
-        </div>
-
-        <div className="view-toggle">
-          <motion.button
-            className={`view-btn ${viewMode === "grid" ? "active" : ""}`}
-            onClick={() => setViewMode("grid")}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <rect x="3" y="3" width="7" height="7"></rect>
-              <rect x="14" y="3" width="7" height="7"></rect>
-              <rect x="14" y="14" width="7" height="7"></rect>
-              <rect x="3" y="14" width="7" height="7"></rect>
-            </svg>
-            Grid
-          </motion.button>
-          <motion.button
-            className={`view-btn ${viewMode === "map" ? "active" : ""}`}
-            onClick={() => setViewMode("map")}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon>
-              <line x1="9" y1="3" x2="9" y2="18"></line>
-              <line x1="15" y1="6" x2="15" y2="21"></line>
-            </svg>
-            Map
-          </motion.button>
-        </div>
-      </motion.div>
-
-      {/* Results Count */}
-      <motion.div 
-        className="results-info"
+      <motion.section 
+        className="search-section"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ duration: 0.4, delay: 0.4 }}
+        transition={{ delay: 0.2 }}
       >
-        <p>{filteredSpots.length} parking spots found</p>
-      </motion.div>
+        <div className="search-container">
+          <div className="search-bar">
+            <div className="search-input">
+              <Search size={20} />
+              <input
+                type="text"
+                placeholder="Search by location, postcode or parking name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            <div className="location-tag">
+              <MapPin size={16} />
+              <span>{currentLocation}</span>
+            </div>
+          </div>
 
-      {/* Parking Spots Grid */}
-      <motion.div 
-        className="parking-grid"
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-      >
-        <AnimatePresence>
-          {filteredSpots.map((spot) => (
-            <motion.div
-              key={spot.id}
-              className="parking-card"
-              variants={cardVariants}
-              whileHover="hover"
-              layout
-              exit={{ opacity: 0, scale: 0.9 }}
-            >
-              <div className="card-image">
-                <img src={spot.image} alt={spot.name} />
-                <div 
-                  className="availability-badge"
-                  style={{ backgroundColor: getAvailabilityColor(spot.availability) }}
-                >
-                  {getAvailabilityText(spot.availability)}
-                </div>
-                <div className="distance-badge">
-                  📍 {spot.distance}
-                </div>
-              </div>
+          {locationError && (
+            <div className="location-error">
+              <AlertCircle size={14} />
+              <span>{locationError}</span>
+            </div>
+          )}
 
-              <div className="card-content">
-                <div className="card-header">
-                  <h3 className="spot-name">{spot.name}</h3>
-                  <div className="rating">
-                    <span className="star">⭐</span>
-                    <span className="rating-value">{spot.rating}</span>
-                    <span className="reviews">({spot.reviews})</span>
-                  </div>
-                </div>
-
-                <p className="spot-address">{spot.address}</p>
-
-                <div className="spot-details">
-                  <div className="price-info">
-                    <span className="price">Rs. {spot.price}</span>
-                    <span className="price-unit">/{spot.priceUnit}</span>
-                  </div>
-                  <div className="spots-info">
-                    <span className="available-spots">{spot.spots.available}</span>
-                    <span className="total-spots">/{spot.spots.total} spots</span>
-                  </div>
-                </div>
-
-                <div className="features">
-                  {spot.features.slice(0, 3).map((feature) => (
-                    <span key={feature} className="feature-tag">
-                      {feature}
-                    </span>
-                  ))}
-                  {spot.features.length > 3 && (
-                    <span className="feature-more">
-                      +{spot.features.length - 3} more
-                    </span>
-                  )}
-                </div>
-
+          <div className="filter-controls">
+            <div className="filter-tabs">
+              {["all", "available", "limited", "full"].map((filter) => (
                 <motion.button
-                  className={`book-btn ${spot.availability === "full" ? "disabled" : ""}`}
-                  onClick={() => spot.availability !== "full" && handleBookSpot(spot)}
-                  disabled={spot.availability === "full"}
-                  whileHover={spot.availability !== "full" ? { scale: 1.02 } : {}}
-                  whileTap={spot.availability !== "full" ? { scale: 0.98 } : {}}
+                  key={filter}
+                  className={`filter-tab ${selectedFilter === filter ? "active" : ""}`}
+                  onClick={() => setSelectedFilter(filter)}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                 >
-                  {spot.availability === "full" ? "Fully Booked" : "Book Now"}
+                  {filter === "all" ? "All" : 
+                   filter === "available" ? "Available" :
+                   filter === "limited" ? "Limited" : "Full"}
                 </motion.button>
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </motion.div>
+              ))}
+            </div>
 
-      {/* Booking Modal */}
+            <div className="view-toggle">
+              <motion.button
+                className={`view-btn ${viewMode === "boxes" ? "active" : ""}`}
+                onClick={() => setViewMode("boxes")}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <Grid3X3 size={18} />
+                List
+              </motion.button>
+              <motion.button
+                className={`view-btn ${viewMode === "map" ? "active" : ""}`}
+                onClick={() => {
+                  setViewMode("map");
+                  setMapError(null);
+                }}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <Map size={18} />
+                Map
+              </motion.button>
+            </div>
+          </div>
+        </div>
+      </motion.section>
+
+      <main className="main-content">
+        <AnimatePresence mode="wait">
+          {viewMode === "boxes" ? (
+            <motion.div
+              key="boxes-view"
+              className="parking-grid"
+              variants={containerVariants}
+              initial="hidden"
+              animate="visible"
+            >
+              {filteredSpots.map((spot) => (
+                <ParkingCard key={spot.id} spot={spot} />
+              ))}
+            </motion.div>
+          ) : (
+            <motion.div
+              key="map-view"
+              className="map-container"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              {mapError ? (
+                <div className="rate-limit-message">
+                  <AlertCircle size={24} />
+                  <h3>Map Error</h3>
+                  <p>{mapError}</p>
+                </div>
+              ) : (
+                <>
+                  <div className="map-wrapper" ref={mapRef}>
+                    {isLoading && (
+                      <div className="loading-overlay">
+                        <Loader2 size={24} className="spinner" />
+                        <p>Loading map data...</p>
+                      </div>
+                    )}
+                    {!mapLoaded && !mapError && (
+                      <div className="loading-overlay">
+                        <Loader2 size={24} className="spinner" />
+                        <p>Loading map resources...</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="map-legend">
+                    <div className="legend-item">
+                      <div className="marker parking yps"></div>
+                      <span>YourParkingSpace</span>
+                    </div>
+                    <div className="legend-item">
+                      <div className="marker parking airport"></div>
+                      <span>Airport Parking</span>
+                    </div>
+                    <div className="legend-item">
+                      <div className="marker ev"></div>
+                      <span>EV Charging</span>
+                    </div>
+                    {userLocation && (
+                      <div className="legend-item">
+                        <div className="marker user"></div>
+                        <span>Your Location</span>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
+
       <AnimatePresence>
-        {selectedSpot && (
+        {selectedSpot && !isYourParkingSpaceListing(selectedSpot) && (
           <motion.div
             className="modal-overlay"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={handleCloseModal}
+            onClick={() => {
+              setSelectedSpot(null);
+              setBookingStep(1);
+              setBookingStatus(null);
+            }}
           >
             <motion.div
-              className="modal-content"
-              initial={{ scale: 0.9, opacity: 0 }}
+              className="booking-modal"
+              initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
+              exit={{ scale: 0.95, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="modal-header">
-                <h3>Book Parking Spot</h3>
-                <button className="close-btn" onClick={handleCloseModal}>
-                  ×
-                </button>
-              </div>
+              <button 
+                className="close-btn"
+                onClick={() => {
+                  setSelectedSpot(null);
+                  setBookingStep(1);
+                  setBookingStatus(null);
+                }}
+              >
+                <X size={20} />
+              </button>
 
-              <div className="modal-body">
-                <div className="booking-spot-info">
-                  <img src={selectedSpot.image} alt={selectedSpot.name} />
+              {bookingStep === 1 ? (
+                <div className="booking-step-1">
+                  <div className="modal-header">
+                    <h2>Book Parking</h2>
+                    <p>{selectedSpot.name}</p>
+                  </div>
+
                   <div className="spot-details">
-                    <h4>{selectedSpot.name}</h4>
-                    <p>{selectedSpot.address}</p>
-                    <div className="price">Rs. {selectedSpot.price}/{selectedSpot.priceUnit}</div>
+                    <div className="detail-item">
+                      <MapPin size={16} />
+                      <span>{selectedSpot.address}, {selectedSpot.city}</span>
+                    </div>
+                    <div className="detail-item">
+                      <Clock size={16} />
+                      <span>Open {selectedSpot.operatingHours}</span>
+                    </div>
+                    <div className="detail-item">
+                      <div className="availability">
+                        {selectedSpot.spots.available} spaces available
+                      </div>
+                    </div>
                   </div>
-                </div>
 
-                <div className="booking-form">
-                  <div className="form-group">
-                    <label>Select Date & Time</label>
-                    <input type="datetime-local" className="form-control" />
-                  </div>
-                  <div className="form-group">
-                    <label>Duration (hours)</label>
-                    <select className="form-control">
-                      <option value="1">1 hour</option>
-                      <option value="2">2 hours</option>
-                      <option value="4">4 hours</option>
-                      <option value="8">8 hours</option>
-                      <option value="24">24 hours</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Vehicle Number</label>
-                    <input type="text" placeholder="ABC-1234" className="form-control" />
-                  </div>
-                </div>
+                  <form onSubmit={handleBookingSubmit}>
+                    <div className="form-group">
+                      <label>Date</label>
+                      <input
+                        type="date"
+                        name="date"
+                        value={bookingDetails.date}
+                        onChange={handleBookingChange}
+                        min={new Date().toISOString().split('T')[0]}
+                        required
+                      />
+                    </div>
 
-                <div className="booking-summary">
-                  <div className="summary-row">
-                    <span>Parking Fee (2 hours)</span>
-                    <span>Rs. {selectedSpot.price * 2}</span>
-                  </div>
-                  <div className="summary-row">
-                    <span>Service Fee</span>
-                    <span>Rs. 20</span>
-                  </div>
-                  <div className="summary-row total">
-                    <span>Total</span>
-                    <span>Rs. {selectedSpot.price * 2 + 20}</span>
-                  </div>
-                </div>
-              </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Start Time</label>
+                        <input
+                          type="time"
+                          name="startTime"
+                          value={bookingDetails.startTime}
+                          onChange={handleBookingChange}
+                          required
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Duration (hours)</label>
+                        <select
+                          name="duration"
+                          value={bookingDetails.duration}
+                          onChange={handleBookingChange}
+                          required
+                        >
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(num => (
+                            <option key={num} value={num}>{num} hour{num !== 1 ? 's' : ''}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
 
-              <div className="modal-footer">
-                <button className="btn-secondary" onClick={handleCloseModal}>
-                  Cancel
-                </button>
-                <button className="btn-primary" onClick={handleConfirmBooking}>
-                  Confirm Booking
-                </button>
-              </div>
+                    <div className="form-group">
+                      <label>Vehicle Registration</label>
+                      <input
+                        type="text"
+                        name="vehicle"
+                        value={bookingDetails.vehicle}
+                        onChange={handleBookingChange}
+                        placeholder="e.g. AB12 CDE"
+                        required
+                      />
+                    </div>
+
+                    <div className="price-summary">
+                      <div className="price-item">
+                        <span>Parking fee</span>
+                        <span>£{(selectedSpot.price * bookingDetails.duration).toFixed(2)}</span>
+                      </div>
+                      {selectedSpot.hasEVCharging && (
+                        <div className="price-item">
+                          <span>EV Charging</span>
+                          <span>£2.50</span>
+                        </div>
+                      )}
+                      <div className="price-total">
+                        <span>Total</span>
+                        <span>£{(selectedSpot.price * bookingDetails.duration + (selectedSpot.hasEVCharging ? 2.5 : 0)).toFixed(2)}</span>
+                      </div>
+                    </div>
+
+                    <motion.button
+                      type="submit"
+                      className="confirm-btn"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      disabled={isLoading}
+                    >
+                      {isLoading ? (
+                        <Loader2 size={20} className="spinner" />
+                      ) : (
+                        "Confirm Booking"
+                      )}
+                    </motion.button>
+                  </form>
+                </div>
+              ) : (
+                <div className="booking-step-2">
+                  {bookingStatus?.success ? (
+                    <>
+                      <div className="success-icon">
+                        <svg viewBox="0 0 24 24">
+                          <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                        </svg>
+                      </div>
+                      <h2>Booking Confirmed!</h2>
+                      <p>Your parking space at {selectedSpot.name} has been reserved.</p>
+                      
+                      <div className="booking-summary">
+                        <div className="summary-item">
+                          <span>Date</span>
+                          <span>{new Date(bookingDetails.date).toLocaleDateString('en-GB')}</span>
+                        </div>
+                        <div className="summary-item">
+                          <span>Time</span>
+                          <span>{bookingDetails.startTime} for {bookingDetails.duration} hour{bookingDetails.duration !== 1 ? 's' : ''}</span>
+                        </div>
+                        <div className="summary-item">
+                          <span>Vehicle</span>
+                          <span>{bookingDetails.vehicle}</span>
+                        </div>
+                        <div className="summary-item">
+                          <span>Booking Reference</span>
+                          <span>{bookingStatus.details.bookingId}</span>
+                        </div>
+                        <div className="summary-item">
+                          <span>Total Paid</span>
+                          <span>£{(selectedSpot.price * bookingDetails.duration + (selectedSpot.hasEVCharging ? 2.5 : 0)).toFixed(2)}</span>
+                        </div>
+                      </div>
+
+                      <div className="actions">
+                        <button className="print-btn">Print Receipt</button>
+                        <button 
+                          className="done-btn"
+                          onClick={() => {
+                            setSelectedSpot(null);
+                            setBookingStep(1);
+                            setBookingStatus(null);
+                          }}
+                        >
+                          Done
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="error-icon">
+                        <AlertCircle size={32} />
+                      </div>
+                      <h2>Booking Failed</h2>
+                      <p>{bookingStatus?.message || "Please try again later"}</p>
+                      <button 
+                        className="done-btn"
+                        onClick={() => {
+                          setSelectedSpot(null);
+                          setBookingStep(1);
+                          setBookingStatus(null);
+                        }}
+                      >
+                        Try Again
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}
@@ -487,4 +957,4 @@ const ParkingDashboard = () => {
   );
 };
 
-export default ParkingDashboard;
+export default GlobalParkingFinder;

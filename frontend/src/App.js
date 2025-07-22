@@ -21,8 +21,9 @@ import ResetPassword from './components/resetpassword';
 import EmailVerification from './components/emailverification';
 
 // Admin components
-import AdminLogin from './components/adminlogin'; // Fixed typo from 'adminogin'
+import AdminLogin from './components/adminlogin';
 import AdminDashboard from './components/admindashboard';
+import AdminUserActivity from './components/adminuseractivity'; // New component
 
 // Chatbot component
 import ParkingBot from './components/parkingbot';
@@ -36,37 +37,6 @@ import Footer from './components/Footer';
 
 // Auth Context
 import { AuthProvider } from './context/AuthContext';
-
-// Protected Route Component for Admin
-const AdminProtectedRoute = ({ children }) => {
-  const adminToken = localStorage.getItem('adminToken');
-  
-  if (!adminToken) {
-    // Redirect to admin login if no token
-    window.location.href = '/admin/login';
-    return null;
-  }
-  
-  // Verify token is valid
-  try {
-    const tokenPayload = JSON.parse(atob(adminToken.split('.')[1]));
-    const currentTime = Date.now() / 1000;
-    
-    if (tokenPayload.exp < currentTime) {
-      // Token expired
-      localStorage.removeItem('adminToken');
-      window.location.href = '/admin/login';
-      return null;
-    }
-  } catch (error) {
-    // Invalid token format
-    localStorage.removeItem('adminToken');
-    window.location.href = '/admin/login';
-    return null;
-  }
-  
-  return children;
-};
 
 // Layout wrapper with navbar and footer
 const Layout = ({ children }) => (
@@ -140,36 +110,10 @@ function App() {
           <Route path="/verify-email" element={<AuthLayout><EmailVerification /></AuthLayout>} />
           
           {/* ========== ADMIN ROUTES ========== */}
-          <Route 
-            path="/admin/login" 
-            element={
-              <AdminLayout>
-                <AdminLogin />
-              </AdminLayout>
-            } 
-          />
-          
-          <Route 
-            path="/admin/dashboard" 
-            element={
-              <AdminLayout>
-                <AdminProtectedRoute>
-                  <AdminDashboard />
-                </AdminProtectedRoute>
-              </AdminLayout>
-            } 
-          />
-          
-          <Route 
-            path="/admin" 
-            element={
-              <AdminLayout>
-                <AdminProtectedRoute>
-                  <AdminDashboard />
-                </AdminProtectedRoute>
-              </AdminLayout>
-            } 
-          />
+          <Route path="/admin/login" element={<AdminLayout><AdminLogin /></AdminLayout>} />
+          <Route path="/admin/dashboard" element={<AdminLayout><AdminDashboard /></AdminLayout>} />
+          <Route path="/admin/user-activity" element={<AdminLayout><AdminUserActivity /></AdminLayout>} />
+          <Route path="/admin" element={<AdminLayout><AdminDashboard /></AdminLayout>} />
           
           {/* ========== SIMPLE PAGES ========== */}
           <Route path="/privacypolicy" element={<Profile />} />
