@@ -13,7 +13,10 @@ const requiredEnvVars = [
   'JWT_SECRET',
   'ADMIN_EMAIL',
   'ADMIN_PASSWORD',
-  'ADMIN_JWT_SECRET'
+  'ADMIN_JWT_SECRET',
+  'AWIN_API_TOKEN',          // Added for Awin
+  'AWIN_PUBLISHER_ID',       // Added for Awin
+  'AWIN_ADVERTISER_ID'       // Added for Awin
 ];
 
 const missingVars = requiredEnvVars.filter(v => !process.env[v]);
@@ -94,9 +97,9 @@ io.of('/notifications').on('connection', (socket) => {
   });
 });
 
-// Routes
+// ================== Routes ================== //
 app.use('/api/auth', require('./routes/authroutes'));
-app.use('/api/admin', require('./routes/adminroutes')); // Auth middleware is inside the route
+app.use('/api/admin', require('./routes/adminroutes'));
 app.use('/api/profile', require('./routes/profile'));
 app.use('/api/contact', require('./routes/contactroutes'));
 app.use('/api/cv', require('./routes/cvgenerator'));
@@ -104,6 +107,7 @@ app.use('/api/blogs', require('./routes/blogroutes'));
 app.use('/api/scholarships', require('./routes/scholarshiproutes'));
 app.use('/api/feedback', require('./routes/feedbackroutes'));
 app.use('/api/recommendations', require('./routes/recommendationroutes'));
+app.use('/api/awin', require('./routes/awin')); // NEW Awin API route
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -111,7 +115,10 @@ app.get('/api/health', (req, res) => {
     status: 'OK',
     database: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
     environment: process.env.NODE_ENV || 'development',
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    services: {
+      awin: process.env.AWIN_API_TOKEN ? 'Configured' : 'Disabled' // Awin status
+    }
   });
 });
 
@@ -149,4 +156,5 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`Awin API: ${process.env.AWIN_API_TOKEN ? 'Enabled' : 'Disabled'}`);
 });
