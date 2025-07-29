@@ -107,7 +107,7 @@ app.use('/api/blogs', require('./routes/blogroutes'));
 app.use('/api/scholarships', require('./routes/scholarshiproutes'));
 app.use('/api/feedback', require('./routes/feedbackroutes'));
 app.use('/api/recommendations', require('./routes/recommendationroutes'));
-app.use('/api/awin', require('./routes/awin')); // NEW Awin API route
+
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
