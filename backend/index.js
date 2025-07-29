@@ -14,9 +14,7 @@ const requiredEnvVars = [
   'ADMIN_EMAIL',
   'ADMIN_PASSWORD',
   'ADMIN_JWT_SECRET',
-  'AWIN_API_TOKEN',          // Added for Awin
-  'AWIN_PUBLISHER_ID',       // Added for Awin
-  'AWIN_ADVERTISER_ID'       // Added for Awin
+
 ];
 
 const missingVars = requiredEnvVars.filter(v => !process.env[v]);
