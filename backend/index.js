@@ -8,8 +8,6 @@ const http = require('http');
 const socketio = require('socket.io');
 const winston = require('winston');
 const { v4: uuidv4 } = require('uuid');
-const fs = require('fs');
-const path = require('path');
 
 // Enhanced logging configuration
 const logger = winston.createLogger({
@@ -45,6 +43,10 @@ if (missingVars.length > 0) {
 // Initialize Express
 const app = express();
 const server = http.createServer(app);
+
+// Environment detection - Force production on Render
+const isDevelopment = false; // Force production mode for now
+const isProduction = true;
 
 logger.info(`🌍 Environment: production (forced)`);
 logger.info(`🔗 Backend URL: https://parksy-backend.onrender.com`);
@@ -89,7 +91,7 @@ app.use(cors({
       return callback(null, true);
     }
     logger.warn(`CORS blocked: ${origin}`);
-    return callback(null, true);
+    return callback(null, true); // Allow for now to debug
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
@@ -129,132 +131,120 @@ io.of('/notifications').on('connection', (socket) => {
   socket.on('disconnect', () => logger.info(`🔌 Client disconnected: ${socket.id}`));
 });
 
-// 🔍 Check what files exist
-logger.info('🔍 Checking available route files...');
-try {
-  const routesDir = path.resolve(__dirname, 'routes');
-  const actualFiles = fs.readdirSync(routesDir);
-  logger.info('📁 Available route files:');
-  actualFiles.forEach(file => {
-    logger.info(`   - ${file}`);
-  });
-} catch (error) {
-  logger.error('❌ Cannot read routes directory:', error.message);
-}
+// 🚨 LOAD ROUTES (WITHOUT EV CHARGING)
+logger.info('📡 Loading routes (EV Charging disabled)...');
 
-// 🚨 EMERGENCY BYPASS: Load routes with absolute safety
-logger.info('🚨 EMERGENCY MODE: Loading routes with maximum safety...');
+// Load each route individually to identify the problematic one
+const routesToLoad = [
+  { path: '/api/auth', file: './routes/authroutes', name: 'Authentication' },
+  { path: '/api/admin', file: './routes/adminroutes', name: 'Admin' },
+  { path: '/api/profile', file: './routes/profile', name: 'Profile' },
+  { path: '/api/contact', file: './routes/contactroutes', name: 'Contact' },
+  { path: '/api/cv', file: './routes/cvgenerator', name: 'CV' },
+  { path: '/api/blogs', file: './routes/blogroutes', name: 'Blogs' },
+  { path: '/api/scholarships', file: './routes/scholarshiproutes', name: 'Scholarships' },
+  { path: '/api/feedback', file: './routes/feedbackroutes', name: 'Feedback' },
+  { path: '/api/recommendations', file: './routes/recommendationroutes', name: 'Recommendations' },
+  { path: '/api/parking', file: './routes/userparkingroutes', name: 'Parking' }
+  // 🚫 EV CHARGING DISABLED - COMMENT OUT TO PREVENT CRASHES
+  // { path: '/api/ev-charging', file: './routes/evChargingRoutes', name: 'EV Charging' }
+];
 
 let loadedRoutes = [];
 let failedRoutes = [];
 
-// Helper function to safely test a route file
-const safelyTestRoute = (filePath, routeName) => {
+for (const route of routesToLoad) {
   try {
-    logger.info(`🧪 Testing ${routeName} from ${filePath}...`);
+    logger.info(`🔄 Loading ${route.name}...`);
     
-    // Check if file exists
-    const fullPath = path.resolve(__dirname, filePath + '.js');
-    if (!fs.existsSync(fullPath)) {
-      throw new Error(`File not found: ${filePath}.js`);
-    }
-
-    // Read file content to check for obvious issues
-    const content = fs.readFileSync(fullPath, 'utf8');
+    // Use dynamic import to catch errors
+    const routeModule = require(route.file);
+    app.use(route.path, routeModule);
     
-    // Check for problematic route patterns
-    const problematicPatterns = [
-      /router\.(?:get|post|put|delete|patch)\s*\(\s*['"][^'"]*:\s*['"]/, // :space or :end
-      /router\.(?:get|post|put|delete|patch)\s*\(\s*['"][^'"]*::[^'"]*['"]/, // double colon
-      /router\.(?:get|post|put|delete|patch)\s*\(\s*['"][^'"]*:\d[^'"]*['"]/, // :number
-      /router\.(?:get|post|put|delete|patch)\s*\(\s*['"][^'"]*:[^a-zA-Z_][^'"]*['"]/, // :invalid_start
-    ];
-    
-    for (let i = 0; i < problematicPatterns.length; i++) {
-      const matches = content.match(problematicPatterns[i]);
-      if (matches) {
-        throw new Error(`Problematic route pattern found: ${matches[0].trim()}`);
-      }
-    }
-
-    // Try to require in a child process to isolate errors
-    delete require.cache[require.resolve(filePath)];
-    const routeModule = require(filePath);
-    
-    if (!routeModule || typeof routeModule !== 'function') {
-      throw new Error('Module does not export a valid Express router');
-    }
-
-    return { success: true, module: routeModule };
+    loadedRoutes.push(route);
+    logger.info(`✅ ${route.name} loaded successfully`);
     
   } catch (error) {
-    logger.error(`❌ ${routeName} failed test: ${error.message}`);
-    return { success: false, error: error.message };
-  }
-};
-
-// List of routes to test (in order of safety - least likely to have issues first)
-const routesToTest = [
-  { path: '/api/auth', files: ['./routes/authroutes', './routes/authRoutes'], name: 'Authentication' },
-  { path: '/api/contact', files: ['./routes/contactroutes', './routes/contactRoutes'], name: 'Contact' },
-  { path: '/api/profile', files: ['./routes/profile', './routes/profileRoutes'], name: 'Profile' },
-  { path: '/api/cv', files: ['./routes/cvgenerator', './routes/cvGenerator'], name: 'CV' },
-  { path: '/api/blogs', files: ['./routes/blogroutes', './routes/blogRoutes'], name: 'Blogs' },
-  { path: '/api/feedback', files: ['./routes/feedbackroutes', './routes/feedbackRoutes'], name: 'Feedback' },
-  { path: '/api/admin', files: ['./routes/adminroutes', './routes/adminRoutes'], name: 'Admin' },
-  { path: '/api/scholarships', files: ['./routes/scholarshiproutes', './routes/scholarshipRoutes'], name: 'Scholarships' },
-  { path: '/api/recommendations', files: ['./routes/recommendationroutes', './routes/recommendationRoutes'], name: 'Recommendations' },
-  // These are most likely to have parameter issues, so test last
-  { path: '/api/parking', files: ['./routes/userparkingroutes', './routes/parkingRoutes'], name: 'Parking' },
-  { path: '/api/ev-charging', files: ['./routes/evChargingRoutes', './routes/evchargingroutes'], name: 'EV Charging' }
-];
-
-// Test and load each route
-for (const route of routesToTest) {
-  let routeLoaded = false;
-
-  for (const filePath of route.files) {
-    const testResult = safelyTestRoute(filePath, route.name);
+    failedRoutes.push({ ...route, error: error.message });
+    logger.error(`❌ ${route.name} FAILED: ${error.message}`);
     
-    if (testResult.success) {
-      try {
-        app.use(route.path, testResult.module);
-        loadedRoutes.push({ ...route, file: filePath });
-        logger.info(`✅ ${route.name} loaded successfully from ${filePath}`);
-        routeLoaded = true;
-        break;
-      } catch (error) {
-        logger.error(`❌ Failed to mount ${route.name}: ${error.message}`);
-      }
+    // If it's a router error, log more details
+    if (error.message.includes('Missing parameter name')) {
+      logger.error(`🔍 Router error in ${route.file} - check for invalid route patterns`);
     }
-  }
-
-  if (!routeLoaded) {
-    failedRoutes.push({
-      ...route,
-      error: 'No valid route file found or all files have issues'
-    });
-    
-    // Create emergency fallback endpoint
-    app.get(`${route.path}/emergency`, (req, res) => {
-      res.json({
-        status: 'EMERGENCY_MODE',
-        service: route.name,
-        message: `${route.name} routes failed to load - check server logs`,
-        timestamp: new Date().toISOString()
-      });
-    });
   }
 }
 
-logger.info(`📊 Emergency loading complete:`);
-logger.info(`   ✅ Loaded: ${loadedRoutes.length} routes`);
-logger.info(`   ❌ Failed: ${failedRoutes.length} routes`);
+// 🔌 CREATE PLACEHOLDER EV CHARGING ENDPOINTS
+logger.info('🔌 Creating placeholder EV Charging endpoints...');
 
-// Basic endpoints that will always work
+// EV Charging placeholder routes (since we can't load the real ones)
+app.get('/api/ev-charging/health', (req, res) => {
+  res.json({
+    status: 'DISABLED',
+    service: 'EV Charging API',
+    message: 'EV Charging routes are temporarily disabled due to route pattern issues',
+    timestamp: new Date().toISOString(),
+    note: 'This endpoint is a placeholder until the route issues are resolved'
+  });
+});
+
+app.get('/api/ev-charging/search-by-location', (req, res) => {
+  res.status(503).json({
+    success: false,
+    message: 'EV Charging service is temporarily disabled',
+    error: 'Service under maintenance - route pattern issues',
+    data: [],
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/ev-charging/search-by-area', (req, res) => {
+  res.status(503).json({
+    success: false,
+    message: 'EV Charging service is temporarily disabled',
+    error: 'Service under maintenance - route pattern issues',
+    data: [],
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/ev-charging/operators', (req, res) => {
+  res.status(503).json({
+    success: false,
+    message: 'EV Charging service is temporarily disabled',
+    error: 'Service under maintenance - route pattern issues',
+    data: [],
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/ev-charging/connection-types', (req, res) => {
+  res.status(503).json({
+    success: false,
+    message: 'EV Charging service is temporarily disabled',
+    error: 'Service under maintenance - route pattern issues',
+    data: [],
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/ev-charging/test-connection', (req, res) => {
+  res.json({
+    success: false,
+    message: 'EV Charging service is temporarily disabled',
+    timestamp: new Date().toISOString()
+  });
+});
+
+logger.info('✅ EV Charging placeholder endpoints created');
+
+logger.info(`📊 Route loading complete: ${loadedRoutes.length} successful, ${failedRoutes.length} failed`);
+
+// Root endpoint
 app.get('/', (req, res) => {
   res.json({
-    message: '🚗 ParkingFinder API Server - EMERGENCY MODE',
+    message: '🚗 ParkingFinder API Server',
     status: 'running',
     version: '2.0.0',
     environment: 'production',
@@ -267,16 +257,19 @@ app.get('/', (req, res) => {
     routes: {
       loaded: loadedRoutes.length,
       failed: failedRoutes.length,
+      disabled: ['EV Charging (temporary)'],
+      total: routesToLoad.length + 1, // +1 for EV charging (disabled)
       working: loadedRoutes.map(r => r.path),
-      emergency_endpoints: failedRoutes.map(r => `${r.path}/emergency`)
+      placeholders: ['/api/ev-charging/* (placeholder endpoints)']
     },
-    note: 'Server running in emergency mode - some routes may have failed to load'
+    note: 'EV Charging API temporarily disabled due to route pattern issues'
   });
 });
 
+// Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({
-    status: 'EMERGENCY_OK',
+    status: 'OK',
     server: 'https://parksy-backend.onrender.com',
     uptime: Math.round(process.uptime()),
     timestamp: new Date().toISOString(),
@@ -285,33 +278,38 @@ app.get('/api/health', (req, res) => {
     },
     environment: 'production',
     version: '2.0.0',
+    services: {
+      mongodb: mongoose.connection.readyState === 1,
+      evCharging: false, // Disabled
+      parking: true,
+      auth: true
+    },
     routes: {
-      loaded: loadedRoutes.map(r => ({ path: r.path, name: r.name, file: r.file })),
-      failed: failedRoutes.map(r => ({ path: r.path, name: r.name, error: r.error }))
+      loaded: loadedRoutes.map(r => ({ path: r.path, name: r.name })),
+      failed: failedRoutes.map(r => ({ path: r.path, name: r.name, error: r.error })),
+      disabled: [{ path: '/api/ev-charging', name: 'EV Charging', reason: 'Route pattern issues' }],
+      total: loadedRoutes.length + failedRoutes.length + 1
     }
   });
 });
 
-// Create a diagnostic endpoint
-app.get('/api/debug/routes', (req, res) => {
+// API info endpoint
+app.get('/api/info', (req, res) => {
   res.json({
-    timestamp: new Date().toISOString(),
-    total_routes_attempted: routesToTest.length,
-    successful_routes: loadedRoutes,
-    failed_routes: failedRoutes,
-    emergency_endpoints: failedRoutes.map(r => `${r.path}/emergency`),
-    next_steps: [
-      'Check the failed routes for malformed route patterns',
-      'Look for routes with parameters like /:id that might have syntax errors',
-      'Check if route files exist with the expected names'
-    ]
+    name: 'ParkingFinder API',
+    version: '2.0.0',
+    description: 'Backend API for ParkingFinder application',
+    server: 'https://parksy-backend.onrender.com',
+    endpoints: loadedRoutes.map(route => route.path),
+    failedRoutes: failedRoutes.map(route => ({ path: route.path, error: route.error })),
+    disabledEndpoints: ['/api/ev-charging (temporarily disabled)']
   });
 });
 
-// Global error handler
+// Error handling
 app.use((err, req, res, next) => {
-  logger.error(`Global Error: ${err.message}`);
-  res.status(500).json({
+  logger.error(`Error: ${err.message}`);
+  res.status(err.status || 500).json({
     error: 'Internal Server Error',
     timestamp: new Date().toISOString()
   });
@@ -321,9 +319,8 @@ app.use((err, req, res, next) => {
 app.use((req, res) => {
   res.status(404).json({ 
     error: 'Not Found',
-    message: 'Route not found - server running in emergency mode',
-    available_endpoints: loadedRoutes.map(r => r.path),
-    emergency_endpoints: failedRoutes.map(r => `${r.path}/emergency`),
+    availableEndpoints: loadedRoutes.map(r => r.path),
+    disabledEndpoints: ['/api/ev-charging'],
     timestamp: new Date().toISOString()
   });
 });
@@ -331,14 +328,19 @@ app.use((req, res) => {
 // Start server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => {
-  logger.info(`🚀 Server started in EMERGENCY MODE on port ${PORT}`);
+  logger.info(`🚀 Server started on port ${PORT}`);
   logger.info(`🌐 URL: https://parksy-backend.onrender.com`);
   logger.info(`✅ Loaded routes: ${loadedRoutes.length}`);
   logger.info(`❌ Failed routes: ${failedRoutes.length}`);
+  logger.info(`🚫 Disabled routes: 1 (EV Charging)`);
   
   if (failedRoutes.length > 0) {
-    logger.warn('⚠️  Some routes failed - check /api/debug/routes for details');
+    logger.warn('⚠️  Failed routes:');
+    failedRoutes.forEach(route => {
+      logger.warn(`   - ${route.name}: ${route.error}`);
+    });
   }
   
-  logger.info(`💚 Server is running (emergency mode)!`);
+  logger.info(`💚 Server is running successfully!`);
+  logger.info(`📝 Note: EV Charging API temporarily disabled`);
 });
