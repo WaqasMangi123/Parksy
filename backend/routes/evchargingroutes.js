@@ -2,19 +2,51 @@ const express = require('express');
 const router = express.Router();
 const { query, validationResult } = require('express-validator');
 
-// Import EV service with error handling
-let EvChargingService;
+// Safe import of EV service with proper error handling
+let EvChargingService = null;
+let serviceReady = false;
+
 try {
-  EvChargingService = require('../services/evchargingservices');
+  const EvChargingServiceClass = require('../services/evchargingservices');
+  EvChargingService = new EvChargingServiceClass();
+  serviceReady = true;
+  console.log('✅ EV Charging Service loaded successfully');
 } catch (error) {
   console.error('❌ Failed to load EvChargingService:', error.message);
-  // Create a fallback service
+  serviceReady = false;
+  
+  // Create a complete fallback service
   EvChargingService = {
-    searchByLocation: async () => ({ data: [] }),
-    searchByArea: async () => ({ data: [] }),
-    getOperators: async () => ({ data: [] }),
-    getConnectionTypes: async () => ({ data: [] }),
-    getStationById: async () => ({ data: null })
+    searchByLocation: async () => ({ 
+      success: false, 
+      data: [], 
+      error: 'EV Service not available' 
+    }),
+    searchByArea: async () => ({ 
+      success: false, 
+      data: [], 
+      error: 'EV Service not available' 
+    }),
+    getOperators: async () => ({ 
+      success: false, 
+      data: [], 
+      error: 'EV Service not available' 
+    }),
+    getConnectionTypes: async () => ({ 
+      success: false, 
+      data: [], 
+      error: 'EV Service not available' 
+    }),
+    getStationById: async () => ({ 
+      success: false, 
+      data: null, 
+      error: 'EV Service not available' 
+    }),
+    testConnection: async () => ({ 
+      success: false, 
+      message: 'EV Service not available' 
+    }),
+    isReady: () => false
   };
 }
 
@@ -31,17 +63,46 @@ const handleValidationErrors = (req, res, next) => {
   next();
 };
 
+// Helper function to check service status
+const checkServiceStatus = () => {
+  if (!serviceReady) {
+    return {
+      available: false,
+      message: 'EV Charging Service is not available - check service configuration'
+    };
+  }
+  
+  if (EvChargingService && typeof EvChargingService.isReady === 'function') {
+    const ready = EvChargingService.isReady();
+    return {
+      available: ready,
+      message: ready ? 'Service ready' : 'Service not ready - check API configuration'
+    };
+  }
+  
+  return {
+    available: true,
+    message: 'Service available'
+  };
+};
+
 // ===== EV CHARGING ENDPOINTS =====
 
 // Health check for EV API
 router.get('/health', (req, res) => {
   console.log('🔌 EV Charging API health check');
+  
+  const serviceStatus = checkServiceStatus();
+  
   res.json({
-    success: true,
-    message: 'EV Charging API is healthy',
+    success: serviceStatus.available,
+    message: 'EV Charging API Health Check',
+    service_status: serviceStatus.message,
+    service_ready: serviceReady,
     timestamp: new Date().toISOString(),
     services: {
-      open_charge_map: 'connected'
+      open_charge_map: serviceStatus.available ? 'connected' : 'unavailable',
+      axios: serviceReady ? 'loaded' : 'not loaded'
     }
   });
 });
@@ -63,6 +124,18 @@ router.get('/search-by-location',
   handleValidationErrors,
   async (req, res) => {
     try {
+      // Check service status first
+      const serviceStatus = checkServiceStatus();
+      if (!serviceStatus.available) {
+        return res.status(503).json({
+          success: false,
+          message: 'EV Charging service temporarily unavailable',
+          error: serviceStatus.message,
+          data: [],
+          timestamp: new Date().toISOString()
+        });
+      }
+
       const {
         latitude,
         longitude,
@@ -96,11 +169,13 @@ router.get('/search-by-location',
       console.log('✅ Found EV stations:', result.data?.length || 0);
 
       res.json({
-        success: true,
-        data: result.data,
+        success: result.success || false,
+        data: result.data || [],
         count: result.data?.length || 0,
         search_params: searchParams,
-        message: `Found ${result.data?.length || 0} charging stations`,
+        message: result.success 
+          ? `Found ${result.data?.length || 0} charging stations`
+          : result.error || 'Search failed',
         timestamp: new Date().toISOString()
       });
 
@@ -110,6 +185,7 @@ router.get('/search-by-location',
         success: false,
         message: 'Failed to search charging stations by location',
         error: error.message,
+        data: [],
         timestamp: new Date().toISOString()
       });
     }
@@ -127,6 +203,18 @@ router.get('/search-by-area',
   handleValidationErrors,
   async (req, res) => {
     try {
+      // Check service status first
+      const serviceStatus = checkServiceStatus();
+      if (!serviceStatus.available) {
+        return res.status(503).json({
+          success: false,
+          message: 'EV Charging service temporarily unavailable',
+          error: serviceStatus.message,
+          data: [],
+          timestamp: new Date().toISOString()
+        });
+      }
+
       const {
         area,
         maxresults = 50,
@@ -150,11 +238,13 @@ router.get('/search-by-area',
       console.log('✅ Found EV stations in area:', result.data?.length || 0);
 
       res.json({
-        success: true,
-        data: result.data,
+        success: result.success || false,
+        data: result.data || [],
         count: result.data?.length || 0,
         search_params: searchParams,
-        message: `Found ${result.data?.length || 0} charging stations in ${area}`,
+        message: result.success 
+          ? `Found ${result.data?.length || 0} charging stations in ${area}`
+          : result.error || 'Search failed',
         timestamp: new Date().toISOString()
       });
 
@@ -164,6 +254,7 @@ router.get('/search-by-area',
         success: false,
         message: 'Failed to search charging stations by area',
         error: error.message,
+        data: [],
         timestamp: new Date().toISOString()
       });
     }
@@ -174,12 +265,26 @@ router.get('/search-by-area',
 router.get('/operators', async (req, res) => {
   try {
     console.log('🏢 Getting EV operators...');
+    
+    // Check service status first
+    const serviceStatus = checkServiceStatus();
+    if (!serviceStatus.available) {
+      return res.status(503).json({
+        success: false,
+        message: 'EV Charging service temporarily unavailable',
+        error: serviceStatus.message,
+        data: [],
+        timestamp: new Date().toISOString()
+      });
+    }
+
     const operators = await EvChargingService.getOperators();
 
     res.json({
-      success: true,
-      data: operators.data,
+      success: operators.success || false,
+      data: operators.data || [],
       count: operators.data?.length || 0,
+      message: operators.success ? 'Operators retrieved successfully' : operators.error || 'Failed to get operators',
       timestamp: new Date().toISOString()
     });
 
@@ -189,6 +294,7 @@ router.get('/operators', async (req, res) => {
       success: false,
       message: 'Failed to get charging operators',
       error: error.message,
+      data: [],
       timestamp: new Date().toISOString()
     });
   }
@@ -198,12 +304,26 @@ router.get('/operators', async (req, res) => {
 router.get('/connection-types', async (req, res) => {
   try {
     console.log('🔌 Getting connection types...');
+    
+    // Check service status first
+    const serviceStatus = checkServiceStatus();
+    if (!serviceStatus.available) {
+      return res.status(503).json({
+        success: false,
+        message: 'EV Charging service temporarily unavailable',
+        error: serviceStatus.message,
+        data: [],
+        timestamp: new Date().toISOString()
+      });
+    }
+
     const connectionTypes = await EvChargingService.getConnectionTypes();
 
     res.json({
-      success: true,
-      data: connectionTypes.data,
+      success: connectionTypes.success || false,
+      data: connectionTypes.data || [],
       count: connectionTypes.data?.length || 0,
+      message: connectionTypes.success ? 'Connection types retrieved successfully' : connectionTypes.error || 'Failed to get connection types',
       timestamp: new Date().toISOString()
     });
 
@@ -213,6 +333,7 @@ router.get('/connection-types', async (req, res) => {
       success: false,
       message: 'Failed to get connection types',
       error: error.message,
+      data: [],
       timestamp: new Date().toISOString()
     });
   }
@@ -224,12 +345,26 @@ router.get('/station/:id', async (req, res) => {
     const { id } = req.params;
     console.log('🔍 Getting EV station details:', id);
 
+    // Check service status first
+    const serviceStatus = checkServiceStatus();
+    if (!serviceStatus.available) {
+      return res.status(503).json({
+        success: false,
+        message: 'EV Charging service temporarily unavailable',
+        error: serviceStatus.message,
+        data: null,
+        timestamp: new Date().toISOString()
+      });
+    }
+
     const station = await EvChargingService.getStationById(id);
 
-    if (!station.data) {
+    if (!station.success || !station.data) {
       return res.status(404).json({
         success: false,
         message: 'Charging station not found',
+        error: station.error || 'Station not found',
+        data: null,
         timestamp: new Date().toISOString()
       });
     }
@@ -237,6 +372,7 @@ router.get('/station/:id', async (req, res) => {
     res.json({
       success: true,
       data: station.data,
+      message: 'Station details retrieved successfully',
       timestamp: new Date().toISOString()
     });
 
@@ -245,6 +381,50 @@ router.get('/station/:id', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to get station details',
+      error: error.message,
+      data: null,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Test connection endpoint
+router.get('/test-connection', async (req, res) => {
+  try {
+    console.log('🧪 Testing EV API connection...');
+    
+    const serviceStatus = checkServiceStatus();
+    if (!serviceStatus.available) {
+      return res.json({
+        success: false,
+        message: 'EV Charging service not available',
+        error: serviceStatus.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    let testResult;
+    if (typeof EvChargingService.testConnection === 'function') {
+      testResult = await EvChargingService.testConnection();
+    } else {
+      testResult = {
+        success: false,
+        message: 'Test connection method not available'
+      };
+    }
+
+    res.json({
+      success: testResult.success,
+      message: testResult.message || 'Connection test completed',
+      service_ready: serviceReady,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ EV CONNECTION TEST ERROR:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Connection test failed',
       error: error.message,
       timestamp: new Date().toISOString()
     });
