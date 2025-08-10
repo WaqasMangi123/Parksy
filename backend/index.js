@@ -23,7 +23,6 @@ const logger = winston.createLogger({
         winston.format.simple()
       )
     })
-    // File logging removed for Render deployment (uses ephemeral filesystem)
   ]
 });
 
@@ -63,11 +62,17 @@ optionalEnvVars.forEach(envVar => {
 const app = express();
 const server = http.createServer(app);
 
-// Environment detection
-const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
+// Environment detection - Fixed to properly detect production on Render
+const isDevelopment = process.env.NODE_ENV === 'development';
 const isProduction = process.env.NODE_ENV === 'production';
 
-// Production CORS configuration with actual Render URLs
+// If NODE_ENV is not set, assume production on Render
+const actualEnvironment = process.env.NODE_ENV || 'production';
+
+logger.info(`🌍 Environment: ${actualEnvironment}`);
+logger.info(`🔧 NODE_ENV: ${process.env.NODE_ENV || 'not set (defaulting to production)'}`);
+
+// Production CORS configuration with your actual URLs
 const allowedOrigins = [
   // Local development URLs
   'http://localhost:3000',
@@ -75,27 +80,25 @@ const allowedOrigins = [
   'http://127.0.0.1:3000',
   'http://localhost:5000',
   
-  // Your actual Render frontend URLs (add your frontend URL when you deploy it)
+  // Your actual production URLs
+  'https://parksy.uk',
+  'https://www.parksy.uk',
+  
+  // Environment variables
   process.env.CLIENT_URL,
   process.env.FRONTEND_URL,
   
-  // Common Render frontend patterns (replace with your actual frontend URL)
-  'https://parksy.uk',
- 
-  
-  // Your backend URL (for health checks and API testing)
+  // Your backend URL
   'https://parksy-backend.onrender.com',
   
-  // If you have a custom domain
+  // Custom domains
   process.env.CUSTOM_DOMAIN,
-  
-  // Additional domains you might use
   process.env.ADDITIONAL_DOMAIN
 ].filter(Boolean);
 
-logger.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
 logger.info(`🔗 Backend URL: https://parksy-backend.onrender.com`);
-logger.info(`🎯 Allowed origins: ${isDevelopment ? '* (all origins)' : allowedOrigins.join(', ')}`);
+logger.info(`🌐 Frontend URL: https://parksy.uk`);
+logger.info(`🎯 CORS Mode: ${isDevelopment ? 'Development (*)' : 'Production (restricted)'}`);
 
 // Socket.io setup with production-ready CORS
 const io = socketio(server, {
@@ -105,7 +108,7 @@ const io = socketio(server, {
     credentials: true
   },
   transports: ['websocket', 'polling'],
-  allowEIO3: true // For compatibility
+  allowEIO3: true
 });
 
 // Enhanced security middleware for production
@@ -123,7 +126,7 @@ app.use(helmet({
       frameSrc: ["'self'"]
     }
   },
-  crossOriginEmbedderPolicy: false, // Disable for API server
+  crossOriginEmbedderPolicy: false,
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
@@ -166,7 +169,7 @@ app.use(cors({
     'Access-Control-Request-Headers'
   ],
   exposedHeaders: ['X-Total-Count', 'X-Page-Count'],
-  optionsSuccessStatus: 200 // For legacy browser support
+  optionsSuccessStatus: 200
 }));
 
 // Handle preflight requests explicitly
@@ -177,15 +180,14 @@ app.use((req, res, next) => {
   const requestId = uuidv4();
   req.id = requestId;
   
-  // Log all requests in development, only errors in production
-  if (isDevelopment || req.method !== 'GET') {
+  // Minimal logging in production for performance
+  if (isDevelopment) {
     logger.info({
       message: 'Incoming request',
       requestId,
       method: req.method,
       path: req.path,
       origin: req.get('origin'),
-      userAgent: req.get('User-Agent'),
       ip: req.ip
     });
   }
@@ -197,8 +199,7 @@ app.use((req, res, next) => {
         requestId,
         method: req.method,
         path: req.path,
-        status: res.statusCode,
-        contentLength: res.get('Content-Length')
+        status: res.statusCode
       });
     }
   });
@@ -209,10 +210,10 @@ app.use((req, res, next) => {
 // Enhanced rate limiting for production
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: isProduction ? 200 : 1000, // More generous limits for development
+  max: isProduction ? 200 : 1000,
   message: {
     error: 'Too many requests from this IP, please try again later',
-    retryAfter: 15 * 60, // seconds
+    retryAfter: 15 * 60,
     type: 'rate_limit_exceeded'
   },
   standardHeaders: true,
@@ -221,12 +222,11 @@ const limiter = rateLimit({
     logger.warn(`⚠️ Rate limit exceeded for IP: ${req.ip}, Path: ${req.path}`);
     res.status(429).json({
       error: 'Too many requests, please try again later',
-      retryAfter: 900, // 15 minutes in seconds
+      retryAfter: 900,
       type: 'rate_limit_exceeded'
     });
   },
   skip: (req) => {
-    // Skip rate limiting for health checks in production
     return req.path === '/api/health' || req.path === '/';
   }
 });
@@ -240,11 +240,10 @@ const connectDB = async (retries = 5, interval = 5000) => {
     await mongoose.connect(process.env.MONGO_URI, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
-      serverSelectionTimeoutMS: isProduction ? 15000 : 5000,
-      maxPoolSize: isProduction ? 10 : 50,
+      serverSelectionTimeoutMS: 15000,
+      maxPoolSize: 10,
       retryWrites: true,
       w: 'majority',
-      // Production optimizations
       bufferCommands: false,
       bufferMaxEntries: 0,
       connectTimeoutMS: 30000,
@@ -304,29 +303,89 @@ io.of('/notifications').on('connection', (socket) => {
   });
 });
 
-// API Routes with error handling
+// API Routes with enhanced error handling to prevent deployment failures
 const routes = [
-  { path: '/api/auth', router: require('./routes/authroutes') },
-  { path: '/api/admin', router: require('./routes/adminroutes') },
-  { path: '/api/profile', router: require('./routes/profile') },
-  { path: '/api/contact', router: require('./routes/contactroutes') },
-  { path: '/api/cv', router: require('./routes/cvgenerator') },
-  { path: '/api/blogs', router: require('./routes/blogroutes') },
-  { path: '/api/scholarships', router: require('./routes/scholarshiproutes') },
-  { path: '/api/feedback', router: require('./routes/feedbackroutes') },
-  { path: '/api/recommendations', router: require('./routes/recommendationroutes') },
-  { path: '/api/parking', router: require('./routes/userparkingroutes') },
-  { path: '/api/ev-charging', router: require('./routes/evChargingRoutes') }
+  { path: '/api/auth', file: './routes/authroutes', name: 'Authentication' },
+  { path: '/api/admin', file: './routes/adminroutes', name: 'Admin' },
+  { path: '/api/profile', file: './routes/profile', name: 'Profile' },
+  { path: '/api/contact', file: './routes/contactroutes', name: 'Contact' },
+  { path: '/api/cv', file: './routes/cvgenerator', name: 'CV Generator' },
+  { path: '/api/blogs', file: './routes/blogroutes', name: 'Blogs' },
+  { path: '/api/scholarships', file: './routes/scholarshiproutes', name: 'Scholarships' },
+  { path: '/api/feedback', file: './routes/feedbackroutes', name: 'Feedback' },
+  { path: '/api/recommendations', file: './routes/recommendationroutes', name: 'Recommendations' },
+  { path: '/api/parking', file: './routes/userparkingroutes', name: 'Parking' },
+  { path: '/api/ev-charging', file: './routes/evChargingRoutes', name: 'EV Charging' }
 ];
+
+// Enhanced route registration with individual error handling
+let successfulRoutes = 0;
+let failedRoutes = [];
+const registeredRoutes = [];
 
 routes.forEach(route => {
   try {
-    app.use(route.path, route.router);
-    logger.info(`✅ Registered route: ${route.path}`);
+    logger.info(`🔄 Loading ${route.name} route: ${route.path}`);
+    
+    // Try to require the route file
+    const routeModule = require(route.file);
+    
+    // Validate that it's a proper router
+    if (!routeModule || typeof routeModule !== 'function') {
+      throw new Error(`Invalid router module: ${route.file} did not export a valid router`);
+    }
+    
+    // Try to register the route
+    app.use(route.path, routeModule);
+    
+    successfulRoutes++;
+    registeredRoutes.push({ path: route.path, name: route.name });
+    logger.info(`✅ Successfully registered ${route.name}: ${route.path}`);
+    
   } catch (error) {
-    logger.error(`❌ Failed to register route ${route.path}: ${error.message}`);
+    failedRoutes.push({
+      name: route.name,
+      path: route.path,
+      file: route.file,
+      error: error.message
+    });
+    
+    logger.error(`❌ FAILED to register ${route.name}: ${route.path}`);
+    logger.error(`📁 File: ${route.file}`);
+    logger.error(`🚨 Error: ${error.message}`);
+    
+    // Provide specific guidance for common router errors
+    if (error.message.includes('Missing parameter name') || error.message.includes('pathToRegexpError')) {
+      logger.error(`🔍 ROUTER PATH ERROR detected in ${route.file}:`);
+      logger.error(`   Check for invalid route patterns like:`);
+      logger.error(`   - /:id: (double colon)`);
+      logger.error(`   - /user/: (missing parameter name)`);
+      logger.error(`   - /:: (empty parameter)`);
+      logger.error(`   - Routes with malformed path patterns`);
+    }
+    
+    // Continue with other routes instead of crashing the entire server
+    logger.warn(`⚠️  Continuing server startup without ${route.name} route...`);
   }
 });
+
+// Log route registration summary
+logger.info(`📊 Route Registration Summary:`);
+logger.info(`✅ Successful routes: ${successfulRoutes}/${routes.length}`);
+
+if (failedRoutes.length > 0) {
+  logger.error(`❌ Failed routes: ${failedRoutes.length}`);
+  failedRoutes.forEach(route => {
+    logger.error(`   - ${route.name} (${route.path}): ${route.error}`);
+  });
+  
+  // Don't exit for non-critical route failures in production
+  if (!isProduction) {
+    logger.warn('⚠️  Some routes failed to load, but continuing in production mode...');
+  }
+} else {
+  logger.info('🎉 All routes registered successfully!');
+}
 
 // Root endpoint with comprehensive info
 app.get('/', (req, res) => {
@@ -334,12 +393,12 @@ app.get('/', (req, res) => {
     message: '🚗 ParkingFinder API Server',
     status: 'running',
     version: '2.0.0',
-    environment: process.env.NODE_ENV || 'development',
+    environment: actualEnvironment,
     timestamp: new Date().toISOString(),
     server: {
       name: 'Parksy Backend',
       url: 'https://parksy-backend.onrender.com',
-      uptime: process.uptime()
+      uptime: Math.round(process.uptime())
     },
     features: [
       'User Authentication',
@@ -348,7 +407,12 @@ app.get('/', (req, res) => {
       'Admin Dashboard',
       'Real-time Notifications'
     ],
-    endpoints: routes.map(route => route.path),
+    routes: {
+      total: routes.length,
+      registered: successfulRoutes,
+      failed: failedRoutes.length,
+      active: registeredRoutes.map(r => r.path)
+    },
     cors: isDevelopment ? 'development (permissive)' : 'production (restricted)'
   });
 });
@@ -358,7 +422,7 @@ app.get('/api/health', (req, res) => {
   const healthcheck = {
     status: 'OK',
     server: 'https://parksy-backend.onrender.com',
-    uptime: process.uptime(),
+    uptime: Math.round(process.uptime()),
     timestamp: new Date().toISOString(),
     database: {
       status: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
@@ -368,7 +432,7 @@ app.get('/api/health', (req, res) => {
       used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + ' MB',
       total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + ' MB'
     },
-    environment: process.env.NODE_ENV || 'development',
+    environment: actualEnvironment,
     version: '2.0.0',
     services: {
       mongodb: mongoose.connection.readyState === 1,
@@ -376,6 +440,11 @@ app.get('/api/health', (req, res) => {
       googleMaps: !!process.env.GOOGLE_MAPS_API_KEY,
       mapbox: !!process.env.MAPBOX_ACCESS_TOKEN,
       socketIO: true
+    },
+    routes: {
+      total: routes.length,
+      registered: successfulRoutes,
+      failed: failedRoutes.length
     },
     cors: {
       mode: isDevelopment ? 'development' : 'production',
@@ -395,10 +464,11 @@ app.get('/api/info', (req, res) => {
     description: 'Backend API for ParkingFinder application with EV charging support',
     server: {
       url: 'https://parksy-backend.onrender.com',
-      environment: process.env.NODE_ENV || 'development'
+      environment: actualEnvironment
     },
-    endpoints: routes.map(route => ({
+    endpoints: registeredRoutes.map(route => ({
       path: route.path,
+      name: route.name,
       url: `https://parksy-backend.onrender.com${route.path}`
     })),
     features: [
@@ -421,13 +491,17 @@ app.get('/api/info', (req, res) => {
   });
 });
 
-// EV Charging specific health check
+// Temporary EV Charging health endpoint (in case EV routes fail to load)
 app.get('/api/ev-charging/health', (req, res) => {
+  const evRouteLoaded = registeredRoutes.some(r => r.path === '/api/ev-charging');
+  
   res.json({
-    status: 'OK',
+    status: evRouteLoaded ? 'OK' : 'ROUTE_NOT_LOADED',
     service: 'EV Charging API',
     timestamp: new Date().toISOString(),
+    routeLoaded: evRouteLoaded,
     apiKey: !!process.env.OPEN_CHARGE_MAP_API_KEY ? 'configured' : 'missing',
+    message: evRouteLoaded ? 'EV Charging routes loaded successfully' : 'EV Charging routes failed to load - check route file for errors',
     features: [
       'Search by location',
       'Search by area', 
@@ -435,12 +509,12 @@ app.get('/api/ev-charging/health', (req, res) => {
       'Connection type filtering',
       'Real-time status'
     ],
-    endpoints: [
+    endpoints: evRouteLoaded ? [
       '/api/ev-charging/search-by-location',
       '/api/ev-charging/search-by-area',
       '/api/ev-charging/operators',
       '/api/ev-charging/connection-types'
-    ]
+    ] : ['Routes not available due to loading error']
   });
 });
 
@@ -455,8 +529,7 @@ app.use((err, req, res, next) => {
     request: {
       method: req.method,
       path: req.path,
-      ip: req.ip,
-      userAgent: req.get('User-Agent')
+      ip: req.ip
     }
   });
 
@@ -482,7 +555,7 @@ app.use((req, res) => {
     error: 'Not Found',
     message: `The requested endpoint ${req.method} ${req.path} was not found`,
     server: 'https://parksy-backend.onrender.com',
-    availableEndpoints: routes.map(route => route.path),
+    availableEndpoints: registeredRoutes.map(route => route.path),
     documentation: {
       health: '/api/health',
       info: '/api/info'
@@ -511,7 +584,6 @@ const shutdown = (signal) => {
       });
     });
     
-    // Force shutdown after 30 seconds
     setTimeout(() => {
       logger.error('⏰ Could not close connections in time, forcefully shutting down');
       process.exit(1);
@@ -536,15 +608,21 @@ server.listen(PORT, '0.0.0.0', () => {
   logger.info(`🚀 Parksy Backend Server started successfully!`);
   logger.info(`🌐 Server URL: https://parksy-backend.onrender.com`);
   logger.info(`🔌 Running on port ${PORT}`);
-  logger.info(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  logger.info(`📍 Environment: ${actualEnvironment}`);
   logger.info(`🔐 CORS Mode: ${isDevelopment ? 'Development (*)' : 'Production (restricted)'}`);
   
-  if (isProduction) {
+  if (!isDevelopment) {
     logger.info(`🌍 Allowed Frontend URLs:`);
     allowedOrigins.forEach(origin => logger.info(`   - ${origin}`));
   }
   
+  logger.info(`📊 Routes Status: ${successfulRoutes}/${routes.length} loaded successfully`);
   logger.info(`📊 Health Check: https://parksy-backend.onrender.com/api/health`);
   logger.info(`📖 API Info: https://parksy-backend.onrender.com/api/info`);
   logger.info(`💚 ParkingFinder API is ready to serve requests!`);
+  
+  if (failedRoutes.length > 0) {
+    logger.warn(`⚠️  Note: ${failedRoutes.length} routes failed to load but server started successfully`);
+    logger.warn(`🔧 Check the logs above for specific route errors to fix`);
+  }
 });
