@@ -1,14 +1,54 @@
-const axios = require('axios');
+// Deployment-safe EV Charging Service
+let axios;
+
+// Safe axios import with fallback
+try {
+  axios = require('axios');
+} catch (error) {
+  console.error('❌ Failed to load axios:', error.message);
+  // Create a minimal fallback
+  axios = {
+    request: () => Promise.reject(new Error('Axios not available'))
+  };
+}
 
 class EvChargingService {
   constructor() {
     this.baseURL = 'https://api.openchargemap.io/v3';
-    this.apiKey = '89499cfe-4016-4300-a570-2e435f249707';
-    this.timeout = 10000; // 10 seconds
+    this.apiKey = process.env.OPEN_CHARGE_MAP_API_KEY || '89499cfe-4016-4300-a570-2e435f249707';
+    this.timeout = 15000; // Increased for deployment
+    this.isInitialized = false;
+    
+    // Initialize safely
+    this.initialize();
   }
 
-  // Make API request to Open Charge Map
+  // Safe initialization
+  initialize() {
+    try {
+      if (!this.apiKey) {
+        console.warn('⚠️ No EV API key configured');
+      }
+      this.isInitialized = true;
+      console.log('✅ EV Charging Service initialized');
+    } catch (error) {
+      console.error('❌ EV Service initialization failed:', error.message);
+      this.isInitialized = false;
+    }
+  }
+
+  // Check if service is ready
+  isReady() {
+    return this.isInitialized && this.apiKey && axios;
+  }
+
+  // Make API request to Open Charge Map with enhanced error handling
   async makeRequest(endpoint, params = {}) {
+    // Check if service is ready
+    if (!this.isReady()) {
+      throw new Error('EV Charging Service not ready - check API key and dependencies');
+    }
+
     try {
       const config = {
         method: 'GET',
@@ -21,270 +61,470 @@ class EvChargingService {
         timeout: this.timeout,
         headers: {
           'X-API-Key': this.apiKey,
-          'Content-Type': 'application/json'
-        }
+          'Content-Type': 'application/json',
+          'User-Agent': 'ParkingFinder-Backend/1.0'
+        },
+        // Additional axios config for deployment stability
+        validateStatus: (status) => status >= 200 && status < 500,
+        maxRedirects: 3,
+        decompress: true
       };
 
       console.log('🔌 Making Open Charge Map API request:', {
-        url: config.url,
-        params: config.params
+        endpoint,
+        paramsCount: Object.keys(params).length,
+        timestamp: new Date().toISOString()
       });
 
       const response = await axios(config);
 
+      // Handle different response statuses
+      if (response.status >= 400) {
+        throw new Error(`API returned status ${response.status}: ${response.statusText}`);
+      }
+
       return {
         success: true,
-        data: response.data,
-        status: response.status
+        data: response.data || [],
+        status: response.status,
+        timestamp: new Date().toISOString()
       };
 
     } catch (error) {
       console.error('❌ Open Charge Map API Error:', {
         message: error.message,
         status: error.response?.status,
-        data: error.response?.data
+        endpoint,
+        timestamp: new Date().toISOString()
       });
 
-      throw new Error(`Open Charge Map API failed: ${error.message}`);
+      // Return empty data instead of throwing to prevent deployment crashes
+      return {
+        success: false,
+        data: [],
+        error: error.message,
+        timestamp: new Date().toISOString()
+      };
     }
   }
 
-  // Search by coordinates
+  // Search by coordinates with fallback
   async searchByLocation(params) {
-    const {
-      latitude,
-      longitude,
-      distance = 20,
-      maxresults = 50,
-      countrycode = 'GB',
-      levelid,
-      operatorid
-    } = params;
-
-    const searchParams = {
-      latitude,
-      longitude,
-      distance,
-      maxresults,
-      countrycode
-    };
-
-    if (levelid) searchParams.levelid = levelid;
-    if (operatorid) searchParams.operatorid = operatorid;
-
-    const result = await this.makeRequest('/poi', searchParams);
-    
-    // Process and enhance the data
-    result.data = this.processChargingStations(result.data);
-    
-    return result;
-  }
-
-  // Search by area/city name
-  async searchByArea(params) {
-    const {
-      area,
-      maxresults = 50,
-      countrycode = 'GB',
-      levelid,
-      operatorid
-    } = params;
-
-    // First, try to geocode the area name to get coordinates
-    // For now, we'll use some predefined locations
-    const areaCoordinates = this.getAreaCoordinates(area, countrycode);
-    
-    if (areaCoordinates) {
-      return await this.searchByLocation({
-        latitude: areaCoordinates.lat,
-        longitude: areaCoordinates.lng,
-        distance: 25, // Larger radius for area searches
-        maxresults,
-        countrycode,
+    try {
+      const {
+        latitude,
+        longitude,
+        distance = 20,
+        maxresults = 50,
+        countrycode = 'GB',
         levelid,
         operatorid
-      });
-    } else {
-      // Fallback to country search
+      } = params;
+
+      // Validate required parameters
+      if (!latitude || !longitude) {
+        return {
+          success: false,
+          data: [],
+          error: 'Latitude and longitude are required'
+        };
+      }
+
       const searchParams = {
-        countrycode,
-        maxresults
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
+        distance: parseInt(distance),
+        maxresults: parseInt(maxresults),
+        countrycode
       };
 
-      if (levelid) searchParams.levelid = levelid;
-      if (operatorid) searchParams.operatorid = operatorid;
+      if (levelid) searchParams.levelid = parseInt(levelid);
+      if (operatorid) searchParams.operatorid = parseInt(operatorid);
 
       const result = await this.makeRequest('/poi', searchParams);
       
-      // Filter by area name in the results
-      if (result.data && Array.isArray(result.data)) {
-        result.data = result.data.filter(station => 
-          station.AddressInfo?.Town?.toLowerCase().includes(area.toLowerCase()) ||
-          station.AddressInfo?.AddressLine1?.toLowerCase().includes(area.toLowerCase()) ||
-          station.AddressInfo?.Title?.toLowerCase().includes(area.toLowerCase())
-        );
+      // Process and enhance the data if successful
+      if (result.success && Array.isArray(result.data)) {
+        result.data = this.processChargingStations(result.data);
       }
-
-      result.data = this.processChargingStations(result.data);
+      
       return result;
+
+    } catch (error) {
+      console.error('❌ searchByLocation error:', error.message);
+      return {
+        success: false,
+        data: [],
+        error: error.message
+      };
     }
   }
 
-  // Get available operators
-  async getOperators() {
-    return await this.makeRequest('/operators');
-  }
+  // Search by area/city name with fallback
+  async searchByArea(params) {
+    try {
+      const {
+        area,
+        maxresults = 50,
+        countrycode = 'GB',
+        levelid,
+        operatorid
+      } = params;
 
-  // Get connection types
-  async getConnectionTypes() {
-    return await this.makeRequest('/connectiontypes');
-  }
-
-  // Get station by ID
-  async getStationById(id) {
-    return await this.makeRequest('/poi', { chargepointid: id });
-  }
-
-  // Get predefined area coordinates
-  getAreaCoordinates(area, countrycode = 'GB') {
-    const locations = {
-      'GB': {
-        'london': { lat: 51.5074, lng: -0.1278 },
-        'manchester': { lat: 53.4808, lng: -2.2426 },
-        'birmingham': { lat: 52.4862, lng: -1.8904 },
-        'leeds': { lat: 53.8008, lng: -1.5491 },
-        'glasgow': { lat: 55.8642, lng: -4.2518 },
-        'liverpool': { lat: 53.4084, lng: -2.9916 },
-        'bristol': { lat: 51.4545, lng: -2.5879 },
-        'edinburgh': { lat: 55.9533, lng: -3.1883 },
-        'sheffield': { lat: 53.3811, lng: -1.4701 },
-        'cardiff': { lat: 51.4816, lng: -3.1791 }
+      if (!area) {
+        return {
+          success: false,
+          data: [],
+          error: 'Area name is required'
+        };
       }
-    };
 
-    const countryLocations = locations[countrycode];
-    if (!countryLocations) return null;
+      // Try to get coordinates for the area
+      const areaCoordinates = this.getAreaCoordinates(area, countrycode);
+      
+      if (areaCoordinates) {
+        return await this.searchByLocation({
+          latitude: areaCoordinates.lat,
+          longitude: areaCoordinates.lng,
+          distance: 25,
+          maxresults,
+          countrycode,
+          levelid,
+          operatorid
+        });
+      } else {
+        // Fallback to country search
+        const searchParams = {
+          countrycode,
+          maxresults: parseInt(maxresults)
+        };
 
-    const normalizedArea = area.toLowerCase().trim();
-    return countryLocations[normalizedArea] || null;
+        if (levelid) searchParams.levelid = parseInt(levelid);
+        if (operatorid) searchParams.operatorid = parseInt(operatorid);
+
+        const result = await this.makeRequest('/poi', searchParams);
+        
+        // Filter by area name in the results
+        if (result.success && Array.isArray(result.data)) {
+          const areaLower = area.toLowerCase().trim();
+          result.data = result.data.filter(station => 
+            station.AddressInfo?.Town?.toLowerCase().includes(areaLower) ||
+            station.AddressInfo?.AddressLine1?.toLowerCase().includes(areaLower) ||
+            station.AddressInfo?.Title?.toLowerCase().includes(areaLower)
+          );
+          
+          result.data = this.processChargingStations(result.data);
+        }
+
+        return result;
+      }
+
+    } catch (error) {
+      console.error('❌ searchByArea error:', error.message);
+      return {
+        success: false,
+        data: [],
+        error: error.message
+      };
+    }
   }
 
-  // Process and enhance charging station data
+  // Get available operators with fallback
+  async getOperators() {
+    try {
+      const result = await this.makeRequest('/operators');
+      return result;
+    } catch (error) {
+      console.error('❌ getOperators error:', error.message);
+      return {
+        success: false,
+        data: [],
+        error: error.message
+      };
+    }
+  }
+
+  // Get connection types with fallback
+  async getConnectionTypes() {
+    try {
+      const result = await this.makeRequest('/connectiontypes');
+      return result;
+    } catch (error) {
+      console.error('❌ getConnectionTypes error:', error.message);
+      return {
+        success: false,
+        data: [],
+        error: error.message
+      };
+    }
+  }
+
+  // Get station by ID with fallback
+  async getStationById(id) {
+    try {
+      if (!id) {
+        return {
+          success: false,
+          data: null,
+          error: 'Station ID is required'
+        };
+      }
+
+      const result = await this.makeRequest('/poi', { chargepointid: parseInt(id) });
+      return result;
+    } catch (error) {
+      console.error('❌ getStationById error:', error.message);
+      return {
+        success: false,
+        data: null,
+        error: error.message
+      };
+    }
+  }
+
+  // Get predefined area coordinates (safe method)
+  getAreaCoordinates(area, countrycode = 'GB') {
+    try {
+      const locations = {
+        'GB': {
+          'london': { lat: 51.5074, lng: -0.1278 },
+          'manchester': { lat: 53.4808, lng: -2.2426 },
+          'birmingham': { lat: 52.4862, lng: -1.8904 },
+          'leeds': { lat: 53.8008, lng: -1.5491 },
+          'glasgow': { lat: 55.8642, lng: -4.2518 },
+          'liverpool': { lat: 53.4084, lng: -2.9916 },
+          'bristol': { lat: 51.4545, lng: -2.5879 },
+          'edinburgh': { lat: 55.9533, lng: -3.1883 },
+          'sheffield': { lat: 53.3811, lng: -1.4701 },
+          'cardiff': { lat: 51.4816, lng: -3.1791 },
+          'newcastle': { lat: 54.9783, lng: -1.6178 },
+          'nottingham': { lat: 52.9548, lng: -1.1581 },
+          'plymouth': { lat: 50.3755, lng: -4.1427 },
+          'southampton': { lat: 50.9097, lng: -1.4044 },
+          'reading': { lat: 51.4543, lng: -0.9781 }
+        }
+      };
+
+      const countryLocations = locations[countrycode.toUpperCase()];
+      if (!countryLocations) return null;
+
+      const normalizedArea = area.toLowerCase().trim();
+      return countryLocations[normalizedArea] || null;
+    } catch (error) {
+      console.error('❌ getAreaCoordinates error:', error.message);
+      return null;
+    }
+  }
+
+  // Process and enhance charging station data (safe method)
   processChargingStations(stations) {
-    if (!Array.isArray(stations)) return [];
+    try {
+      if (!Array.isArray(stations)) return [];
 
-    return stations.map(station => ({
-      id: station.ID,
-      uuid: station.UUID,
-      title: station.AddressInfo?.Title || 'Charging Station',
-      operator: station.OperatorInfo?.Title || 'Unknown Operator',
-      operator_id: station.OperatorInfo?.ID,
-      address: {
-        line1: station.AddressInfo?.AddressLine1,
-        line2: station.AddressInfo?.AddressLine2,
-        town: station.AddressInfo?.Town,
-        county: station.AddressInfo?.StateOrProvince,
-        postcode: station.AddressInfo?.Postcode,
-        country: station.AddressInfo?.Country?.Title
-      },
-      location: {
-        latitude: station.AddressInfo?.Latitude,
-        longitude: station.AddressInfo?.Longitude
-      },
-      connections: station.Connections?.map(conn => ({
-        type: conn.ConnectionType?.Title,
-        power_kw: conn.PowerKW,
-        current_type: conn.CurrentType?.Title,
-        status: conn.StatusType?.Title,
-        is_fast_charge: conn.PowerKW >= 22
-      })) || [],
-      status: {
-        is_operational: station.StatusType?.IsOperational,
-        title: station.StatusType?.Title
-      },
-      access: {
-        is_public: station.UsageType?.IsPublic,
-        is_membership_required: station.UsageType?.IsMembershipRequired,
-        access_comments: station.UsageType?.Title
-      },
-      cost_info: station.UsageCost,
-      date_created: station.DateCreated,
-      date_last_updated: station.DateLastStatusUpdate,
-      // Enhanced fields for frontend
-      formatted_address: this.formatAddress(station.AddressInfo),
-      max_power: Math.max(...(station.Connections?.map(c => c.PowerKW || 0) || [0])),
-      charging_speed_category: this.getChargingSpeedCategory(station.Connections),
-      connector_types: [...new Set(station.Connections?.map(c => c.ConnectionType?.Title).filter(Boolean) || [])],
-      availability_status: station.StatusType?.IsOperational ? 'Available' : 'Unavailable',
-      distance_km: null, // Will be calculated if user location provided
-      estimated_cost: this.estimateChargingCost(station),
-      features: this.extractFeatures(station)
-    }));
+      return stations.map(station => {
+        try {
+          return {
+            id: station.ID || null,
+            uuid: station.UUID || null,
+            title: station.AddressInfo?.Title || 'Charging Station',
+            operator: station.OperatorInfo?.Title || 'Unknown Operator',
+            operator_id: station.OperatorInfo?.ID || null,
+            address: {
+              line1: station.AddressInfo?.AddressLine1 || '',
+              line2: station.AddressInfo?.AddressLine2 || '',
+              town: station.AddressInfo?.Town || '',
+              county: station.AddressInfo?.StateOrProvince || '',
+              postcode: station.AddressInfo?.Postcode || '',
+              country: station.AddressInfo?.Country?.Title || ''
+            },
+            location: {
+              latitude: station.AddressInfo?.Latitude || null,
+              longitude: station.AddressInfo?.Longitude || null
+            },
+            connections: this.processConnections(station.Connections),
+            status: {
+              is_operational: station.StatusType?.IsOperational || false,
+              title: station.StatusType?.Title || 'Unknown'
+            },
+            access: {
+              is_public: station.UsageType?.IsPublic || false,
+              is_membership_required: station.UsageType?.IsMembershipRequired || false,
+              access_comments: station.UsageType?.Title || ''
+            },
+            cost_info: station.UsageCost || 'Contact operator',
+            date_created: station.DateCreated || null,
+            date_last_updated: station.DateLastStatusUpdate || null,
+            // Enhanced fields for frontend
+            formatted_address: this.formatAddress(station.AddressInfo),
+            max_power: this.getMaxPower(station.Connections),
+            charging_speed_category: this.getChargingSpeedCategory(station.Connections),
+            connector_types: this.getConnectorTypes(station.Connections),
+            availability_status: station.StatusType?.IsOperational ? 'Available' : 'Unavailable',
+            distance_km: null,
+            estimated_cost: this.estimateChargingCost(station),
+            features: this.extractFeatures(station)
+          };
+        } catch (stationError) {
+          console.error('❌ Error processing station:', stationError.message);
+          return null;
+        }
+      }).filter(Boolean); // Remove null entries
+
+    } catch (error) {
+      console.error('❌ processChargingStations error:', error.message);
+      return [];
+    }
   }
 
-  // Helper methods
+  // Safe helper methods
+  processConnections(connections) {
+    try {
+      if (!Array.isArray(connections)) return [];
+      
+      return connections.map(conn => ({
+        type: conn.ConnectionType?.Title || 'Unknown',
+        power_kw: conn.PowerKW || 0,
+        current_type: conn.CurrentType?.Title || 'Unknown',
+        status: conn.StatusType?.Title || 'Unknown',
+        is_fast_charge: (conn.PowerKW || 0) >= 22
+      }));
+    } catch (error) {
+      return [];
+    }
+  }
+
+  getMaxPower(connections) {
+    try {
+      if (!Array.isArray(connections)) return 0;
+      const powers = connections.map(c => c.PowerKW || 0);
+      return Math.max(...powers, 0);
+    } catch (error) {
+      return 0;
+    }
+  }
+
+  getConnectorTypes(connections) {
+    try {
+      if (!Array.isArray(connections)) return [];
+      const types = connections
+        .map(c => c.ConnectionType?.Title)
+        .filter(Boolean);
+      return [...new Set(types)];
+    } catch (error) {
+      return [];
+    }
+  }
+
   formatAddress(addressInfo) {
-    if (!addressInfo) return 'Address not available';
-    
-    const parts = [
-      addressInfo.AddressLine1,
-      addressInfo.Town,
-      addressInfo.Postcode
-    ].filter(Boolean);
-    
-    return parts.join(', ');
+    try {
+      if (!addressInfo) return 'Address not available';
+      
+      const parts = [
+        addressInfo.AddressLine1,
+        addressInfo.Town,
+        addressInfo.Postcode
+      ].filter(Boolean);
+      
+      return parts.length > 0 ? parts.join(', ') : 'Address not available';
+    } catch (error) {
+      return 'Address not available';
+    }
   }
 
   getChargingSpeedCategory(connections) {
-    if (!connections || connections.length === 0) return 'Unknown';
-    
-    const maxPower = Math.max(...connections.map(c => c.PowerKW || 0));
-    
-    if (maxPower >= 150) return 'Ultra Rapid';
-    if (maxPower >= 50) return 'Rapid';
-    if (maxPower >= 22) return 'Fast';
-    if (maxPower >= 7) return 'Slow';
-    return 'Trickle';
+    try {
+      const maxPower = this.getMaxPower(connections);
+      
+      if (maxPower >= 150) return 'Ultra Rapid';
+      if (maxPower >= 50) return 'Rapid';
+      if (maxPower >= 22) return 'Fast';
+      if (maxPower >= 7) return 'Slow';
+      return 'Trickle';
+    } catch (error) {
+      return 'Unknown';
+    }
   }
 
   estimateChargingCost(station) {
-    // Simple cost estimation logic
-    const maxPower = Math.max(...(station.Connections?.map(c => c.PowerKW || 0) || [0]));
-    
-    if (maxPower >= 50) return '£0.40-0.60/kWh';
-    if (maxPower >= 22) return '£0.30-0.50/kWh';
-    return '£0.20-0.40/kWh';
+    try {
+      const maxPower = this.getMaxPower(station.Connections);
+      
+      if (maxPower >= 50) return '£0.40-0.60/kWh';
+      if (maxPower >= 22) return '£0.30-0.50/kWh';
+      return '£0.20-0.40/kWh';
+    } catch (error) {
+      return 'Contact operator';
+    }
   }
 
   extractFeatures(station) {
-    const features = [];
-    
-    if (station.StatusType?.IsOperational) features.push('Operational');
-    if (station.UsageType?.IsPublic) features.push('Public Access');
-    if (station.UsageType?.IsMembershipRequired) features.push('Membership Required');
-    if (station.Connections?.some(c => c.PowerKW >= 50)) features.push('Rapid Charging');
-    if (station.UsageCost?.includes('Free')) features.push('Free Charging');
-    
-    return features;
+    try {
+      const features = [];
+      
+      if (station.StatusType?.IsOperational) features.push('Operational');
+      if (station.UsageType?.IsPublic) features.push('Public Access');
+      if (station.UsageType?.IsMembershipRequired) features.push('Membership Required');
+      if (this.getMaxPower(station.Connections) >= 50) features.push('Rapid Charging');
+      if (station.UsageCost && station.UsageCost.includes('Free')) features.push('Free Charging');
+      
+      return features;
+    } catch (error) {
+      return [];
+    }
   }
 
-  // Test API connection
+  // Test API connection (safe method)
   async testConnection() {
     try {
+      if (!this.isReady()) {
+        return {
+          success: false,
+          message: 'EV Charging Service not ready - check configuration'
+        };
+      }
+
       const result = await this.makeRequest('/poi', { 
         maxresults: 1,
         countrycode: 'GB'
       });
       
       return {
-        success: true,
-        message: 'Open Charge Map API connection successful',
-        sample_data: result.data?.[0] || null
+        success: result.success,
+        message: result.success 
+          ? 'Open Charge Map API connection successful'
+          : 'API connection failed',
+        sample_data: result.data?.[0] || null,
+        timestamp: new Date().toISOString()
       };
     } catch (error) {
-      throw new Error(`Connection test failed: ${error.message}`);
+      return {
+        success: false,
+        message: `Connection test failed: ${error.message}`,
+        timestamp: new Date().toISOString()
+      };
     }
   }
 }
 
-module.exports = new EvChargingService();
+// Create and export a singleton instance with error handling
+let serviceInstance;
+
+try {
+  serviceInstance = new EvChargingService();
+  console.log('✅ EV Charging Service instance created successfully');
+} catch (error) {
+  console.error('❌ Failed to create EV Charging Service:', error.message);
+  
+  // Create a fallback service
+  serviceInstance = {
+    searchByLocation: async () => ({ success: false, data: [], error: 'Service unavailable' }),
+    searchByArea: async () => ({ success: false, data: [], error: 'Service unavailable' }),
+    getOperators: async () => ({ success: false, data: [], error: 'Service unavailable' }),
+    getConnectionTypes: async () => ({ success: false, data: [], error: 'Service unavailable' }),
+    getStationById: async () => ({ success: false, data: null, error: 'Service unavailable' }),
+    testConnection: async () => ({ success: false, message: 'Service unavailable' }),
+    isReady: () => false
+  };
+}
+
+module.exports = serviceInstance;

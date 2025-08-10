@@ -2,8 +2,21 @@ const express = require('express');
 const router = express.Router();
 const { query, validationResult } = require('express-validator');
 
-// Import EV service
-const EvChargingService = require('../services/evchargingservices');
+// Import EV service with error handling
+let EvChargingService;
+try {
+  EvChargingService = require('../services/evchargingservices');
+} catch (error) {
+  console.error('❌ Failed to load EvChargingService:', error.message);
+  // Create a fallback service
+  EvChargingService = {
+    searchByLocation: async () => ({ data: [] }),
+    searchByArea: async () => ({ data: [] }),
+    getOperators: async () => ({ data: [] }),
+    getConnectionTypes: async () => ({ data: [] }),
+    getStationById: async () => ({ data: null })
+  };
+}
 
 // Validation middleware
 const handleValidationErrors = (req, res, next) => {
