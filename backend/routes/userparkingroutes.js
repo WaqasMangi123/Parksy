@@ -1,4 +1,4 @@
-// routes/parkingRoutes.js - FIXED: Correct API endpoints to match frontend
+// routes/parkingRoutes.js - FIXED: Corrected parameter names for path-to-regexp
 const express = require('express');
 const router = express.Router();
 const { body, param, query, validationResult } = require('express-validator');
@@ -304,25 +304,35 @@ router.get('/test-magr', async (req, res) => {
   }
 });
 
+// FIXED: Changed parameter name from :airportCode to :airport_code (snake_case, no camelCase)
 // Get terminals for airport
-router.get('/terminals/:airportCode', (req, res) => {
-  try {
-    const { airportCode } = req.params;
-    const terminals = MagrApiService.getTerminalsForAirport(airportCode);
-    
-    res.json({
-      success: true,
-      data: terminals,
-      airport_code: airportCode
-    });
-  } catch (error) {
-    console.error('❌ Error fetching terminals:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch terminals',
-      error: error.message
-    });
+router.get('/terminals/:airport_code', 
+  [
+    param('airport_code').isIn(['LHR', 'LGW', 'STN', 'LTN', 'MAN', 'BHX', 'EDI', 'GLA']).withMessage('Invalid airport code')
+  ],
+  handleValidationErrors,
+  (req, res) => {
+    try {
+      const { airport_code } = req.params;
+      console.log('🏢 Terminals requested for airport:', airport_code);
+      
+      const terminals = MagrApiService.getTerminalsForAirport(airport_code);
+      
+      res.json({
+        success: true,
+        data: terminals,
+        airport_code: airport_code,
+        count: terminals.length
+      });
+    } catch (error) {
+      console.error('❌ Error fetching terminals:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch terminals',
+        error: error.message
+      });
+    }
   }
-});
+);
 
 module.exports = router;
