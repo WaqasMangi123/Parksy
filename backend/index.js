@@ -1,413 +1,306 @@
-// Safe EV Charging Service - No immediate execution
-let axios;
+require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const http = require('http');
+const socketio = require('socket.io');
+const winston = require('winston');
+const { v4: uuidv4 } = require('uuid');
 
-// Safe axios import
-try {
-  axios = require('axios');
-} catch (error) {
-  console.error('❌ Failed to load axios:', error.message);
-  axios = null;
+// Enhanced logging configuration
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.simple()
+      )
+    })
+  ]
+});
+
+// Validate required environment variables
+const requiredEnvVars = [
+  'MONGO_URI',
+  'JWT_SECRET',
+  'ADMIN_EMAIL',
+  'ADMIN_PASSWORD'
+];
+
+const missingVars = requiredEnvVars.filter(v => !process.env[v]);
+if (missingVars.length > 0) {
+  logger.error('Missing required environment variables:', missingVars);
+  process.exit(1);
 }
 
-class EvChargingService {
-  constructor() {
-    this.baseURL = 'https://api.openchargemap.io/v3';
-    this.apiKey = process.env.OPEN_CHARGE_MAP_API_KEY || '89499cfe-4016-4300-a570-2e435f249707';
-    this.timeout = 15000;
-    this.isInitialized = false;
-  }
+// Initialize Express
+const app = express();
+const server = http.createServer(app);
 
-  // Lazy initialization - only when first method is called
-  initialize() {
-    if (this.isInitialized) return;
+// Environment detection - Force production on Render
+const isDevelopment = false; // Force production mode for now
+const isProduction = true;
+
+logger.info(`🌍 Environment: production (forced)`);
+logger.info(`🔗 Backend URL: https://parksy-backend.onrender.com`);
+logger.info(`🌐 Frontend URL: https://parksy.uk`);
+
+// Production CORS configuration
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'https://parksy.uk',
+  'https://www.parksy.uk',
+  'https://parksy-backend.onrender.com',
+  process.env.CLIENT_URL,
+  process.env.FRONTEND_URL
+].filter(Boolean);
+
+// Socket.io setup
+const io = socketio(server, {
+  cors: {
+    origin: allowedOrigins,
+    methods: ['GET', 'POST'],
+    credentials: true
+  },
+  transports: ['websocket', 'polling']
+});
+
+// Security middleware
+app.use(helmet({
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
+
+app.disable('x-powered-by');
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// CORS configuration
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    logger.warn(`CORS blocked: ${origin}`);
+    return callback(null, true); // Allow for now to debug
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
+}));
+
+app.options('*', cors());
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  message: { error: 'Too many requests' },
+  skip: (req) => req.path === '/api/health' || req.path === '/'
+});
+app.use(limiter);
+
+// Database connection
+const connectDB = async () => {
+  try {
+    await mongoose.connect(process.env.MONGO_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true
+    });
+    logger.info('✅ Connected to MongoDB');
+  } catch (err) {
+    logger.error(`❌ MongoDB error: ${err.message}`);
+    process.exit(1);
+  }
+};
+
+connectDB();
+
+// Socket.io handling
+io.of('/notifications').on('connection', (socket) => {
+  logger.info(`🔌 Client connected: ${socket.id}`);
+  socket.on('disconnect', () => logger.info(`🔌 Client disconnected: ${socket.id}`));
+});
+
+// 🚨 EMERGENCY FIX: Load routes one by one with individual try-catch
+logger.info('📡 Loading routes with emergency error handling...');
+
+// Load each route individually to identify the problematic one
+const routesToLoad = [
+  { path: '/api/auth', file: './routes/authroutes', name: 'Authentication' },
+  { path: '/api/admin', file: './routes/adminroutes', name: 'Admin' },
+  { path: '/api/profile', file: './routes/profile', name: 'Profile' },
+  { path: '/api/contact', file: './routes/contactroutes', name: 'Contact' },
+  { path: '/api/cv', file: './routes/cvgenerator', name: 'CV' },
+  { path: '/api/blogs', file: './routes/blogroutes', name: 'Blogs' },
+  { path: '/api/scholarships', file: './routes/scholarshiproutes', name: 'Scholarships' },
+  { path: '/api/feedback', file: './routes/feedbackroutes', name: 'Feedback' },
+  { path: '/api/recommendations', file: './routes/recommendationroutes', name: 'Recommendations' },
+  { path: '/api/parking', file: './routes/userparkingroutes', name: 'Parking' }
+  // Temporarily commenting out EV charging to identify if it's the problem
+  // { path: '/api/ev-charging', file: './routes/evChargingRoutes', name: 'EV Charging' }
+];
+
+let loadedRoutes = [];
+let failedRoutes = [];
+
+for (const route of routesToLoad) {
+  try {
+    logger.info(`🔄 Loading ${route.name}...`);
     
-    try {
-      if (!axios) {
-        console.warn('⚠️ Axios not available');
-        return false;
-      }
-      
-      this.isInitialized = true;
-      console.log('✅ EV Charging Service initialized');
-      return true;
-    } catch (error) {
-      console.error('❌ EV Service initialization failed:', error.message);
-      return false;
-    }
-  }
-
-  isReady() {
-    return this.initialize() && this.apiKey && axios;
-  }
-
-  async makeRequest(endpoint, params = {}) {
-    if (!this.isReady()) {
-      return {
-        success: false,
-        data: [],
-        error: 'EV Charging Service not ready'
-      };
-    }
-
-    try {
-      const config = {
-        method: 'GET',
-        url: `${this.baseURL}${endpoint}`,
-        params: {
-          key: this.apiKey,
-          output: 'json',
-          ...params
-        },
-        timeout: this.timeout,
-        headers: {
-          'X-API-Key': this.apiKey,
-          'Content-Type': 'application/json'
-        }
-      };
-
-      const response = await axios(config);
-
-      return {
-        success: true,
-        data: response.data || [],
-        status: response.status
-      };
-
-    } catch (error) {
-      console.error('❌ Open Charge Map API Error:', error.message);
-      return {
-        success: false,
-        data: [],
-        error: error.message
-      };
-    }
-  }
-
-  async searchByLocation(params) {
-    try {
-      const {
-        latitude,
-        longitude,
-        distance = 20,
-        maxresults = 50,
-        countrycode = 'GB',
-        levelid,
-        operatorid
-      } = params;
-
-      if (!latitude || !longitude) {
-        return {
-          success: false,
-          data: [],
-          error: 'Latitude and longitude are required'
-        };
-      }
-
-      const searchParams = {
-        latitude: parseFloat(latitude),
-        longitude: parseFloat(longitude),
-        distance: parseInt(distance),
-        maxresults: parseInt(maxresults),
-        countrycode
-      };
-
-      if (levelid) searchParams.levelid = parseInt(levelid);
-      if (operatorid) searchParams.operatorid = parseInt(operatorid);
-
-      const result = await this.makeRequest('/poi', searchParams);
-      
-      if (result.success && Array.isArray(result.data)) {
-        result.data = this.processChargingStations(result.data);
-      }
-      
-      return result;
-
-    } catch (error) {
-      return {
-        success: false,
-        data: [],
-        error: error.message
-      };
-    }
-  }
-
-  async searchByArea(params) {
-    try {
-      const {
-        area,
-        maxresults = 50,
-        countrycode = 'GB',
-        levelid,
-        operatorid
-      } = params;
-
-      if (!area) {
-        return {
-          success: false,
-          data: [],
-          error: 'Area name is required'
-        };
-      }
-
-      const areaCoordinates = this.getAreaCoordinates(area, countrycode);
-      
-      if (areaCoordinates) {
-        return await this.searchByLocation({
-          latitude: areaCoordinates.lat,
-          longitude: areaCoordinates.lng,
-          distance: 25,
-          maxresults,
-          countrycode,
-          levelid,
-          operatorid
-        });
-      } else {
-        const searchParams = {
-          countrycode,
-          maxresults: parseInt(maxresults)
-        };
-
-        if (levelid) searchParams.levelid = parseInt(levelid);
-        if (operatorid) searchParams.operatorid = parseInt(operatorid);
-
-        const result = await this.makeRequest('/poi', searchParams);
-        
-        if (result.success && Array.isArray(result.data)) {
-          const areaLower = area.toLowerCase().trim();
-          result.data = result.data.filter(station => 
-            station.AddressInfo?.Town?.toLowerCase().includes(areaLower) ||
-            station.AddressInfo?.AddressLine1?.toLowerCase().includes(areaLower) ||
-            station.AddressInfo?.Title?.toLowerCase().includes(areaLower)
-          );
-          
-          result.data = this.processChargingStations(result.data);
-        }
-
-        return result;
-      }
-
-    } catch (error) {
-      return {
-        success: false,
-        data: [],
-        error: error.message
-      };
-    }
-  }
-
-  async getOperators() {
-    try {
-      return await this.makeRequest('/operators');
-    } catch (error) {
-      return {
-        success: false,
-        data: [],
-        error: error.message
-      };
-    }
-  }
-
-  async getConnectionTypes() {
-    try {
-      return await this.makeRequest('/connectiontypes');
-    } catch (error) {
-      return {
-        success: false,
-        data: [],
-        error: error.message
-      };
-    }
-  }
-
-  async getStationById(id) {
-    try {
-      if (!id) {
-        return {
-          success: false,
-          data: null,
-          error: 'Station ID is required'
-        };
-      }
-
-      return await this.makeRequest('/poi', { chargepointid: parseInt(id) });
-    } catch (error) {
-      return {
-        success: false,
-        data: null,
-        error: error.message
-      };
-    }
-  }
-
-  getAreaCoordinates(area, countrycode = 'GB') {
-    try {
-      const locations = {
-        'GB': {
-          'london': { lat: 51.5074, lng: -0.1278 },
-          'manchester': { lat: 53.4808, lng: -2.2426 },
-          'birmingham': { lat: 52.4862, lng: -1.8904 },
-          'leeds': { lat: 53.8008, lng: -1.5491 },
-          'glasgow': { lat: 55.8642, lng: -4.2518 },
-          'liverpool': { lat: 53.4084, lng: -2.9916 },
-          'bristol': { lat: 51.4545, lng: -2.5879 },
-          'edinburgh': { lat: 55.9533, lng: -3.1883 },
-          'sheffield': { lat: 53.3811, lng: -1.4701 },
-          'cardiff': { lat: 51.4816, lng: -3.1791 }
-        }
-      };
-
-      const countryLocations = locations[countrycode.toUpperCase()];
-      if (!countryLocations) return null;
-
-      const normalizedArea = area.toLowerCase().trim();
-      return countryLocations[normalizedArea] || null;
-    } catch (error) {
-      return null;
-    }
-  }
-
-  processChargingStations(stations) {
-    try {
-      if (!Array.isArray(stations)) return [];
-
-      return stations.map(station => {
-        try {
-          return {
-            id: station.ID || null,
-            title: station.AddressInfo?.Title || 'Charging Station',
-            operator: station.OperatorInfo?.Title || 'Unknown Operator',
-            operator_id: station.OperatorInfo?.ID || null,
-            location: {
-              latitude: station.AddressInfo?.Latitude || null,
-              longitude: station.AddressInfo?.Longitude || null
-            },
-            formatted_address: this.formatAddress(station.AddressInfo),
-            max_power: this.getMaxPower(station.Connections),
-            charging_speed_category: this.getChargingSpeedCategory(station.Connections),
-            connector_types: this.getConnectorTypes(station.Connections),
-            status: {
-              is_operational: station.StatusType?.IsOperational || false,
-              title: station.StatusType?.Title || 'Unknown'
-            },
-            estimated_cost: this.estimateChargingCost(station),
-            features: this.extractFeatures(station)
-          };
-        } catch (stationError) {
-          return null;
-        }
-      }).filter(Boolean);
-
-    } catch (error) {
-      return [];
-    }
-  }
-
-  getMaxPower(connections) {
-    try {
-      if (!Array.isArray(connections)) return 0;
-      const powers = connections.map(c => c.PowerKW || 0);
-      return Math.max(...powers, 0);
-    } catch (error) {
-      return 0;
-    }
-  }
-
-  getConnectorTypes(connections) {
-    try {
-      if (!Array.isArray(connections)) return [];
-      const types = connections
-        .map(c => c.ConnectionType?.Title)
-        .filter(Boolean);
-      return [...new Set(types)];
-    } catch (error) {
-      return [];
-    }
-  }
-
-  formatAddress(addressInfo) {
-    try {
-      if (!addressInfo) return 'Address not available';
-      
-      const parts = [
-        addressInfo.AddressLine1,
-        addressInfo.Town,
-        addressInfo.Postcode
-      ].filter(Boolean);
-      
-      return parts.length > 0 ? parts.join(', ') : 'Address not available';
-    } catch (error) {
-      return 'Address not available';
-    }
-  }
-
-  getChargingSpeedCategory(connections) {
-    try {
-      const maxPower = this.getMaxPower(connections);
-      
-      if (maxPower >= 150) return 'Ultra Rapid';
-      if (maxPower >= 50) return 'Rapid';
-      if (maxPower >= 22) return 'Fast';
-      if (maxPower >= 7) return 'Slow';
-      return 'Trickle';
-    } catch (error) {
-      return 'Unknown';
-    }
-  }
-
-  estimateChargingCost(station) {
-    try {
-      const maxPower = this.getMaxPower(station.Connections);
-      
-      if (maxPower >= 50) return '£0.40-0.60/kWh';
-      if (maxPower >= 22) return '£0.30-0.50/kWh';
-      return '£0.20-0.40/kWh';
-    } catch (error) {
-      return 'Contact operator';
-    }
-  }
-
-  extractFeatures(station) {
-    try {
-      const features = [];
-      
-      if (station.StatusType?.IsOperational) features.push('Operational');
-      if (station.UsageType?.IsPublic) features.push('Public Access');
-      if (this.getMaxPower(station.Connections) >= 50) features.push('Rapid Charging');
-      
-      return features;
-    } catch (error) {
-      return [];
-    }
-  }
-
-  async testConnection() {
-    try {
-      if (!this.isReady()) {
-        return {
-          success: false,
-          message: 'EV Charging Service not ready'
-        };
-      }
-
-      const result = await this.makeRequest('/poi', { 
-        maxresults: 1,
-        countrycode: 'GB'
-      });
-      
-      return {
-        success: result.success,
-        message: result.success 
-          ? 'Open Charge Map API connection successful'
-          : 'API connection failed'
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: `Connection test failed: ${error.message}`
-      };
+    // Use dynamic import to catch errors
+    const routeModule = require(route.file);
+    app.use(route.path, routeModule);
+    
+    loadedRoutes.push(route);
+    logger.info(`✅ ${route.name} loaded successfully`);
+    
+  } catch (error) {
+    failedRoutes.push({ ...route, error: error.message });
+    logger.error(`❌ ${route.name} FAILED: ${error.message}`);
+    
+    // If it's a router error, log more details
+    if (error.message.includes('Missing parameter name')) {
+      logger.error(`🔍 Router error in ${route.file} - check for invalid route patterns`);
     }
   }
 }
 
-// SAFE EXPORT - No immediate instance creation
-module.exports = EvChargingService;
+// Try to load EV charging separately with extra protection
+try {
+  logger.info('🔄 Attempting to load EV Charging routes...');
+  
+  // Test if the file exists and can be required
+  const evModule = require('./routes/evChargingRoutes');
+  app.use('/api/ev-charging', evModule);
+  
+  loadedRoutes.push({ path: '/api/ev-charging', name: 'EV Charging' });
+  logger.info('✅ EV Charging routes loaded successfully');
+  
+} catch (error) {
+  failedRoutes.push({ 
+    path: '/api/ev-charging', 
+    name: 'EV Charging', 
+    file: './routes/evChargingRoutes',
+    error: error.message 
+  });
+  logger.error(`❌ EV Charging FAILED: ${error.message}`);
+  
+  // Create a temporary EV charging health endpoint
+  app.get('/api/ev-charging/health', (req, res) => {
+    res.json({
+      status: 'ERROR',
+      service: 'EV Charging API',
+      message: 'EV Charging routes failed to load',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  });
+  
+  logger.info('📡 Created fallback EV charging health endpoint');
+}
+
+logger.info(`📊 Route loading complete: ${loadedRoutes.length} successful, ${failedRoutes.length} failed`);
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    message: '🚗 ParkingFinder API Server',
+    status: 'running',
+    version: '2.0.0',
+    environment: 'production',
+    timestamp: new Date().toISOString(),
+    server: {
+      name: 'Parksy Backend',
+      url: 'https://parksy-backend.onrender.com',
+      uptime: Math.round(process.uptime())
+    },
+    routes: {
+      loaded: loadedRoutes.length,
+      failed: failedRoutes.length,
+      total: routesToLoad.length + 1, // +1 for EV charging
+      working: loadedRoutes.map(r => r.path)
+    }
+  });
+});
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'OK',
+    server: 'https://parksy-backend.onrender.com',
+    uptime: Math.round(process.uptime()),
+    timestamp: new Date().toISOString(),
+    database: {
+      status: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    },
+    environment: 'production',
+    version: '2.0.0',
+    services: {
+      mongodb: mongoose.connection.readyState === 1,
+      evCharging: !!process.env.OPEN_CHARGE_MAP_API_KEY
+    },
+    routes: {
+      loaded: loadedRoutes.map(r => ({ path: r.path, name: r.name })),
+      failed: failedRoutes.map(r => ({ path: r.path, name: r.name, error: r.error })),
+      total: loadedRoutes.length + failedRoutes.length
+    }
+  });
+});
+
+// API info endpoint
+app.get('/api/info', (req, res) => {
+  res.json({
+    name: 'ParkingFinder API',
+    version: '2.0.0',
+    description: 'Backend API for ParkingFinder application',
+    server: 'https://parksy-backend.onrender.com',
+    endpoints: loadedRoutes.map(route => route.path),
+    failedRoutes: failedRoutes.map(route => ({ path: route.path, error: route.error }))
+  });
+});
+
+// Error handling
+app.use((err, req, res, next) => {
+  logger.error(`Error: ${err.message}`);
+  res.status(err.status || 500).json({
+    error: 'Internal Server Error',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ 
+    error: 'Not Found',
+    availableEndpoints: loadedRoutes.map(r => r.path),
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Start server
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, '0.0.0.0', () => {
+  logger.info(`🚀 Server started on port ${PORT}`);
+  logger.info(`🌐 URL: https://parksy-backend.onrender.com`);
+  logger.info(`✅ Loaded routes: ${loadedRoutes.length}`);
+  logger.info(`❌ Failed routes: ${failedRoutes.length}`);
+  
+  if (failedRoutes.length > 0) {
+    logger.warn('⚠️  Failed routes:');
+    failedRoutes.forEach(route => {
+      logger.warn(`   - ${route.name}: ${route.error}`);
+    });
+  }
+  
+  logger.info(`💚 Server is running successfully!`);
+});
