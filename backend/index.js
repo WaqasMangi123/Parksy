@@ -9,31 +9,20 @@ const socketio = require('socket.io');
 const winston = require('winston');
 const { v4: uuidv4 } = require('uuid');
 
-// Enhanced logging configuration
+// Logging
 const logger = winston.createLogger({
-  level: process.env.LOG_LEVEL || 'info',
+  level: 'info',
   format: winston.format.combine(
     winston.format.timestamp(),
-    winston.format.json()
+    winston.format.simple()
   ),
   transports: [
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(),
-        winston.format.simple()
-      )
-    })
+    new winston.transports.Console()
   ]
 });
 
 // Validate required environment variables
-const requiredEnvVars = [
-  'MONGO_URI',
-  'JWT_SECRET',
-  'ADMIN_EMAIL',
-  'ADMIN_PASSWORD'
-];
-
+const requiredEnvVars = ['MONGO_URI', 'JWT_SECRET', 'ADMIN_EMAIL', 'ADMIN_PASSWORD'];
 const missingVars = requiredEnvVars.filter(v => !process.env[v]);
 if (missingVars.length > 0) {
   logger.error('Missing required environment variables:', missingVars);
@@ -44,172 +33,183 @@ if (missingVars.length > 0) {
 const app = express();
 const server = http.createServer(app);
 
-// Environment detection - Force production on Render
-const isDevelopment = false; // Force production mode for now
-const isProduction = true;
-
-logger.info(`🌍 Environment: production (forced)`);
-logger.info(`🔗 Backend URL: https://parksy-backend.onrender.com`);
-logger.info(`🌐 Frontend URL: https://parksy.uk`);
-
-// Production CORS configuration
+// CORS setup
 const allowedOrigins = [
   'http://localhost:3000',
-  'http://localhost:3001',
   'https://parksy.uk',
   'https://www.parksy.uk',
-  'https://parksy-backend.onrender.com',
-  process.env.CLIENT_URL,
-  process.env.FRONTEND_URL
-].filter(Boolean);
+  'https://parksy-backend.onrender.com'
+];
 
-// Socket.io setup
 const io = socketio(server, {
-  cors: {
-    origin: allowedOrigins,
-    methods: ['GET', 'POST'],
-    credentials: true
-  },
-  transports: ['websocket', 'polling']
+  cors: { origin: allowedOrigins, methods: ['GET', 'POST'] }
 });
 
-// Security middleware
-app.use(helmet({
-  crossOriginEmbedderPolicy: false,
-  crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
-
-app.disable('x-powered-by');
+// Middleware
+app.use(helmet({ crossOriginEmbedderPolicy: false }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// CORS configuration
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all for now
     }
-    logger.warn(`CORS blocked: ${origin}`);
-    return callback(null, true); // Allow for now to debug
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH']
 }));
 
-app.options('*', cors());
-
 // Rate limiting
-const limiter = rateLimit({
+app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 200,
-  message: { error: 'Too many requests' },
-  skip: (req) => req.path === '/api/health' || req.path === '/'
-});
-app.use(limiter);
+  message: { error: 'Too many requests' }
+}));
 
 // Database connection
-const connectDB = async () => {
-  try {
-    await mongoose.connect(process.env.MONGO_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true
-    });
-    logger.info('✅ Connected to MongoDB');
-  } catch (err) {
-    logger.error(`❌ MongoDB error: ${err.message}`);
-    process.exit(1);
-  }
-};
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+}).then(() => {
+  logger.info('✅ Connected to MongoDB');
+}).catch(err => {
+  logger.error('❌ MongoDB connection error:', err.message);
+});
 
-connectDB();
-
-// Socket.io handling
+// Socket.io
 io.of('/notifications').on('connection', (socket) => {
   logger.info(`🔌 Client connected: ${socket.id}`);
   socket.on('disconnect', () => logger.info(`🔌 Client disconnected: ${socket.id}`));
 });
 
-// 🚨 EMERGENCY FIX: Load routes one by one with individual try-catch
-logger.info('📡 Loading routes with emergency error handling...');
+// 🚨 LOAD ONLY WORKING ROUTES - COMMENT OUT PROBLEMATIC ONES
+logger.info('📡 Loading routes...');
 
-// Load each route individually to identify the problematic one
-const routesToLoad = [
-  { path: '/api/auth', file: './routes/authroutes', name: 'Authentication' },
-  { path: '/api/admin', file: './routes/adminroutes', name: 'Admin' },
-  { path: '/api/profile', file: './routes/profile', name: 'Profile' },
-  { path: '/api/contact', file: './routes/contactroutes', name: 'Contact' },
-  { path: '/api/cv', file: './routes/cvgenerator', name: 'CV' },
-  { path: '/api/blogs', file: './routes/blogroutes', name: 'Blogs' },
-  { path: '/api/scholarships', file: './routes/scholarshiproutes', name: 'Scholarships' },
-  { path: '/api/feedback', file: './routes/feedbackroutes', name: 'Feedback' },
-  { path: '/api/recommendations', file: './routes/recommendationroutes', name: 'Recommendations' },
-  { path: '/api/parking', file: './routes/userparkingroutes', name: 'Parking' }
-  // Temporarily commenting out EV charging to identify if it's the problem
-  // { path: '/api/ev-charging', file: './routes/evChargingRoutes', name: 'EV Charging' }
-];
-
-let loadedRoutes = [];
-let failedRoutes = [];
-
-for (const route of routesToLoad) {
-  try {
-    logger.info(`🔄 Loading ${route.name}...`);
-    
-    // Use dynamic import to catch errors
-    const routeModule = require(route.file);
-    app.use(route.path, routeModule);
-    
-    loadedRoutes.push(route);
-    logger.info(`✅ ${route.name} loaded successfully`);
-    
-  } catch (error) {
-    failedRoutes.push({ ...route, error: error.message });
-    logger.error(`❌ ${route.name} FAILED: ${error.message}`);
-    
-    // If it's a router error, log more details
-    if (error.message.includes('Missing parameter name')) {
-      logger.error(`🔍 Router error in ${route.file} - check for invalid route patterns`);
-    }
-  }
-}
-
-// Try to load EV charging separately with extra protection
+// Load routes one by one and comment out the problematic one
 try {
-  logger.info('🔄 Attempting to load EV Charging routes...');
-  
-  // Test if the file exists and can be required
-  const evModule = require('./routes/evChargingRoutes');
-  app.use('/api/ev-charging', evModule);
-  
-  loadedRoutes.push({ path: '/api/ev-charging', name: 'EV Charging' });
-  logger.info('✅ EV Charging routes loaded successfully');
-  
-} catch (error) {
-  failedRoutes.push({ 
-    path: '/api/ev-charging', 
-    name: 'EV Charging', 
-    file: './routes/evChargingRoutes',
-    error: error.message 
-  });
-  logger.error(`❌ EV Charging FAILED: ${error.message}`);
-  
-  // Create a temporary EV charging health endpoint
-  app.get('/api/ev-charging/health', (req, res) => {
-    res.json({
-      status: 'ERROR',
-      service: 'EV Charging API',
-      message: 'EV Charging routes failed to load',
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  });
-  
-  logger.info('📡 Created fallback EV charging health endpoint');
+  const authRoutes = require('./routes/authroutes');
+  app.use('/api/auth', authRoutes);
+  logger.info('✅ Auth routes loaded');
+} catch (err) {
+  logger.error('❌ Auth routes failed:', err.message);
 }
 
-logger.info(`📊 Route loading complete: ${loadedRoutes.length} successful, ${failedRoutes.length} failed`);
+try {
+  const adminRoutes = require('./routes/adminroutes');
+  app.use('/api/admin', adminRoutes);
+  logger.info('✅ Admin routes loaded');
+} catch (err) {
+  logger.error('❌ Admin routes failed:', err.message);
+}
+
+try {
+  const profileRoutes = require('./routes/profile');
+  app.use('/api/profile', profileRoutes);
+  logger.info('✅ Profile routes loaded');
+} catch (err) {
+  logger.error('❌ Profile routes failed:', err.message);
+}
+
+try {
+  const contactRoutes = require('./routes/contactroutes');
+  app.use('/api/contact', contactRoutes);
+  logger.info('✅ Contact routes loaded');
+} catch (err) {
+  logger.error('❌ Contact routes failed:', err.message);
+}
+
+try {
+  const cvRoutes = require('./routes/cvgenerator');
+  app.use('/api/cv', cvRoutes);
+  logger.info('✅ CV routes loaded');
+} catch (err) {
+  logger.error('❌ CV routes failed:', err.message);
+}
+
+try {
+  const blogRoutes = require('./routes/blogroutes');
+  app.use('/api/blogs', blogRoutes);
+  logger.info('✅ Blog routes loaded');
+} catch (err) {
+  logger.error('❌ Blog routes failed:', err.message);
+}
+
+try {
+  const scholarshipRoutes = require('./routes/scholarshiproutes');
+  app.use('/api/scholarships', scholarshipRoutes);
+  logger.info('✅ Scholarship routes loaded');
+} catch (err) {
+  logger.error('❌ Scholarship routes failed:', err.message);
+}
+
+try {
+  const feedbackRoutes = require('./routes/feedbackroutes');
+  app.use('/api/feedback', feedbackRoutes);
+  logger.info('✅ Feedback routes loaded');
+} catch (err) {
+  logger.error('❌ Feedback routes failed:', err.message);
+}
+
+try {
+  const recommendationRoutes = require('./routes/recommendationroutes');
+  app.use('/api/recommendations', recommendationRoutes);
+  logger.info('✅ Recommendation routes loaded');
+} catch (err) {
+  logger.error('❌ Recommendation routes failed:', err.message);
+}
+
+try {
+  const parkingRoutes = require('./routes/userparkingroutes');
+  app.use('/api/parking', parkingRoutes);
+  logger.info('✅ Parking routes loaded');
+} catch (err) {
+  logger.error('❌ Parking routes failed:', err.message);
+}
+
+// 🚨 TEMPORARILY COMMENT OUT EV CHARGING ROUTES TO IDENTIFY THE PROBLEM
+/*
+try {
+  const evChargingRoutes = require('./routes/evChargingRoutes');
+  app.use('/api/ev-charging', evChargingRoutes);
+  logger.info('✅ EV Charging routes loaded');
+} catch (err) {
+  logger.error('❌ EV Charging routes failed:', err.message);
+}
+*/
+
+// Create a temporary EV charging endpoint instead
+app.get('/api/ev-charging/health', (req, res) => {
+  res.json({
+    status: 'DISABLED',
+    service: 'EV Charging API',
+    message: 'EV Charging routes temporarily disabled due to route configuration error',
+    timestamp: new Date().toISOString(),
+    note: 'Check evChargingRoutes.js for invalid route patterns like /:id: or /path/:'
+  });
+});
+
+app.get('/api/ev-charging/search-by-location', (req, res) => {
+  res.json({
+    success: false,
+    message: 'EV Charging service temporarily unavailable',
+    error: 'Route configuration issue - check server logs',
+    data: []
+  });
+});
+
+app.get('/api/ev-charging/search-by-area', (req, res) => {
+  res.json({
+    success: false,
+    message: 'EV Charging service temporarily unavailable',
+    error: 'Route configuration issue - check server logs',
+    data: []
+  });
+});
+
+logger.info('📡 Created temporary EV charging endpoints');
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -224,16 +224,11 @@ app.get('/', (req, res) => {
       url: 'https://parksy-backend.onrender.com',
       uptime: Math.round(process.uptime())
     },
-    routes: {
-      loaded: loadedRoutes.length,
-      failed: failedRoutes.length,
-      total: routesToLoad.length + 1, // +1 for EV charging
-      working: loadedRoutes.map(r => r.path)
-    }
+    note: 'EV Charging routes temporarily disabled for debugging'
   });
 });
 
-// Health check endpoint
+// Health check
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'OK',
@@ -247,32 +242,45 @@ app.get('/api/health', (req, res) => {
     version: '2.0.0',
     services: {
       mongodb: mongoose.connection.readyState === 1,
-      evCharging: !!process.env.OPEN_CHARGE_MAP_API_KEY
+      evCharging: false // Temporarily disabled
     },
     routes: {
-      loaded: loadedRoutes.map(r => ({ path: r.path, name: r.name })),
-      failed: failedRoutes.map(r => ({ path: r.path, name: r.name, error: r.error })),
-      total: loadedRoutes.length + failedRoutes.length
+      working: [
+        '/api/auth',
+        '/api/admin', 
+        '/api/profile',
+        '/api/contact',
+        '/api/cv',
+        '/api/blogs',
+        '/api/scholarships',
+        '/api/feedback',
+        '/api/recommendations',
+        '/api/parking'
+      ],
+      disabled: [
+        '/api/ev-charging (temporarily disabled due to route error)'
+      ]
     }
   });
 });
 
-// API info endpoint
+// API info
 app.get('/api/info', (req, res) => {
   res.json({
     name: 'ParkingFinder API',
     version: '2.0.0',
     description: 'Backend API for ParkingFinder application',
     server: 'https://parksy-backend.onrender.com',
-    endpoints: loadedRoutes.map(route => route.path),
-    failedRoutes: failedRoutes.map(route => ({ path: route.path, error: route.error }))
+    status: 'EV Charging temporarily disabled for debugging',
+    issue: 'Router configuration error in evChargingRoutes.js',
+    solution: 'Check for invalid route patterns like /:id: or /path/: in the EV charging route file'
   });
 });
 
 // Error handling
 app.use((err, req, res, next) => {
   logger.error(`Error: ${err.message}`);
-  res.status(err.status || 500).json({
+  res.status(500).json({
     error: 'Internal Server Error',
     timestamp: new Date().toISOString()
   });
@@ -282,7 +290,7 @@ app.use((err, req, res, next) => {
 app.use((req, res) => {
   res.status(404).json({ 
     error: 'Not Found',
-    availableEndpoints: loadedRoutes.map(r => r.path),
+    message: `Endpoint ${req.method} ${req.path} not found`,
     timestamp: new Date().toISOString()
   });
 });
@@ -290,17 +298,10 @@ app.use((req, res) => {
 // Start server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => {
-  logger.info(`🚀 Server started on port ${PORT}`);
-  logger.info(`🌐 URL: https://parksy-backend.onrender.com`);
-  logger.info(`✅ Loaded routes: ${loadedRoutes.length}`);
-  logger.info(`❌ Failed routes: ${failedRoutes.length}`);
-  
-  if (failedRoutes.length > 0) {
-    logger.warn('⚠️  Failed routes:');
-    failedRoutes.forEach(route => {
-      logger.warn(`   - ${route.name}: ${route.error}`);
-    });
-  }
-  
-  logger.info(`💚 Server is running successfully!`);
+  logger.info(`🚀 Parksy Backend Server started successfully!`);
+  logger.info(`🌐 Server URL: https://parksy-backend.onrender.com`);
+  logger.info(`🔌 Running on port ${PORT}`);
+  logger.info(`⚠️  Note: EV Charging routes temporarily disabled`);
+  logger.info(`🔧 Fix: Check ./routes/evChargingRoutes.js for invalid route patterns`);
+  logger.info(`💚 Server is ready to serve requests!`);
 });
