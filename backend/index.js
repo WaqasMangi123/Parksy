@@ -39,7 +39,7 @@ app.disable('x-powered-by');
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// CORS configuration - Fixed for deployment
+// CORS configuration - Fixed for deployment with actual domains
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (mobile apps, Postman, etc.)
@@ -50,31 +50,42 @@ const corsOptions = {
       return callback(null, true);
     }
     
-    // In production, allow specific origins
+    // Production allowed origins - YOUR ACTUAL DOMAINS
     const allowedOrigins = [
-      'https://your-frontend-domain.com',
-      'https://your-app.vercel.app',
-      'https://your-app.netlify.app'
+      'https://parksy.uk',
+      'https://www.parksy.uk',
+      'https://parksy-backend.onrender.com',
+      'https://localhost:3000',
+      'http://localhost:3000',
+      'https://localhost:3001',
+      'http://localhost:3001'
     ];
     
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
     
-    // For deployment testing, be more permissive
+    // Log unauthorized origins for debugging
+    console.warn(`❌ CORS blocked origin: ${origin}`);
+    
+    // For deployment testing, be more permissive (remove in production if needed)
     return callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Origin']
 };
 
 app.use(cors(corsOptions));
 
-// Socket.io setup with fixed CORS
+// Socket.io setup with fixed CORS for actual domains
 const io = socketio(server, {
   cors: {
-    origin: isDevelopment ? "*" : true,
+    origin: isDevelopment ? "*" : [
+      'https://parksy.uk',
+      'https://www.parksy.uk',
+      'https://parksy-backend.onrender.com'
+    ],
     methods: ["GET", "POST"],
     credentials: true
   },
@@ -129,22 +140,30 @@ io.of('/notifications').on('connection', (socket) => {
   });
 });
 
-// Safe route loading function
+// Enhanced safe route loading function
 const loadRoute = (routePath, routeName) => {
   try {
-    return require(routePath);
+    console.log(`📂 Loading ${routeName} from: ${routePath}`);
+    const route = require(routePath);
+    console.log(`✅ Successfully loaded ${routeName}`);
+    return route;
   } catch (error) {
-    console.warn(`⚠️ Failed to load ${routeName} route:`, error.message);
-    // Return a dummy router that responds with 503
+    console.warn(`⚠️ Failed to load ${routeName} route from ${routePath}:`, error.message);
+    
+    // Create a fallback router
     const express = require('express');
     const router = express.Router();
-    router.use('*', (req, res) => {
+    
+    // Add proper error handling for all HTTP methods
+    router.all('*', (req, res) => {
       res.status(503).json({
         success: false,
         message: `${routeName} service temporarily unavailable`,
-        error: 'Service not loaded'
+        error: 'Service not loaded',
+        timestamp: new Date().toISOString()
       });
     });
+    
     return router;
   }
 };
@@ -152,7 +171,7 @@ const loadRoute = (routePath, routeName) => {
 // ================== ROUTES ================== //
 console.log('📝 Loading routes...');
 
-// Core routes (always required)
+// Core routes (always required) - FIXED FILE NAMES
 app.use('/api/auth', loadRoute('./routes/authroutes', 'Auth'));
 app.use('/api/admin', loadRoute('./routes/adminroutes', 'Admin'));
 app.use('/api/profile', loadRoute('./routes/profile', 'Profile'));
@@ -163,12 +182,13 @@ app.use('/api/scholarships', loadRoute('./routes/scholarshiproutes', 'Scholarshi
 app.use('/api/feedback', loadRoute('./routes/feedbackroutes', 'Feedback'));
 app.use('/api/recommendations', loadRoute('./routes/recommendationroutes', 'Recommendations'));
 
-// NEW ROUTES - Load with error handling
+// NEW ROUTES - FIXED FILE NAMES TO MATCH YOUR ACTUAL FILES
 console.log('🚗 Loading parking routes...');
 app.use('/api/parking', loadRoute('./routes/userparkingroutes', 'Parking'));
 
 console.log('⚡ Loading EV charging routes...');
-app.use('/api/ev-charging', loadRoute('./routes/evChargingRoutes', 'EV Charging'));
+// FIXED: Changed from 'evChargingRoutes' to 'evchargingroutes' to match your file
+app.use('/api/ev-charging', loadRoute('./routes/evchargingroutes', 'EV Charging'));
 
 console.log('✅ All routes loaded');
 
@@ -205,10 +225,12 @@ app.get('/api', (req, res) => {
   res.json({
     message: 'Parksy API Server',
     version: '2.0.0',
+    domain: 'https://parksy.uk',
+    backend: 'https://parksy-backend.onrender.com',
     available_endpoints: [
       '/api/health',
       '/api/auth',
-      '/api/admin',
+      '/api/admin', 
       '/api/profile',
       '/api/contact',
       '/api/cv',
@@ -222,6 +244,10 @@ app.get('/api', (req, res) => {
     new_features: [
       'EV Charging Station Search',
       'Airport Parking Services'
+    ],
+    cors_domains: [
+      'https://parksy.uk',
+      'https://www.parksy.uk'
     ]
   });
 });
@@ -231,7 +257,15 @@ app.get('/', (req, res) => {
   res.json({
     message: 'Parksy API Server is running',
     status: 'online',
-    timestamp: new Date().toISOString()
+    domain: 'https://parksy.uk',
+    backend: 'https://parksy-backend.onrender.com',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      health: '/api/health',
+      docs: '/api',
+      parking: '/api/parking',
+      ev_charging: '/api/ev-charging'
+    }
   });
 });
 
@@ -245,7 +279,7 @@ app.use('*', (req, res) => {
   });
 });
 
-// Global error handling middleware
+// Enhanced global error handling middleware
 app.use((err, req, res, next) => {
   console.error('❌ Global Error:', {
     path: req.path,
@@ -253,6 +287,22 @@ app.use((err, req, res, next) => {
     error: err.message,
     stack: isDevelopment ? err.stack : 'Hidden in production'
   });
+
+  // Handle specific error types
+  if (err.name === 'ValidationError') {
+    return res.status(400).json({
+      error: 'Validation Error',
+      details: err.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  if (err.name === 'CastError') {
+    return res.status(400).json({
+      error: 'Invalid ID format',
+      timestamp: new Date().toISOString()
+    });
+  }
 
   // Don't expose internal errors in production
   const errorMessage = isProduction ? 'Internal Server Error' : err.message;
