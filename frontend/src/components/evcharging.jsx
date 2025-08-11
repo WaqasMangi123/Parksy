@@ -14,7 +14,7 @@ const EvChargingComponent = ({
   initializeMap 
 }) => {
   // API Configuration
-  const API_BASE_URL = "http://localhost:5000";
+  const API_BASE_URL = "https://parksy-backend.onrender.com";
 
   // EV Charging images with high-quality visuals
   const evChargingImages = {

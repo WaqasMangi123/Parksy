@@ -13,7 +13,7 @@ const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoicGFya3N5dWsiLCJhIjoiY21kODNsaG0yMGw3bzJs
 
 const ProfessionalParksyDashboard = () => {
   // API Configuration
-  const API_BASE_URL = "http://localhost:5000";
+  const API_BASE_URL = "https://parksy-backend.onrender.com";
   
   // Map references
   const mapRef = useRef(null);
