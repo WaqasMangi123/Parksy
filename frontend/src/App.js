@@ -13,6 +13,9 @@ import ParkingFinder from './components/parkingfinder';
 import ParkingListingThirdParty from './components/home';
 import AdminEmergencyContactRequest from './components/adminemergencycontactrequest';
 
+// EV Charging component
+import EvCharging from './components/evcharging';
+
 // Auth components
 import Login from './components/login';
 import Register from './components/register';
@@ -98,6 +101,9 @@ function App() {
           <Route path="/parkingfinder" element={<Layout><ParkingFinder /></Layout>} />
           <Route path="/listyourspace" element={<Layout><SuccessStories /></Layout>} />
           <Route path="/emergency-contacts" element={<Layout><AdminEmergencyContactRequest /></Layout>} />
+          
+          {/* EV CHARGING ROUTE */}
+          <Route path="/evcharging" element={<Layout><EvCharging /></Layout>} />
           
           {/* HOME ROUTE WITH WIDGET */}
           <Route path="/home" element={<HomeLayout><ParkingListingThirdParty /></HomeLayout>} />
