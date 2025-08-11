@@ -140,7 +140,7 @@ io.of('/notifications').on('connection', (socket) => {
   });
 });
 
-// Enhanced safe route loading function
+// SAFE route loading function with better error isolation
 const loadRoute = (routePath, routeName) => {
   try {
     console.log(`📂 Loading ${routeName} from: ${routePath}`);
@@ -150,12 +150,12 @@ const loadRoute = (routePath, routeName) => {
   } catch (error) {
     console.warn(`⚠️ Failed to load ${routeName} route from ${routePath}:`, error.message);
     
-    // Create a fallback router
+    // Create a safe fallback router
     const express = require('express');
     const router = express.Router();
     
-    // Add proper error handling for all HTTP methods
-    router.all('*', (req, res) => {
+    // SAFE catch-all without path-to-regexp issues
+    router.get('*', (req, res) => {
       res.status(503).json({
         success: false,
         message: `${routeName} service temporarily unavailable`,
@@ -168,29 +168,51 @@ const loadRoute = (routePath, routeName) => {
   }
 };
 
+// SAFE route mounting function
+const mountRoute = (path, router, name) => {
+  try {
+    console.log(`🔗 Mounting ${name} on ${path}`);
+    app.use(path, router);
+    console.log(`✅ Successfully mounted ${name}`);
+  } catch (error) {
+    console.error(`❌ Failed to mount ${name} on ${path}:`, error.message);
+    
+    // Create emergency fallback
+    app.use(path, (req, res) => {
+      res.status(503).json({
+        success: false,
+        message: `${name} service unavailable`,
+        error: 'Route mounting failed'
+      });
+    });
+  }
+};
+
 // ================== ROUTES ================== //
 console.log('📝 Loading routes...');
 
-// Core routes (always required) - FIXED FILE NAMES
-app.use('/api/auth', loadRoute('./routes/authroutes', 'Auth'));
-app.use('/api/admin', loadRoute('./routes/adminroutes', 'Admin'));
-app.use('/api/profile', loadRoute('./routes/profile', 'Profile'));
-app.use('/api/contact', loadRoute('./routes/contactroutes', 'Contact'));
-app.use('/api/cv', loadRoute('./routes/cvgenerator', 'CV Generator'));
-app.use('/api/blogs', loadRoute('./routes/blogroutes', 'Blogs'));
-app.use('/api/scholarships', loadRoute('./routes/scholarshiproutes', 'Scholarships'));
-app.use('/api/feedback', loadRoute('./routes/feedbackroutes', 'Feedback'));
-app.use('/api/recommendations', loadRoute('./routes/recommendationroutes', 'Recommendations'));
+// Load all routes first
+const routes = [
+  { path: '/api/auth', file: './routes/authroutes', name: 'Auth' },
+  { path: '/api/admin', file: './routes/adminroutes', name: 'Admin' },
+  { path: '/api/profile', file: './routes/profile', name: 'Profile' },
+  { path: '/api/contact', file: './routes/contactroutes', name: 'Contact' },
+  { path: '/api/cv', file: './routes/cvgenerator', name: 'CV Generator' },
+  { path: '/api/blogs', file: './routes/blogroutes', name: 'Blogs' },
+  { path: '/api/scholarships', file: './routes/scholarshiproutes', name: 'Scholarships' },
+  { path: '/api/feedback', file: './routes/feedbackroutes', name: 'Feedback' },
+  { path: '/api/recommendations', file: './routes/recommendationroutes', name: 'Recommendations' },
+  { path: '/api/parking', file: './routes/userparkingroutes', name: 'Parking' },
+  { path: '/api/ev-charging', file: './routes/evchargingroutes', name: 'EV Charging' }
+];
 
-// NEW ROUTES - FIXED FILE NAMES TO MATCH YOUR ACTUAL FILES
-console.log('🚗 Loading parking routes...');
-app.use('/api/parking', loadRoute('./routes/userparkingroutes', 'Parking'));
+// Mount routes safely
+routes.forEach(route => {
+  const router = loadRoute(route.file, route.name);
+  mountRoute(route.path, router, route.name);
+});
 
-console.log('⚡ Loading EV charging routes...');
-// FIXED: Changed from 'evChargingRoutes' to 'evchargingroutes' to match your file
-app.use('/api/ev-charging', loadRoute('./routes/evchargingroutes', 'EV Charging'));
-
-console.log('✅ All routes loaded');
+console.log('✅ All routes loaded and mounted');
 
 // Health check endpoint - Enhanced
 app.get('/api/health', (req, res) => {
@@ -269,8 +291,8 @@ app.get('/', (req, res) => {
   });
 });
 
-// 404 handler
-app.use('*', (req, res) => {
+// 404 handler - SAFE pattern
+app.use((req, res) => {
   res.status(404).json({
     error: 'Endpoint not found',
     path: req.originalUrl,
@@ -364,13 +386,20 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Start server
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, '0.0.0.0', () => {
-  console.log('\n🚀 ====================================');
-  console.log(`🌟 Parksy API Server Started`);
-  console.log(`📡 Port: ${PORT}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🗄️  Database: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Connecting...'}`);
-  console.log(`🔗 Health Check: http://localhost:${PORT}/api/health`);
-  console.log(`📋 API Routes: http://localhost:${PORT}/api`);
-  console.log('🚀 ====================================\n');
-});
+
+// SAFE server startup with error handling
+try {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log('\n🚀 ====================================');
+    console.log(`🌟 Parksy API Server Started`);
+    console.log(`📡 Port: ${PORT}`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🗄️  Database: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Connecting...'}`);
+    console.log(`🔗 Health Check: http://localhost:${PORT}/api/health`);
+    console.log(`📋 API Routes: http://localhost:${PORT}/api`);
+    console.log('🚀 ====================================\n');
+  });
+} catch (error) {
+  console.error('❌ Server startup error:', error);
+  process.exit(1);
+}
