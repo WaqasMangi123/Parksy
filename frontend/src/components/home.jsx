@@ -48,15 +48,14 @@ const ProfessionalParksyDashboard = () => {
   const [showAirplaneAnimation, setShowAirplaneAnimation] = useState(true);
   const [authStatus, setAuthStatus] = useState({ isLoggedIn: false, user: null });
 
-  // Search Parameters
-  const [searchParams, setSearchParams] = useState({
-    airport_code: "LHR",
-    dropoff_date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
-    dropoff_time: "09:00",
-    pickup_date: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
-    pickup_time: "18:00"
-  });
-
+ // Search Parameters - FIXED: Must be at least 48+ hours in advance for MAGR API
+const [searchParams, setSearchParams] = useState({
+  airport_code: "LHR",
+  dropoff_date: new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0], // Day after tomorrow (48+ hours)
+  dropoff_time: "09:00",
+  pickup_date: new Date(Date.now() + 9 * 86400000).toISOString().split('T')[0], // 9 days later
+  pickup_time: "18:00"
+});
   // Booking Details
   const [bookingDetails, setBookingDetails] = useState({
     title: "Mr",
