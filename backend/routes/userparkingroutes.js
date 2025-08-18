@@ -1,4 +1,4 @@
-// routes/parkingRoutes.js - UPDATED VERSION WITH COMPANY CODE FIX
+// routes/parkingRoutes.js - FIXED VERSION WITH PROPER COMPANY CODE HANDLING
 const express = require('express');
 const router = express.Router();
 const { body, param, validationResult } = require('express-validator');
@@ -98,54 +98,30 @@ router.get('/airports', (req, res) => {
   }
 });
 
-// NEW: Get valid company codes - PUBLIC
-router.get('/company-codes', (req, res) => {
-  try {
-    console.log('🏢 Company codes requested');
-    
-    if (!MagrApiService) {
-      throw new Error('MagrApiService not available');
-    }
-    
-    const companyCodes = MagrApiService.getValidCompanyCodes();
-    
-    console.log('✅ Returning company codes:', companyCodes.length);
-    res.json({
-      success: true,
-      data: companyCodes,
-      count: companyCodes.length,
-      message: 'Use one of these company codes when making bookings'
-    });
-  } catch (error) {
-    console.error('❌ Error fetching company codes:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch company codes',
-      error: error.message
-    });
-  }
-});
-
-// SIMPLIFIED Search parking validation - removed complex custom validators
+// Search parking validation - FIXED to extract company code from products
 const validateSearchParking = [
   body('airport_code')
     .isIn(['LHR', 'LGW', 'STN', 'LTN', 'MAN', 'BHX', 'EDI', 'GLA'])
     .withMessage('Invalid airport code'),
   body('dropoff_date')
     .notEmpty()
-    .withMessage('Dropoff date is required'),
+    .withMessage('Dropoff date is required')
+    .isISO8601()
+    .withMessage('Invalid dropoff date format (use YYYY-MM-DD)'),
   body('dropoff_time')
     .matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/)
-    .withMessage('Invalid dropoff time format (HH:MM)'),
+    .withMessage('Invalid dropoff time format (use HH:MM)'),
   body('pickup_date')
     .notEmpty()
-    .withMessage('Pickup date is required'),
+    .withMessage('Pickup date is required')
+    .isISO8601()
+    .withMessage('Invalid pickup date format (use YYYY-MM-DD)'),
   body('pickup_time')
     .matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/)
-    .withMessage('Invalid pickup time format (HH:MM)')
+    .withMessage('Invalid pickup time format (use HH:MM)')
 ];
 
-// UPDATED: Search parking - now includes company codes in response
+// FIXED: Search parking - properly extract and return company codes from API response
 router.post('/search-parking', 
   validateSearchParking, 
   handleValidationErrors, 
@@ -169,9 +145,8 @@ router.post('/search-parking',
         timestamp: new Date().toISOString()
       });
 
-      // SIMPLIFIED time validation - just check basic format
+      // Enhanced time validation
       try {
-        // Basic validation without complex date parsing
         const dropoffDateTime = new Date(`${dropoff_date}T${dropoff_time}`);
         const pickupDateTime = new Date(`${pickup_date}T${pickup_time}`);
         
@@ -183,7 +158,13 @@ router.post('/search-parking',
           throw new Error('Pickup time must be after dropoff time');
         }
         
-        console.log('✅ Basic time validation passed');
+        // Check if booking is not in the past
+        const now = new Date();
+        if (dropoffDateTime < now) {
+          throw new Error('Dropoff time cannot be in the past');
+        }
+        
+        console.log('✅ Time validation passed');
       } catch (timeError) {
         console.error('❌ Time validation failed:', timeError.message);
         return res.status(400).json({
@@ -193,40 +174,22 @@ router.post('/search-parking',
         });
       }
 
-      // Format dates and times for MAGR API
-      const formatDateForMagr = (dateString) => {
-        const date = new Date(dateString);
-        return date.toISOString().split('T')[0];
-      };
-
-      const formatTimeForMagr = (timeString) => {
-        if (timeString && timeString.match(/^\d{2}:\d{2}$/)) {
-          return timeString;
-        }
-        const timeParts = timeString.split(':');
-        if (timeParts.length >= 2) {
-          const hours = timeParts[0].padStart(2, '0');
-          const minutes = timeParts[1].padStart(2, '0');
-          return `${hours}:${minutes}`;
-        }
-        return timeString;
-      };
-
+      // Format parameters for MAGR API exactly as per documentation
       const searchParams = {
         airport_code,
-        dropoff_date: formatDateForMagr(dropoff_date),
-        dropoff_time: formatTimeForMagr(dropoff_time),
-        pickup_date: formatDateForMagr(pickup_date),
-        pickup_time: formatTimeForMagr(pickup_time)
+        dropoff_date, // Keep original format
+        dropoff_time,
+        pickup_date,  // Keep original format
+        pickup_time
       };
 
-      console.log('🚀 Calling MAGR API with formatted params:', searchParams);
+      console.log('🚀 Calling MAGR API with params:', searchParams);
       
-      // Call MAGR API with error handling
+      // Call MAGR API
       let result;
       try {
         result = await MagrApiService.getParkingQuotes(searchParams);
-        console.log('📋 MAGR API raw result:', result);
+        console.log('📋 MAGR API raw result received');
       } catch (magrError) {
         console.error('❌ MAGR API call failed:', magrError.message);
         return res.status(500).json({
@@ -237,40 +200,66 @@ router.post('/search-parking',
         });
       }
       
-      console.log('✅ MAGR API Response:', {
-        success: result?.success,
-        productsCount: result?.data?.products?.length || 0
-      });
-
       if (!result || !result.success || !result.data || !result.data.products) {
         console.error('❌ Invalid MAGR API response:', result);
         return res.status(500).json({
           success: false,
-          message: 'Invalid response from MAGR API',
-          error: 'No parking products returned',
-          debug_info: result
+          message: 'No parking products found for your search criteria',
+          error: 'No parking products returned from MAGR API',
+          search_params: searchParams
         });
       }
 
-      // ENHANCED: Add company codes to each product and get valid company codes
-      const validCompanyCodes = MagrApiService.getValidCompanyCodes();
-      const enhancedProducts = result.data.products.map(product => ({
-        ...product,
-        // Use the companyID from the product if available, otherwise use first valid code
-        company_code: product.companyID || validCompanyCodes[0],
-        available_company_codes: validCompanyCodes
-      }));
+      // CRITICAL FIX: Extract actual company codes from API response
+      // According to the API documentation, each product has a "product_code" field
+      const enhancedProducts = result.data.products.map((product, index) => {
+        // Use the product_code from the API response as the company_code
+        const companyCode = product.product_code || product.companyID || `COMPANY-${index + 1}`;
+        
+        return {
+          ...product,
+          company_code: companyCode, // This is the key fix
+          // Add additional fields for frontend use
+          id: product.id || index,
+          booking_reference_prefix: product.product_code?.split('-')[0] || 'MG',
+          is_available: true,
+          // Ensure required booking fields are present
+          price: parseFloat(product.price) || 0,
+          commission_percentage: parseFloat(product.share_percentage) || 0,
+          // Format features for display
+          features_list: product.special_features ? product.special_features.split(',') : [],
+          facilities_list: product.facilities ? product.facilities.split(',') : []
+        };
+      });
 
-      // Return successful response with enhanced data
+      // Extract all available company codes from the products
+      const availableCompanyCodes = enhancedProducts
+        .map(product => product.company_code)
+        .filter(Boolean)
+        .filter((code, index, self) => self.indexOf(code) === index); // Remove duplicates
+
+      console.log('✅ Enhanced products with company codes:', {
+        productCount: enhancedProducts.length,
+        companyCodes: availableCompanyCodes
+      });
+
+      // Return successful response with properly formatted data
       res.json({
         success: true,
         data: {
-          ...result.data,
+          request: {
+            status: 'success',
+            airport: airport_code,
+            dropoff_date,
+            dropoff_time,
+            pickup_date,
+            pickup_time
+          },
           products: enhancedProducts
         },
         search_params: searchParams,
-        valid_company_codes: validCompanyCodes,
-        message: `Found ${result.data.products.length} parking options`,
+        available_company_codes: availableCompanyCodes,
+        message: `Found ${enhancedProducts.length} parking options`,
         timestamp: new Date().toISOString()
       });
 
@@ -285,7 +274,6 @@ router.post('/search-parking',
         success: false,
         message: 'Failed to search parking options',
         error: error.message,
-        stack: error.stack?.substring(0, 200),
         timestamp: new Date().toISOString()
       });
     }
@@ -301,15 +289,32 @@ router.get('/test-magr', async (req, res) => {
       throw new Error('MagrApiService not loaded');
     }
     
-    const result = await MagrApiService.testConnection();
+    // Test with a sample search to get real company codes
+    const testParams = {
+      airport_code: 'LHR',
+      dropoff_date: '2025-12-01',
+      dropoff_time: '10:00',
+      pickup_date: '2025-12-10',
+      pickup_time: '20:00'
+    };
     
-    console.log('✅ MAGR Test Result:', result);
+    const result = await MagrApiService.getParkingQuotes(testParams);
+    
+    let availableCompanyCodes = [];
+    if (result?.success && result?.data?.products) {
+      availableCompanyCodes = result.data.products
+        .map(p => p.product_code || p.companyID)
+        .filter(Boolean);
+    }
+    
+    console.log('✅ MAGR Test Result with company codes:', availableCompanyCodes);
     
     res.json({
       success: true,
       message: 'MAGR API connection successful',
       data: result,
-      valid_company_codes: MagrApiService.getValidCompanyCodes(),
+      available_company_codes: availableCompanyCodes,
+      test_params: testParams,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -340,17 +345,25 @@ router.get('/terminals/:airport_code',
       const { airport_code } = req.params;
       console.log('🏢 Terminals requested for airport:', airport_code);
       
-      if (!MagrApiService) {
-        throw new Error('MagrApiService not available');
-      }
+      // Return standard terminals based on airport
+      const terminals = {
+        'LHR': ['Terminal 1', 'Terminal 2', 'Terminal 3', 'Terminal 4', 'Terminal 5'],
+        'LGW': ['North Terminal', 'South Terminal'],
+        'STN': ['Terminal 1'],
+        'LTN': ['Terminal 1'],
+        'MAN': ['Terminal 1', 'Terminal 2', 'Terminal 3'],
+        'BHX': ['Terminal 1', 'Terminal 2'],
+        'EDI': ['Terminal 1'],
+        'GLA': ['Terminal 1']
+      };
       
-      const terminals = MagrApiService.getTerminalsForAirport(airport_code);
+      const airportTerminals = terminals[airport_code] || ['Terminal 1'];
       
       res.json({
         success: true,
-        data: terminals,
+        data: airportTerminals,
         airport_code: airport_code,
-        count: terminals.length
+        count: airportTerminals.length
       });
     } catch (error) {
       console.error('❌ Error fetching terminals:', error);
@@ -365,22 +378,21 @@ router.get('/terminals/:airport_code',
 
 // ===== PROTECTED ROUTES (AUTHENTICATION REQUIRED) =====
 
-// Authentication middleware - SIMPLIFIED
+// Authentication middleware
 const authenticateToken = async (req, res, next) => {
   try {
-    // Get token from request body (browser memory)
+    // Get token from request body (browser memory) or header
     let token = req.body.token || req.body.auth_token;
     
-    // Also try header as fallback
     const authHeader = req.headers['authorization'];
     if (!token && authHeader && authHeader.split(' ')[1]) {
       token = authHeader.split(' ')[1];
     }
 
-    console.log('🔍 Token search result:', {
-      fromBody: !!req.body.token,
-      fromAuthToken: !!req.body.auth_token,
-      fromHeader: !!authHeader,
+    console.log('🔍 Authentication check:', {
+      tokenFromBody: !!req.body.token,
+      tokenFromAuthToken: !!req.body.auth_token,
+      tokenFromHeader: !!authHeader,
       tokenFound: !!token
     });
 
@@ -393,7 +405,6 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
-    // Check if JWT_SECRET exists
     if (!process.env.JWT_SECRET) {
       console.error('❌ JWT_SECRET not configured');
       return res.status(500).json({
@@ -406,7 +417,6 @@ const authenticateToken = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     console.log('🔐 Token decoded for user:', decoded.email || decoded.id);
 
-    // Check if User model is available
     if (!User) {
       console.error('❌ User model not available');
       return res.status(500).json({
@@ -469,35 +479,38 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
-// ENHANCED booking validation with dynamic company code validation
+// FIXED booking validation - removed company code validation since it comes from search results
 const validateCreateBooking = [
   body('company_code')
-    .custom(async (value) => {
-      if (!MagrApiService) {
-        throw new Error('MAGR API Service not available');
-      }
-      if (!MagrApiService.isValidCompanyCode(value)) {
-        const validCodes = MagrApiService.getValidCompanyCodes();
-        throw new Error(`Invalid company code. Valid codes are: ${validCodes.join(', ')}`);
-      }
-      return true;
-    }),
+    .notEmpty()
+    .withMessage('Company code is required')
+    .isLength({ min: 1, max: 50 })
+    .withMessage('Invalid company code format'),
   body('airport_code').isIn(['LHR', 'LGW', 'STN', 'LTN', 'MAN', 'BHX', 'EDI', 'GLA']).withMessage('Invalid airport code'),
+  body('dropoff_date').isISO8601().withMessage('Invalid dropoff date format'),
+  body('dropoff_time').matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Invalid dropoff time format'),
+  body('pickup_date').isISO8601().withMessage('Invalid pickup date format'),
+  body('pickup_time').matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Invalid pickup time format'),
   body('title').isIn(['Mr', 'Mrs', 'Miss', 'Ms', 'Dr']).withMessage('Invalid title'),
   body('first_name').trim().isLength({ min: 1, max: 50 }).withMessage('First name must be 1-50 characters'),
   body('last_name').trim().isLength({ min: 1, max: 50 }).withMessage('Last name must be 1-50 characters'),
   body('customer_email').isEmail().withMessage('Invalid email address'),
   body('phone_number').notEmpty().withMessage('Phone number is required'),
+  body('departure_flight_number').optional().isLength({ max: 20 }).withMessage('Flight number too long'),
+  body('arrival_flight_number').optional().isLength({ max: 20 }).withMessage('Flight number too long'),
+  body('departure_terminal').notEmpty().withMessage('Departure terminal is required'),
+  body('arrival_terminal').notEmpty().withMessage('Arrival terminal is required'),
   body('car_registration_number').trim().isLength({ min: 1, max: 15 }).withMessage('Car registration required'),
   body('car_make').trim().isLength({ min: 1, max: 30 }).withMessage('Car make required'),
   body('car_model').trim().isLength({ min: 1, max: 30 }).withMessage('Car model required'),
   body('car_color').trim().isLength({ min: 1, max: 20 }).withMessage('Car color required'),
-  body('booking_amount').isFloat({ min: 0 }).withMessage('Booking amount must be a positive number')
+  body('booking_amount').isFloat({ min: 0 }).withMessage('Booking amount must be a positive number'),
+  body('passenger').optional().isInt({ min: 1, max: 10 }).withMessage('Invalid passenger count')
 ];
 
-// UPDATED: Create booking with enhanced company code handling
+// FIXED: Create booking with proper company code handling
 router.post('/bookings', 
-  authenticateToken,  // Authentication required
+  authenticateToken,
   validateCreateBooking, 
   handleValidationErrors, 
   async (req, res) => {
@@ -509,62 +522,89 @@ router.post('/bookings',
         company_code: bookingData.company_code,
         airport_code: bookingData.airport_code,
         customer_email: bookingData.customer_email,
+        booking_amount: bookingData.booking_amount,
         timestamp: new Date().toISOString()
       });
 
-      // Check if MagrApiService is available
       if (!MagrApiService) {
         throw new Error('MAGR API Service is not available');
       }
 
-      // ENHANCED: Validate company code before proceeding
-      if (!MagrApiService.isValidCompanyCode(bookingData.company_code)) {
-        const validCodes = MagrApiService.getValidCompanyCodes();
-        console.error('❌ Invalid company code provided:', bookingData.company_code);
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid company code provided',
-          error: `Company code '${bookingData.company_code}' is not valid`,
-          valid_company_codes: validCodes,
-          suggestion: `Please use one of these valid codes: ${validCodes.join(', ')}`
-        });
-      }
+      // Generate unique booking reference for our system
+      const ourBookingRef = `PKY-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-      console.log('✅ Company code validation passed:', bookingData.company_code);
-      console.log('🚀 Creating booking with MAGR API...');
-
-      // ENHANCED: Log the exact data being sent to MAGR API
-      console.log('📋 Booking data being sent to MAGR:', {
-        company_code: bookingData.company_code,
-        airport_code: bookingData.airport_code,
-        customer_email: bookingData.customer_email,
-        booking_amount: bookingData.booking_amount,
+      // Prepare booking data for MAGR API according to documentation format
+      const magrBookingData = {
+        // Authentication
+        agent_code: process.env.MAGR_AGENT_CODE,
+        user_email: process.env.MAGR_USER_EMAIL || bookingData.customer_email,
+        password: process.env.MAGR_PASSWORD,
+        
+        // Company and booking reference
+        company_code: bookingData.company_code, // Use the company code from search results
+        bookreference: ourBookingRef, // Our unique reference
+        
+        // Travel dates and times
+        dropoff_time: bookingData.dropoff_time,
         dropoff_date: bookingData.dropoff_date,
-        pickup_date: bookingData.pickup_date
+        pickup_time: bookingData.pickup_time,
+        pickup_date: bookingData.pickup_date,
+        
+        // Customer details
+        title: bookingData.title,
+        first_name: bookingData.first_name,
+        last_name: bookingData.last_name,
+        customer_email: bookingData.customer_email,
+        phone_number: bookingData.phone_number,
+        
+        // Flight details
+        departure_flight_number: bookingData.departure_flight_number || 'TBA',
+        arrival_flight_number: bookingData.arrival_flight_number || 'TBA',
+        departure_terminal: bookingData.departure_terminal,
+        arrival_terminal: bookingData.arrival_terminal,
+        
+        // Vehicle details
+        car_registration_number: bookingData.car_registration_number.toUpperCase(),
+        car_make: bookingData.car_make,
+        car_model: bookingData.car_model,
+        car_color: bookingData.car_color,
+        
+        // Booking details
+        park_api: 'b2b',
+        passenger: parseInt(bookingData.passenger) || 1,
+        paymentgateway: bookingData.paymentgateway || 'Invoice',
+        payment_token: bookingData.payment_token || `token_${Date.now()}`,
+        booking_amount: parseFloat(bookingData.booking_amount)
+      };
+
+      console.log('🚀 Sending booking to MAGR API:', {
+        company_code: magrBookingData.company_code,
+        bookreference: magrBookingData.bookreference,
+        customer_email: magrBookingData.customer_email,
+        booking_amount: magrBookingData.booking_amount
       });
 
       // Create booking with MAGR API
-      const magrResult = await MagrApiService.createBooking(bookingData);
+      const magrResult = await MagrApiService.createBooking(magrBookingData);
       
-      console.log('📋 MAGR API Result:', magrResult);
+      console.log('📋 MAGR API booking result:', magrResult);
 
       if (magrResult.success) {
-        // Try to save booking to database if Booking model is available
+        // Save booking to database if Booking model is available
         let savedBooking = null;
         if (Booking) {
           try {
             console.log('💾 Saving booking to database...');
             
             savedBooking = new Booking({
-              our_reference: magrResult.our_reference,
-              magr_reference: magrResult.magr_reference,
-              booking_id: magrResult.booking_id,
+              our_reference: ourBookingRef,
+              magr_reference: magrResult.data?.reference || magrResult.reference,
               user_id: req.user._id,
               user_email: req.user.email,
               company_code: bookingData.company_code,
-              product_name: bookingData.product_name || 'Parking Service',
+              product_name: bookingData.product_name || 'Airport Parking Service',
               airport_code: bookingData.airport_code,
-              parking_type: bookingData.parking_type || 'Standard',
+              parking_type: bookingData.parking_type || 'Meet & Greet',
               booking_amount: parseFloat(bookingData.booking_amount),
               commission_percentage: parseFloat(bookingData.commission_percentage || 0),
               commission_amount: (parseFloat(bookingData.booking_amount) * parseFloat(bookingData.commission_percentage || 0) / 100),
@@ -582,8 +622,8 @@ router.post('/bookings',
                 pickup_time: bookingData.pickup_time,
                 departure_flight_number: bookingData.departure_flight_number || 'TBA',
                 arrival_flight_number: bookingData.arrival_flight_number || 'TBA',
-                departure_terminal: bookingData.departure_terminal || 'Terminal 1',
-                arrival_terminal: bookingData.arrival_terminal || 'Terminal 1',
+                departure_terminal: bookingData.departure_terminal,
+                arrival_terminal: bookingData.arrival_terminal,
                 passenger_count: parseInt(bookingData.passenger) || 1
               },
               vehicle_details: {
@@ -594,12 +634,12 @@ router.post('/bookings',
               },
               payment_details: {
                 payment_method: bookingData.paymentgateway || 'Invoice',
-                payment_token: bookingData.payment_token,
-                payment_status: 'pending'
+                payment_token: magrBookingData.payment_token,
+                payment_status: 'confirmed'
               },
               service_features: {
-                is_cancelable: bookingData.is_cancelable || false,
-                is_editable: bookingData.is_editable || false,
+                is_cancelable: bookingData.is_cancelable !== false,
+                is_editable: bookingData.is_editable !== false,
                 special_features: bookingData.special_features || []
               },
               status: 'confirmed',
@@ -611,8 +651,6 @@ router.post('/bookings',
           } catch (dbError) {
             console.error('⚠️ Database save failed (continuing anyway):', dbError.message);
           }
-        } else {
-          console.log('⚠️ Booking model not available, skipping database save');
         }
 
         // Return success response
@@ -620,19 +658,31 @@ router.post('/bookings',
           success: true,
           message: 'Booking created successfully!',
           data: {
-            booking_id: magrResult.booking_id,
-            our_reference: magrResult.our_reference,
-            magr_reference: magrResult.magr_reference,
-            status: magrResult.status,
+            our_reference: ourBookingRef,
+            magr_reference: magrResult.data?.reference || magrResult.reference,
+            status: 'confirmed',
             database_id: savedBooking?._id,
             user_email: req.user.email,
             created_at: savedBooking?.created_at || new Date().toISOString(),
             customer_name: `${bookingData.title} ${bookingData.first_name} ${bookingData.last_name}`,
-            service: bookingData.product_name || 'Parking Service',
+            service: bookingData.product_name || 'Airport Parking Service',
             airport: bookingData.airport_code,
             company_code: bookingData.company_code,
             total_amount: parseFloat(bookingData.booking_amount),
-            commission: (parseFloat(bookingData.booking_amount) * parseFloat(bookingData.commission_percentage || 0) / 100)
+            commission: (parseFloat(bookingData.booking_amount) * parseFloat(bookingData.commission_percentage || 0) / 100),
+            travel_details: {
+              dropoff_date: bookingData.dropoff_date,
+              dropoff_time: bookingData.dropoff_time,
+              pickup_date: bookingData.pickup_date,
+              pickup_time: bookingData.pickup_time,
+              departure_terminal: bookingData.departure_terminal,
+              arrival_terminal: bookingData.arrival_terminal
+            },
+            vehicle_details: {
+              registration: bookingData.car_registration_number.toUpperCase(),
+              make_model: `${bookingData.car_make} ${bookingData.car_model}`,
+              color: bookingData.car_color
+            }
           }
         });
 
@@ -649,43 +699,47 @@ router.post('/bookings',
         timestamp: new Date().toISOString()
       });
       
-      // Enhanced error response with company code guidance
-      const errorResponse = {
+      res.status(500).json({
         success: false,
         message: 'Failed to create booking',
         error: error.message,
         timestamp: new Date().toISOString()
-      };
-
-      // Add company code guidance if it's a company code error
-      if (error.message.includes('company code') || error.message.includes('Company Code')) {
-        try {
-          errorResponse.valid_company_codes = MagrApiService.getValidCompanyCodes();
-          errorResponse.guidance = 'Please use one of the valid company codes provided';
-        } catch (e) {
-          console.error('Failed to get valid company codes:', e.message);
-        }
-      }
-      
-      res.status(500).json(errorResponse);
+      });
     }
   }
 );
 
 // Optional routes that require Booking model
 if (Booking) {
-  // Get user's bookings - REQUIRES AUTHENTICATION
+  // Get user's bookings
   router.get('/my-bookings', authenticateToken, async (req, res) => {
     try {
       console.log('📋 Getting bookings for user:', req.user.email);
       
-      const bookings = await Booking.findByEmail(req.user.email);
+      const bookings = await Booking.find({ user_email: req.user.email })
+        .sort({ created_at: -1 })
+        .limit(50);
       
       console.log('✅ Found bookings:', bookings.length);
       
       res.json({
         success: true,
-        data: bookings.map(booking => booking.toDisplayFormat()),
+        data: bookings.map(booking => ({
+          id: booking._id,
+          our_reference: booking.our_reference,
+          magr_reference: booking.magr_reference,
+          status: booking.status,
+          airport_code: booking.airport_code,
+          company_code: booking.company_code,
+          product_name: booking.product_name,
+          customer_name: `${booking.customer_details.title} ${booking.customer_details.first_name} ${booking.customer_details.last_name}`,
+          booking_amount: booking.booking_amount,
+          dropoff_date: booking.travel_details.dropoff_date,
+          pickup_date: booking.travel_details.pickup_date,
+          created_at: booking.created_at,
+          can_cancel: booking.service_features.is_cancelable,
+          can_edit: booking.service_features.is_editable
+        })),
         count: bookings.length,
         user: req.user.email
       });
@@ -700,7 +754,7 @@ if (Booking) {
     }
   });
 
-  // Get specific booking details - REQUIRES AUTHENTICATION
+  // Get specific booking details
   router.get('/bookings/:reference', authenticateToken, async (req, res) => {
     try {
       const { reference } = req.params;
@@ -726,7 +780,8 @@ if (Booking) {
       res.json({
         success: true,
         data: booking,
-        can_cancel: booking.canBeCancelled()
+        can_cancel: booking.service_features?.is_cancelable || false,
+        can_edit: booking.service_features?.is_editable || false
       });
       
     } catch (error) {

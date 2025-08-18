@@ -20,14 +20,9 @@ class MagrApiService {
       agent_code: process.env.MAGR_AGENT_CODE || '6vW2Ug0rUMAQAcPLmNfBSAVYPENg',
     };
 
-    // Valid company codes that MAGR API accepts - UPDATE THESE WITH ACTUAL VALID CODES
-    this.validCompanyCodes = [
-      'MAGR001',  // Primary MAGR company code
-      'AIRPORT1', // Airport parking provider
-      'PARKPRO',  // Professional parking services
-      // Add more valid codes as provided by MAGR API documentation
-    ];
-
+    // REMOVED: Static validCompanyCodes array since we now extract them dynamically from API responses
+    // Company codes are now extracted from the actual MAGR API products response
+    
     // Create axios instance with custom HTTPS agent
     this.axiosInstance = axios.create({
       baseURL: this.config.baseURL,
@@ -127,8 +122,7 @@ class MagrApiService {
       baseURL: this.config.baseURL,
       user_email: this.credentials.user_email,
       agent_code: this.credentials.agent_code.substring(0, 8) + '...',
-      password_set: !!this.credentials.password,
-      valid_company_codes: this.validCompanyCodes
+      password_set: !!this.credentials.password
     });
   }
 
@@ -286,6 +280,7 @@ class MagrApiService {
         sampleProduct: result.products[0] ? {
           name: result.products[0].name,
           price: result.products[0].price,
+          product_code: result.products[0].product_code,
         } : null,
       };
     } catch (error) {
@@ -294,7 +289,7 @@ class MagrApiService {
     }
   }
 
-  // Get parking quotes with full validation
+  // UPDATED: Get parking quotes - now returns raw products without validation of company codes
   async getParkingQuotes(params) {
     try {
       console.log('🔍 Getting parking quotes for:', params);
@@ -321,32 +316,37 @@ class MagrApiService {
 
       console.log(`✅ Found ${result.products.length} parking products`);
 
-      // Transform and validate products
-      const products = result.products.map(product => {
-        if (!product.name || !product.price) {
+      // UPDATED: Transform products but don't filter by company codes - let routes handle that
+      const products = result.products.map((product, index) => {
+        if (!product.name || product.price === undefined) {
           console.warn('⚠️ Invalid product data:', product);
           return null;
         }
 
         return {
-          id: product.id,
+          id: product.id || `product_${index}`,
           name: product.name,
-          companyID: product.companyID,
-          product_code: product.product_code,
-          parking_type: product.parking_type,
-          price: parseFloat(product.price).toFixed(2),
-          share_percentage: parseFloat(product.share_percentage || 0).toFixed(2),
-          commission_amount: (parseFloat(product.price) * parseFloat(product.share_percentage || 0) / 100).toFixed(2),
+          companyID: product.companyID, // Keep original companyID field
+          product_code: product.product_code, // This is the KEY field for company_code
+          parking_type: product.parking_type || 'Meet & Greet',
+          price: parseFloat(product.price) || 0,
+          share_percentage: parseFloat(product.share_percentage || 0),
+          commission_amount: ((parseFloat(product.price) || 0) * (parseFloat(product.share_percentage || 0)) / 100),
           duration_days: this.calculateDurationDays(params.dropoff_date, params.pickup_date),
-          cancelable: product.cancelable === 'Yes',
-          editable: product.editable === 'Yes',
+          cancelable: product.cancelable === 'Yes' || product.cancelable === true,
+          editable: product.editable === 'Yes' || product.editable === true,
           processtime: product.processtime || 2,
           opening_time: product.opening_time || '00:00',
           closing_time: product.closing_time || '23:59',
+          // Keep raw features for processing in routes
+          special_features: product.special_features || '',
+          facilities: product.facilities || '',
           features_array: product.special_features ? 
             product.special_features.split(',').map(f => f.trim()) : [],
           available_spaces: product.available_spaces,
           last_updated: new Date().toISOString(),
+          // Include all original product fields for debugging
+          _raw_product: product
         };
       }).filter(Boolean); // Remove any null entries from invalid products
 
@@ -364,26 +364,27 @@ class MagrApiService {
     }
   }
 
-  // Create a booking - ENHANCED WITH COMPANY CODE VALIDATION
+  // UPDATED: Create a booking - removed static company code validation
   async createBooking(bookingData) {
     try {
       console.log('🎫 Creating MAGR API booking...');
+      console.log('🔍 Booking data received:', {
+        company_code: bookingData.company_code,
+        customer_email: bookingData.customer_email,
+        booking_amount: bookingData.booking_amount,
+        car_registration: bookingData.car_registration_number
+      });
       
-      // Validate company code first
-      if (!this.validCompanyCodes.includes(bookingData.company_code)) {
-        throw new Error(`Invalid company code: ${bookingData.company_code}. Valid codes are: ${this.validCompanyCodes.join(', ')}`);
-      }
-      
-      // Validate booking data
+      // Validate booking data (but don't validate company code against static list)
       this.validateBookingData(bookingData);
 
-      // Generate our booking reference
-      const ourReference = this.generateBookingReference();
-      console.log('🔖 Generated booking reference:', ourReference);
+      // Use the booking reference passed from routes, or generate our own
+      const ourReference = bookingData.bookreference || this.generateBookingReference();
+      console.log('🔖 Using booking reference:', ourReference);
 
       // Prepare request data in EXACT format MAGR API expects
       const requestData = {
-        company_code: bookingData.company_code,
+        company_code: bookingData.company_code, // Use whatever company_code was provided
         bookreference: ourReference,
         dropoff_date: bookingData.dropoff_date,
         dropoff_time: bookingData.dropoff_time,
@@ -409,14 +410,21 @@ class MagrApiService {
         booking_amount: parseFloat(bookingData.booking_amount).toFixed(2),
       };
 
-      console.log('🚀 Sending booking request to MAGR API...');
+      console.log('🚀 Sending booking request to MAGR API:', {
+        company_code: requestData.company_code,
+        bookreference: requestData.bookreference,
+        customer_email: requestData.customer_email,
+        booking_amount: requestData.booking_amount
+      });
+
       const result = await this.makeRequest('/bookings', requestData);
 
-      console.log('📋 MAGR API booking response received:', {
+      console.log('📋 MAGR API booking result:', {
         hasResult: !!result,
         status: result?.status,
         hasReference: !!result?.reference,
-        reference: result?.reference
+        reference: result?.reference,
+        message: result?.message
       });
 
       // Handle different response scenarios
@@ -424,31 +432,47 @@ class MagrApiService {
         throw new Error('Empty response from MAGR API');
       }
 
-      // Success case
-      if (result.status === 'success' && result.reference) {
+      // Success case - handle various success response formats
+      if ((result.status === 'success' || result.status === 'Success') && result.reference) {
         console.log('✅ MAGR API booking successful:', result.reference);
         
         return {
           success: true,
           booking_id: result.booking_id || result.reference,
-          our_reference: ourReference,
-          magr_reference: result.reference,
+          reference: result.reference, // MAGR's reference
           status: 'confirmed',
+          message: result.message || 'Booking created successfully',
           timestamp: new Date().toISOString(),
-          raw_response: result
+          data: {
+            reference: result.reference,
+            booking_id: result.booking_id
+          }
         };
       }
 
       // Error case
-      if (result.status === 'Error') {
+      if (result.status === 'Error' || result.status === 'error') {
         const errorMsg = result.message || 'Unknown MAGR API error';
         console.error('❌ MAGR API booking error:', errorMsg);
         throw new Error(errorMsg);
       }
 
+      // Handle case where booking might be successful but status is different
+      if (result.reference && !result.status) {
+        console.log('✅ MAGR API booking appears successful (no explicit status):', result.reference);
+        return {
+          success: true,
+          reference: result.reference,
+          status: 'confirmed',
+          message: 'Booking created successfully',
+          timestamp: new Date().toISOString(),
+          data: result
+        };
+      }
+
       // Unexpected response format
       console.error('❌ Unexpected MAGR API response:', result);
-      throw new Error('Unexpected response format from MAGR API');
+      throw new Error(`Unexpected response from MAGR API: ${JSON.stringify(result)}`);
 
     } catch (error) {
       console.error('❌ MAGR API booking creation failed:', {
@@ -561,6 +585,7 @@ class MagrApiService {
     );
   }
 
+  // UPDATED: Removed company_code validation since it's now dynamic
   validateBookingData(bookingData) {
     const requiredFields = [
       'company_code', 'dropoff_date', 'dropoff_time', 
@@ -574,6 +599,11 @@ class MagrApiService {
     const missingFields = requiredFields.filter(field => !bookingData[field]);
     if (missingFields.length > 0) {
       throw new Error(`Missing required booking fields: ${missingFields.join(', ')}`);
+    }
+
+    // Validate company_code format (but don't validate against static list)
+    if (!bookingData.company_code || typeof bookingData.company_code !== 'string') {
+      throw new Error('Company code must be a valid string');
     }
 
     // Validate email format
@@ -650,15 +680,8 @@ class MagrApiService {
     return new Date(date).toISOString().split('T')[0];
   }
 
-  // NEW METHOD: Get valid company codes for frontend validation
-  getValidCompanyCodes() {
-    return this.validCompanyCodes;
-  }
-
-  // NEW METHOD: Validate company code
-  isValidCompanyCode(companyCode) {
-    return this.validCompanyCodes.includes(companyCode);
-  }
+  // REMOVED: getValidCompanyCodes() and isValidCompanyCode() methods
+  // Company codes are now extracted dynamically from API responses
 
   getAvailableAirports() {
     return [
@@ -681,6 +704,9 @@ class MagrApiService {
       case 'LHR': return ['Terminal 1', 'Terminal 2', 'Terminal 3', 'Terminal 4', 'Terminal 5'];
       case 'LGW': return ['North Terminal', 'South Terminal'];
       case 'MAN': return ['Terminal 1', 'Terminal 2', 'Terminal 3'];
+      case 'BHX': return ['Terminal 1', 'Terminal 2'];
+      case 'EDI': return ['Terminal 1'];
+      case 'GLA': return ['Terminal 1'];
       default: return ['Terminal 1'];
     }
   }
