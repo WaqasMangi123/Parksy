@@ -42,50 +42,84 @@ class MagrApiService {
       const requestId = uuidv4();
       config.headers['X-Request-ID'] = requestId;
       
-      console.log(`[${requestId}] Outgoing Request:`, {
+      console.log(`[${requestId}] 🚀 MAGR API Request:`, {
         method: config.method.toUpperCase(),
         url: config.url,
-        headers: config.headers,
-        data: config.data ? JSON.parse(JSON.stringify(config.data)) : null,
+        endpoint: config.url,
+        hasCredentials: !!(config.data?.user_email && config.data?.agent_code),
+        dataKeys: config.data ? Object.keys(config.data) : []
       });
+
+      // Log detailed data for booking requests (but hide sensitive info)
+      if (config.url === '/bookings') {
+        const safeData = { ...config.data };
+        if (safeData.password) safeData.password = '[HIDDEN]';
+        console.log(`[${requestId}] 🎫 Booking Request Data:`, JSON.stringify(safeData, null, 2));
+      }
 
       return config;
     }, (error) => {
-      console.error('Request Interceptor Error:', error);
+      console.error('❌ Request Interceptor Error:', error);
       return Promise.reject(error);
     });
 
     // Response interceptor for logging
     this.axiosInstance.interceptors.response.use((response) => {
-      console.log(`[${response.config.headers['X-Request-ID']}] Response:`, {
+      const requestId = response.config.headers['X-Request-ID'];
+      console.log(`[${requestId}] ✅ MAGR API Response:`, {
         status: response.status,
-        headers: response.headers,
-        data: response.data,
+        statusText: response.statusText,
+        dataType: typeof response.data,
+        hasData: !!response.data,
+        responseStatus: response.data?.status,
+        responseMessage: response.data?.message?.substring(0, 100)
       });
+
+      // Log full response for booking endpoints
+      if (response.config.url === '/bookings') {
+        console.log(`[${requestId}] 📋 Booking Response:`, JSON.stringify(response.data, null, 2));
+      }
+
       return response;
     }, (error) => {
+      const requestId = error.config?.headers?.['X-Request-ID'];
+      
       if (error.response) {
-        console.error(`[${error.config.headers['X-Request-ID']}] Error Response:`, {
+        console.error(`[${requestId}] ❌ MAGR API Error Response:`, {
           status: error.response.status,
-          headers: error.response.headers,
+          statusText: error.response.statusText,
           data: error.response.data,
+          url: error.config?.url
+        });
+      } else if (error.request) {
+        console.error(`[${requestId}] ❌ MAGR API Network Error:`, {
+          message: error.message,
+          code: error.code,
+          url: error.config?.url
         });
       } else {
-        console.error('Response Error:', error);
+        console.error('❌ MAGR API Setup Error:', error.message);
       }
+      
       return Promise.reject(error);
     });
   }
 
   validateConfiguration() {
-    if (!this.credentials.user_email || !this.credentials.password || !this.credentials.agent_code) {
-      throw new Error('MAGR API credentials are not properly configured');
+    const missing = [];
+    if (!this.credentials.user_email) missing.push('user_email');
+    if (!this.credentials.password) missing.push('password');
+    if (!this.credentials.agent_code) missing.push('agent_code');
+
+    if (missing.length > 0) {
+      throw new Error(`MAGR API credentials missing: ${missing.join(', ')}`);
     }
 
-    console.log('✅ MAGR API Service initialized with configuration:', {
+    console.log('✅ MAGR API Service initialized:', {
       baseURL: this.config.baseURL,
       user_email: this.credentials.user_email,
-      agent_code: this.credentials.agent_code,
+      agent_code: this.credentials.agent_code.substring(0, 8) + '...',
+      password_set: !!this.credentials.password
     });
   }
 
@@ -94,13 +128,17 @@ class MagrApiService {
    */
   async makeRequest(endpoint, data = {}, attempt = 1) {
     const requestId = uuidv4();
+    
+    // Always include credentials in the request
     const requestData = {
-      ...this.credentials,
+      user_email: this.credentials.user_email,
+      password: this.credentials.password,
+      agent_code: this.credentials.agent_code,
       ...data,
     };
 
     try {
-      console.log(`[${requestId}] Attempt ${attempt}: Making request to ${endpoint}`);
+      console.log(`[${requestId}] 🔄 Attempt ${attempt}: ${endpoint}`);
 
       const response = await this.axiosInstance({
         method: 'POST',
@@ -109,7 +147,7 @@ class MagrApiService {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'User-Agent': 'ParkSy-Backend/1.0',
+          'User-Agent': 'Parksy-Backend/1.0',
         },
       });
 
@@ -124,65 +162,81 @@ class MagrApiService {
           throw new Error('Redirect response missing Location header');
         }
 
-        // Parse new endpoint from location
         const newEndpoint = new URL(location).pathname;
-        console.log(`[${requestId}] Following redirect to: ${newEndpoint}`);
+        console.log(`[${requestId}] 🔄 Following redirect to: ${newEndpoint}`);
         
-        // Add delay before retry
         await this.delay(this.config.retryDelay * attempt);
         return this.makeRequest(newEndpoint, data, attempt + 1);
       }
 
-      // Validate successful response
+      // Validate successful HTTP response
       if (response.status >= 200 && response.status < 300) {
         if (!response.data) {
-          throw new Error('Empty response from server');
+          throw new Error('Empty response from MAGR API server');
         }
 
         // Check for API-level errors
         if (response.data.status === 'Error') {
-          throw new Error(response.data.message || 'API returned error status');
+          const errorMsg = response.data.message || 'API returned error status';
+          console.error(`[${requestId}] ❌ MAGR API Error:`, errorMsg);
+          throw new Error(errorMsg);
         }
 
+        console.log(`[${requestId}] ✅ Request successful`);
         return response.data;
       }
 
-      throw new Error(`Unexpected status code: ${response.status}`);
+      throw new Error(`Unexpected HTTP status: ${response.status}`);
 
     } catch (error) {
-      console.error(`[${requestId}] Request failed (attempt ${attempt}):`, error.message);
+      console.error(`[${requestId}] ❌ Request failed (attempt ${attempt}):`, {
+        message: error.message,
+        status: error.response?.status,
+        hasResponse: !!error.response,
+        hasRequest: !!error.request
+      });
 
       // Retry logic for certain errors
       if (attempt < this.config.maxRetries && this.shouldRetry(error)) {
         const delayMs = this.config.retryDelay * attempt;
-        console.log(`[${requestId}] Retrying in ${delayMs}ms...`);
+        console.log(`[${requestId}] ⏳ Retrying in ${delayMs}ms...`);
         await this.delay(delayMs);
         return this.makeRequest(endpoint, data, attempt + 1);
       }
 
-      // Format the error for the caller
+      // Format and throw the error
       throw this.formatError(error);
     }
   }
 
   shouldRetry(error) {
+    // Don't retry client errors (4xx) as they won't change
+    if (error.response && error.response.status >= 400 && error.response.status < 500) {
+      return false;
+    }
+    
     // Retry on network errors or server errors
     return !error.response || 
            (error.response.status >= 500 && error.response.status < 600) ||
-           ['ECONNABORTED', 'ETIMEDOUT'].includes(error.code);
+           ['ECONNABORTED', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNRESET'].includes(error.code);
   }
 
   formatError(error) {
     if (error.response) {
-      return new Error(`API Error ${error.response.status}: ${
-        error.response.data?.message || 
-        error.response.statusText || 
-        'Unknown server error'
-      }`);
+      const status = error.response.status;
+      const data = error.response.data;
+      
+      // Handle specific MAGR API error responses
+      if (data && data.message) {
+        return new Error(`MAGR API Error (${status}): ${data.message}`);
+      }
+      
+      return new Error(`MAGR API HTTP Error ${status}: ${error.response.statusText || 'Unknown server error'}`);
     } else if (error.request) {
-      return new Error('No response received from MAGR API - network error');
+      return new Error('No response from MAGR API - network connection failed');
     }
-    return error;
+    
+    return new Error(`MAGR API Error: ${error.message}`);
   }
 
   delay(ms) {
@@ -196,7 +250,7 @@ class MagrApiService {
   // Test API connection with a real request
   async testConnection() {
     try {
-      console.log('🧪 Testing MAGR API connection with real request...');
+      console.log('🧪 Testing MAGR API connection...');
       
       const testParams = {
         quote: {
@@ -214,6 +268,8 @@ class MagrApiService {
         throw new Error('Invalid response format from MAGR API');
       }
       
+      console.log('✅ MAGR API connection test successful');
+      
       return {
         success: true,
         message: 'MAGR API connection successful',
@@ -224,7 +280,7 @@ class MagrApiService {
         } : null,
       };
     } catch (error) {
-      console.error('Connection test failed:', error);
+      console.error('❌ MAGR API connection test failed:', error.message);
       throw new Error(`MAGR API connection failed: ${error.message}`);
     }
   }
@@ -232,6 +288,8 @@ class MagrApiService {
   // Get parking quotes with full validation
   async getParkingQuotes(params) {
     try {
+      console.log('🔍 Getting parking quotes for:', params);
+      
       // Validate input parameters
       this.validateBookingParams(params);
 
@@ -245,17 +303,19 @@ class MagrApiService {
         },
       };
 
-      console.log('Fetching parking quotes with params:', requestData);
+      console.log('🚀 Fetching parking quotes with params:', requestData);
       const result = await this.makeRequest('/products', requestData);
       
       if (!result.products) {
-        throw new Error('No products in response');
+        throw new Error('No products found in MAGR API response');
       }
+
+      console.log(`✅ Found ${result.products.length} parking products`);
 
       // Transform and validate products
       const products = result.products.map(product => {
-        if (!product.id || !product.name || !product.price) {
-          console.warn('Invalid product data:', product);
+        if (!product.name || !product.price) {
+          console.warn('⚠️ Invalid product data:', product);
           return null;
         }
 
@@ -290,20 +350,27 @@ class MagrApiService {
         },
       };
     } catch (error) {
-      console.error('Error in getParkingQuotes:', error);
+      console.error('❌ Error in getParkingQuotes:', error.message);
       throw new Error(`Failed to get parking quotes: ${error.message}`);
     }
   }
 
-  // Create a booking
+  // Create a booking - ENHANCED WITH BETTER ERROR HANDLING
   async createBooking(bookingData) {
     try {
-      // Validate booking data
+      console.log('🎫 Creating MAGR API booking...');
+      
+      // Validate booking data first
       this.validateBookingData(bookingData);
 
+      // Generate our booking reference
+      const ourReference = this.generateBookingReference();
+      console.log('🔖 Generated booking reference:', ourReference);
+
+      // Prepare request data in EXACT format MAGR API expects
       const requestData = {
         company_code: bookingData.company_code,
-        bookreference: this.generateBookingReference(),
+        bookreference: ourReference,
         dropoff_date: bookingData.dropoff_date,
         dropoff_time: bookingData.dropoff_time,
         pickup_date: bookingData.pickup_date,
@@ -315,37 +382,69 @@ class MagrApiService {
         phone_number: bookingData.phone_number,
         departure_flight_number: bookingData.departure_flight_number || 'TBA',
         arrival_flight_number: bookingData.arrival_flight_number || 'TBA',
-        departure_terminal: bookingData.departure_terminal,
-        arrival_terminal: bookingData.arrival_terminal,
+        departure_terminal: bookingData.departure_terminal || 'Terminal 1',
+        arrival_terminal: bookingData.arrival_terminal || 'Terminal 1',
         car_registration_number: bookingData.car_registration_number,
         car_make: bookingData.car_make,
         car_model: bookingData.car_model,
         car_color: bookingData.car_color,
         park_api: 'b2b',
-        passenger: bookingData.passenger || 1,
+        passenger: parseInt(bookingData.passenger) || 1,
         paymentgateway: bookingData.paymentgateway || 'Invoice',
         payment_token: bookingData.payment_token || `pi_${uuidv4()}`,
         booking_amount: parseFloat(bookingData.booking_amount).toFixed(2),
       };
 
-      console.log('Creating booking with data:', requestData);
+      console.log('🚀 Sending booking request to MAGR API...');
       const result = await this.makeRequest('/bookings', requestData);
 
-      if (!result || !result.reference) {
-        throw new Error('Invalid booking response from MAGR API');
+      console.log('📋 MAGR API booking response received:', {
+        hasResult: !!result,
+        status: result?.status,
+        hasReference: !!result?.reference,
+        reference: result?.reference
+      });
+
+      // Handle different response scenarios
+      if (!result) {
+        throw new Error('Empty response from MAGR API');
       }
 
-      return {
-        success: true,
-        booking_id: result.booking_id,
-        our_reference: requestData.bookreference,
-        magr_reference: result.reference,
-        status: 'confirmed',
-        timestamp: new Date().toISOString(),
-      };
+      // Success case
+      if (result.status === 'success' && result.reference) {
+        console.log('✅ MAGR API booking successful:', result.reference);
+        
+        return {
+          success: true,
+          booking_id: result.booking_id || result.reference,
+          our_reference: ourReference,
+          magr_reference: result.reference,
+          status: 'confirmed',
+          timestamp: new Date().toISOString(),
+          raw_response: result
+        };
+      }
+
+      // Error case
+      if (result.status === 'Error') {
+        const errorMsg = result.message || 'Unknown MAGR API error';
+        console.error('❌ MAGR API booking error:', errorMsg);
+        throw new Error(errorMsg);
+      }
+
+      // Unexpected response format
+      console.error('❌ Unexpected MAGR API response:', result);
+      throw new Error('Unexpected response format from MAGR API');
+
     } catch (error) {
-      console.error('Error creating booking:', error);
-      throw new Error(`Booking creation failed: ${error.message}`);
+      console.error('❌ MAGR API booking creation failed:', {
+        message: error.message,
+        name: error.name,
+        stack: error.stack?.substring(0, 200)
+      });
+      
+      // Return error in consistent format
+      throw new Error(`MAGR API booking failed: ${error.message}`);
     }
   }
 
@@ -355,6 +454,8 @@ class MagrApiService {
       if (!bookingRef) {
         throw new Error('Booking reference is required');
       }
+
+      console.log('✏️ Amending booking:', bookingRef);
 
       const requestData = {
         bookreference: bookingRef,
@@ -370,12 +471,14 @@ class MagrApiService {
         }
       });
 
-      console.log('Amending booking with data:', requestData);
+      console.log('🚀 Sending amend request to MAGR API...');
       const result = await this.makeRequest('/amend', requestData);
 
       if (!result || !result.reference) {
         throw new Error('Invalid amend response from MAGR API');
       }
+
+      console.log('✅ Booking amended successfully:', result.reference);
 
       return {
         success: true,
@@ -384,7 +487,7 @@ class MagrApiService {
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
-      console.error('Error amending booking:', error);
+      console.error('❌ Error amending booking:', error.message);
       throw new Error(`Booking amendment failed: ${error.message}`);
     }
   }
@@ -396,17 +499,21 @@ class MagrApiService {
         throw new Error('Booking reference is required');
       }
 
+      console.log('❌ Cancelling booking:', bookingRef);
+
       const requestData = {
         booking_ref: bookingRef,
         refund: parseFloat(refundAmount).toFixed(2),
       };
 
-      console.log('Cancelling booking with data:', requestData);
+      console.log('🚀 Sending cancel request to MAGR API...');
       const result = await this.makeRequest('/cancel', requestData);
 
       if (!result || !result.reference) {
         throw new Error('Invalid cancel response from MAGR API');
       }
+
+      console.log('✅ Booking cancelled successfully:', result.reference);
 
       return {
         success: true,
@@ -416,7 +523,7 @@ class MagrApiService {
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
-      console.error('Error cancelling booking:', error);
+      console.error('❌ Error cancelling booking:', error.message);
       throw new Error(`Booking cancellation failed: ${error.message}`);
     }
   }
@@ -425,9 +532,11 @@ class MagrApiService {
    * Validation Methods
    */
   validateBookingParams(params) {
-    if (!params.airport_code || !params.dropoff_date || !params.dropoff_time || 
-        !params.pickup_date || !params.pickup_time) {
-      throw new Error('Missing required search parameters');
+    const required = ['airport_code', 'dropoff_date', 'dropoff_time', 'pickup_date', 'pickup_time'];
+    const missing = required.filter(field => !params[field]);
+    
+    if (missing.length > 0) {
+      throw new Error(`Missing required search parameters: ${missing.join(', ')}`);
     }
 
     this.validateBookingTimes(
@@ -453,6 +562,17 @@ class MagrApiService {
       throw new Error(`Missing required booking fields: ${missingFields.join(', ')}`);
     }
 
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(bookingData.customer_email)) {
+      throw new Error('Invalid email address format');
+    }
+
+    // Validate booking amount
+    if (isNaN(bookingData.booking_amount) || bookingData.booking_amount <= 0) {
+      throw new Error('Invalid booking amount');
+    }
+
     this.validateBookingTimes(
       bookingData.dropoff_date,
       bookingData.dropoff_time,
@@ -462,22 +582,37 @@ class MagrApiService {
   }
 
   validateBookingTimes(dropoffDate, dropoffTime, pickupDate, pickupTime) {
-    const dropoffDateTime = new Date(`${dropoffDate}T${dropoffTime}`);
-    const pickupDateTime = new Date(`${pickupDate}T${pickupTime}`);
-    const now = new Date();
+    try {
+      const dropoffDateTime = new Date(`${dropoffDate}T${dropoffTime}:00.000Z`);
+      const pickupDateTime = new Date(`${pickupDate}T${pickupTime}:00.000Z`);
+      const now = new Date();
 
-    if (dropoffDateTime <= now) {
-      throw new Error('Dropoff time must be in the future');
-    }
+      if (isNaN(dropoffDateTime.getTime())) {
+        throw new Error('Invalid dropoff date/time format');
+      }
 
-    if (pickupDateTime <= dropoffDateTime) {
-      throw new Error('Pickup time must be after dropoff time');
-    }
+      if (isNaN(pickupDateTime.getTime())) {
+        throw new Error('Invalid pickup date/time format');
+      }
 
-    const minAdvanceHours = 2;
-    const hoursDiff = (dropoffDateTime - now) / (1000 * 60 * 60);
-    if (hoursDiff < minAdvanceHours) {
-      throw new Error(`Booking must be made at least ${minAdvanceHours} hours in advance`);
+      if (dropoffDateTime <= now) {
+        throw new Error('Dropoff time must be in the future');
+      }
+
+      if (pickupDateTime <= dropoffDateTime) {
+        throw new Error('Pickup time must be after dropoff time');
+      }
+
+      const minAdvanceHours = 2;
+      const hoursDiff = (dropoffDateTime - now) / (1000 * 60 * 60);
+      if (hoursDiff < minAdvanceHours) {
+        throw new Error(`Booking must be made at least ${minAdvanceHours} hours in advance`);
+      }
+
+      console.log('✅ Booking times validated successfully');
+    } catch (error) {
+      console.error('❌ Time validation failed:', error.message);
+      throw error;
     }
   }
 
@@ -487,7 +622,7 @@ class MagrApiService {
   generateBookingReference() {
     const timestamp = Date.now().toString().slice(-8);
     const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-    return `PS-${timestamp}${random}`;
+    return `PARKSY-${timestamp}-${random}`;
   }
 
   calculateDurationDays(startDate, endDate) {
@@ -527,4 +662,5 @@ class MagrApiService {
   }
 }
 
+// Export singleton instance
 module.exports = new MagrApiService();
