@@ -38,6 +38,12 @@ const ProfessionalParksyDashboard = () => {
   const [processingPayment, setProcessingPayment] = useState(false);
   const [paymentStep, setPaymentStep] = useState(1); // 1: Form, 2: Payment, 3: Booking
 
+  // Stripe Elements - NEW STATE VARIABLES
+  const [elements, setElements] = useState(null);
+  const [cardElement, setCardElement] = useState(null);
+  const [cardError, setCardError] = useState(null);
+  const [cardComplete, setCardComplete] = useState(false);
+
   // Map references
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
@@ -282,6 +288,87 @@ const [searchParams, setSearchParams] = useState({
     }
   }, [connectionStatus, API_BASE_URL]);
 
+  // ========== STRIPE ELEMENTS INITIALIZATION ==========
+
+  // Initialize Stripe Elements when Stripe is ready
+  useEffect(() => {
+    const initializeStripeElements = async () => {
+      if (stripe && !elements) {
+        console.log('🔄 Creating Stripe Elements...');
+        
+        const elementsInstance = stripe.elements({
+          appearance: {
+            theme: 'stripe',
+            variables: {
+              colorPrimary: '#635BFF',
+              colorBackground: '#ffffff',
+              colorText: '#1f2937',
+              colorDanger: '#df1b41',
+              fontFamily: 'system-ui, sans-serif',
+              spacingUnit: '4px',
+              borderRadius: '8px',
+            },
+          },
+        });
+        
+        const cardElementInstance = elementsInstance.create('card', {
+          style: {
+            base: {
+              fontSize: '16px',
+              color: '#1f2937',
+              '::placeholder': {
+                color: '#9ca3af',
+              },
+            },
+            invalid: {
+              color: '#df1b41',
+              iconColor: '#df1b41',
+            },
+          },
+        });
+
+        setElements(elementsInstance);
+        setCardElement(cardElementInstance);
+        
+        console.log('✅ Stripe Elements created');
+      }
+    };
+
+    if (stripe) {
+      initializeStripeElements();
+    }
+  }, [stripe, elements]);
+
+  // Mount card element when modal opens
+  useEffect(() => {
+    if (cardElement && selectedSpot && bookingStep === 1) {
+      const cardContainer = document.getElementById('card-element');
+      if (cardContainer && !cardContainer.hasChildNodes()) {
+        cardElement.mount('#card-element');
+        
+        cardElement.on('change', (event) => {
+          setCardError(event.error ? event.error.message : null);
+          setCardComplete(event.complete);
+        });
+        
+        console.log('✅ Card element mounted');
+      }
+    }
+
+    // Cleanup when modal closes
+    return () => {
+      if (cardElement && !selectedSpot) {
+        try {
+          cardElement.unmount();
+          console.log('🧹 Card element unmounted');
+        } catch (error) {
+          // Element may already be unmounted
+          console.log('Card element cleanup completed');
+        }
+      }
+    };
+  }, [cardElement, selectedSpot, bookingStep]);
+
   // ========== API FUNCTIONS ==========
 
   const testBackendConnection = async () => {
@@ -511,24 +598,20 @@ const [searchParams, setSearchParams] = useState({
     }
   };
 
+  // FIXED: processStripePayment function with Stripe Elements
   const processStripePayment = async (clientSecret) => {
     try {
-      if (!stripe) {
-        throw new Error('Stripe not initialized');
+      if (!stripe || !elements || !cardElement) {
+        throw new Error('Stripe Elements not ready');
       }
 
-      console.log('💳 Processing Stripe payment...');
+      console.log('💳 Processing Stripe payment with Elements...');
       setProcessingPayment(true);
 
+      // Use Stripe Elements instead of hardcoded card details
       const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
         payment_method: {
-          card: {
-            // Using test card number for demonstration
-            number: '4242424242424242',
-            exp_month: 12,
-            exp_year: 2025,
-            cvc: '123',
-          },
+          card: cardElement, // ✅ Use the card element
           billing_details: {
             name: `${bookingDetails.first_name} ${bookingDetails.last_name}`,
             email: bookingDetails.customer_email,
@@ -746,6 +829,15 @@ const [searchParams, setSearchParams] = useState({
       return;
     }
 
+    if (!cardElement || !cardComplete) {
+      console.log('❌ Card details not complete');
+      setBookingStatus({
+        success: false,
+        message: 'Please complete your card details before proceeding with payment.'
+      });
+      return;
+    }
+
     setIsLoading(true);
     setBookingStatus(null);
     setPaymentStep(2); // Move to payment step
@@ -754,7 +846,7 @@ const [searchParams, setSearchParams] = useState({
       // Step 1: Create payment intent
       const paymentIntentResult = await createPaymentIntent();
       
-      // Step 2: Process payment with Stripe
+      // Step 2: Process payment with Stripe Elements
       const paymentIntent = await processStripePayment(paymentIntentResult.client_secret);
       
       // Step 3: Verify payment
@@ -1100,6 +1192,45 @@ const [searchParams, setSearchParams] = useState({
     };
   }, []);
 
+  // ========== STRIPE ELEMENTS STYLES ==========
+  const stripeElementsStyles = `
+    .card-element-container {
+      background: white;
+      padding: 16px;
+      border: 2px solid #e5e7eb;
+      border-radius: 8px;
+      margin: 16px 0;
+      transition: border-color 0.3s ease;
+    }
+    
+    .card-element-container:focus-within {
+      border-color: #635BFF;
+      box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.1);
+    }
+    
+    .card-element-container.error {
+      border-color: #df1b41;
+    }
+    
+    .card-error {
+      color: #df1b41;
+      font-size: 14px;
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    
+    .card-success {
+      color: #059669;
+      font-size: 14px;
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+  `;
+
   const PremiumParkingCard = ({ product, index }) => {
     const selectedAirport = availableAirports.find(a => a.code === searchParams.airport_code);
     
@@ -1222,6 +1353,9 @@ const [searchParams, setSearchParams] = useState({
 
   return (
     <div className="premium-parking-dashboard">
+      {/* Add Stripe Elements Styles */}
+      <style>{stripeElementsStyles}</style>
+
       {/* Airplane Animation */}
       {showAirplaneAnimation && (
         <div className="airplane-animation">
@@ -1599,7 +1733,7 @@ const [searchParams, setSearchParams] = useState({
         )}
       </main>
 
-      {/* Enhanced Stripe Payment & Booking Modal */}
+      {/* Enhanced Stripe Payment & Booking Modal with Elements */}
       {selectedSpot && (
         <div className="premium-modal-overlay" onClick={() => {
           setSelectedSpot(null);
@@ -1608,6 +1742,8 @@ const [searchParams, setSearchParams] = useState({
           setPaymentStep(1);
           setPaymentIntentId(null);
           setPaymentStatus(null);
+          setCardError(null);
+          setCardComplete(false);
         }}>
           <div className="premium-booking-modal" onClick={(e) => e.stopPropagation()}>
             <button 
@@ -1619,6 +1755,8 @@ const [searchParams, setSearchParams] = useState({
                 setPaymentStep(1);
                 setPaymentIntentId(null);
                 setPaymentStatus(null);
+                setCardError(null);
+                setCardComplete(false);
               }}
             >
               <X size={20} />
@@ -1919,10 +2057,66 @@ const [searchParams, setSearchParams] = useState({
                       </div>
                     </div>
 
+                    {/* NEW: Stripe Elements Card Payment Section */}
+                    <div className="form-section-premium">
+                      <h4>💳 Secure Payment Details</h4>
+                      <p>Enter your card information below. All payments are processed securely by Stripe.</p>
+                      
+                      <div className="payment-methods-info" style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        marginBottom: '16px',
+                        padding: '12px',
+                        backgroundColor: '#f8fafc',
+                        borderRadius: '8px'
+                      }}>
+                        <CreditCard size={20} style={{ color: '#635BFF' }} />
+                        <span style={{ fontSize: '14px', color: '#64748b' }}>
+                          We accept Visa, Mastercard, American Express, and more
+                        </span>
+                      </div>
+
+                      <div className={`card-element-container ${cardError ? 'error' : ''}`}>
+                        <div id="card-element">
+                          {/* Stripe Elements will mount here */}
+                        </div>
+                      </div>
+
+                      {cardError && (
+                        <div className="card-error">
+                          <AlertCircle size={14} />
+                          <span>{cardError}</span>
+                        </div>
+                      )}
+
+                      {cardComplete && !cardError && (
+                        <div className="card-success">
+                          <CheckCircle size={14} />
+                          <span>Card details are complete</span>
+                        </div>
+                      )}
+
+                      <div className="stripe-security-info" style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        marginTop: '12px',
+                        padding: '8px',
+                        backgroundColor: '#f0fdf4',
+                        borderRadius: '6px',
+                        fontSize: '13px',
+                        color: '#059669'
+                      }}>
+                        <Lock size={14} />
+                        <span>Your payment information is encrypted and secure</span>
+                      </div>
+                    </div>
+
                     {/* Pricing Summary with Stripe */}
                     <div className="pricing-summary-premium">
                       <div className="pricing-header">
-                        <h4>Secure Payment Summary</h4>
+                        <h4>Payment Summary</h4>
                         <div className="payment-badges">
                           <span className="price-updated">
                             🔴 Live pricing updated: {selectedSpot.last_updated}
@@ -1946,42 +2140,23 @@ const [searchParams, setSearchParams] = useState({
                           <span>Commission ({selectedSpot.share_percentage}%)</span>
                           <span>£{selectedSpot.commission_amount}</span>
                         </div>
-                        <div className="pricing-item stripe-fee">
-                          <span>Processing (Stripe)</span>
-                          <span>Included</span>
-                        </div>
                         <div className="pricing-total">
                           <span>Total Amount (Live Price)</span>
                           <span>£{selectedSpot.formatted_price}</span>
                         </div>
                       </div>
-                      
-                      <div className="stripe-info">
-                        <div className="stripe-security">
-                          <Lock size={14} />
-                          <span>Your payment is secured by Stripe's industry-leading encryption</span>
-                        </div>
-                        <div className="payment-methods">
-                          <span>Accepted:</span>
-                          <div className="card-icons">
-                            <span>💳 Visa</span>
-                            <span>💳 Mastercard</span>
-                            <span>💳 Amex</span>
-                          </div>
-                        </div>
-                      </div>
                     </div>
 
-                    {/* Submit Button - Enhanced for Stripe */}
+                    {/* Submit Button - Enhanced for Stripe Elements */}
                     <button
                       type="submit"
                       className="premium-confirm-btn stripe-enhanced"
-                      disabled={isLoading || !authStatus.isLoggedIn || !stripe || processingPayment}
+                      disabled={isLoading || !authStatus.isLoggedIn || !stripe || processingPayment || !cardComplete}
                       style={{
-                        background: !authStatus.isLoggedIn || !stripe ? '#94a3b8' : 
+                        background: (!authStatus.isLoggedIn || !stripe || !cardComplete) ? '#94a3b8' : 
                                    processingPayment ? '#3b82f6' : 
                                    'linear-gradient(135deg, #635BFF, #4F46E5)',
-                        opacity: (!authStatus.isLoggedIn || !stripe || processingPayment) ? 0.7 : 1
+                        opacity: (!authStatus.isLoggedIn || !stripe || processingPayment || !cardComplete) ? 0.7 : 1
                       }}
                     >
                       {!authStatus.isLoggedIn ? (
@@ -1993,6 +2168,11 @@ const [searchParams, setSearchParams] = useState({
                         <>
                           <Loader2 size={20} className="btn-spinner" />
                           <span>Loading Stripe...</span>
+                        </>
+                      ) : !cardComplete ? (
+                        <>
+                          <CreditCard size={20} />
+                          <span>Complete Card Details</span>
                         </>
                       ) : processingPayment || isLoading ? (
                         <>
@@ -2006,14 +2186,14 @@ const [searchParams, setSearchParams] = useState({
                       ) : (
                         <>
                           <CreditCard size={20} />
-                          <span>💳 Pay £{selectedSpot.formatted_price} with Stripe</span>
+                          <span>💳 Pay £{selectedSpot.formatted_price} Securely</span>
                         </>
                       )}
                     </button>
 
                     <div className="stripe-disclaimer">
                       <small>
-                        By clicking "Pay with Stripe", you agree to our Terms of Service and 
+                        By clicking "Pay Securely", you agree to our Terms of Service and 
                         authorize Stripe to process your payment securely. 
                         This will create a payment intent and process your booking immediately.
                       </small>
@@ -2105,6 +2285,8 @@ const [searchParams, setSearchParams] = useState({
                             setPaymentStep(1);
                             setPaymentIntentId(null);
                             setPaymentStatus(null);
+                            setCardError(null);
+                            setCardComplete(false);
                             fetchParkingProducts();
                           }}
                         >
@@ -2152,6 +2334,8 @@ const [searchParams, setSearchParams] = useState({
                             setPaymentStep(1);
                             setPaymentIntentId(null);
                             setPaymentStatus(null);
+                            setCardError(null);
+                            setCardComplete(false);
                           }}
                         >
                           <CreditCard size={18} />
