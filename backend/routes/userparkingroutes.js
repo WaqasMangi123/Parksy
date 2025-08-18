@@ -1,4 +1,4 @@
-// routes/parkingRoutes.js - FIXED VERSION WITH PROPER COMPANY CODE HANDLING
+// routes/parkingRoutes.js - UPDATED WITH PROPER DATABASE SAVING
 const express = require('express');
 const router = express.Router();
 const { body, param, validationResult } = require('express-validator');
@@ -98,7 +98,7 @@ router.get('/airports', (req, res) => {
   }
 });
 
-// Search parking validation - FIXED to extract company code from products
+// Search parking validation
 const validateSearchParking = [
   body('airport_code')
     .isIn(['LHR', 'LGW', 'STN', 'LTN', 'MAN', 'BHX', 'EDI', 'GLA'])
@@ -121,7 +121,7 @@ const validateSearchParking = [
     .withMessage('Invalid pickup time format (use HH:MM)')
 ];
 
-// FIXED: Search parking - properly extract and return company codes from API response
+// Search parking - extract company codes from API response
 router.post('/search-parking', 
   validateSearchParking, 
   handleValidationErrors, 
@@ -129,7 +129,6 @@ router.post('/search-parking',
     try {
       console.log('🔍 SEARCH REQUEST received:', req.body);
 
-      // Check if MagrApiService is available
       if (!MagrApiService) {
         throw new Error('MAGR API Service is not available');
       }
@@ -158,7 +157,6 @@ router.post('/search-parking',
           throw new Error('Pickup time must be after dropoff time');
         }
         
-        // Check if booking is not in the past
         const now = new Date();
         if (dropoffDateTime < now) {
           throw new Error('Dropoff time cannot be in the past');
@@ -174,18 +172,16 @@ router.post('/search-parking',
         });
       }
 
-      // Format parameters for MAGR API exactly as per documentation
       const searchParams = {
         airport_code,
-        dropoff_date, // Keep original format
+        dropoff_date,
         dropoff_time,
-        pickup_date,  // Keep original format
+        pickup_date,
         pickup_time
       };
 
       console.log('🚀 Calling MAGR API with params:', searchParams);
       
-      // Call MAGR API
       let result;
       try {
         result = await MagrApiService.getParkingQuotes(searchParams);
@@ -210,40 +206,33 @@ router.post('/search-parking',
         });
       }
 
-      // CRITICAL FIX: Extract actual company codes from API response
-      // According to the API documentation, each product has a "product_code" field
+      // Extract company codes from API response
       const enhancedProducts = result.data.products.map((product, index) => {
-        // Use the product_code from the API response as the company_code
         const companyCode = product.product_code || product.companyID || `COMPANY-${index + 1}`;
         
         return {
           ...product,
-          company_code: companyCode, // This is the key fix
-          // Add additional fields for frontend use
+          company_code: companyCode,
           id: product.id || index,
           booking_reference_prefix: product.product_code?.split('-')[0] || 'MG',
           is_available: true,
-          // Ensure required booking fields are present
           price: parseFloat(product.price) || 0,
           commission_percentage: parseFloat(product.share_percentage) || 0,
-          // Format features for display
           features_list: product.special_features ? product.special_features.split(',') : [],
           facilities_list: product.facilities ? product.facilities.split(',') : []
         };
       });
 
-      // Extract all available company codes from the products
       const availableCompanyCodes = enhancedProducts
         .map(product => product.company_code)
         .filter(Boolean)
-        .filter((code, index, self) => self.indexOf(code) === index); // Remove duplicates
+        .filter((code, index, self) => self.indexOf(code) === index);
 
       console.log('✅ Enhanced products with company codes:', {
         productCount: enhancedProducts.length,
         companyCodes: availableCompanyCodes
       });
 
-      // Return successful response with properly formatted data
       res.json({
         success: true,
         data: {
@@ -280,7 +269,7 @@ router.post('/search-parking',
   }
 );
 
-// Test MAGR API connection - PUBLIC
+// Test MAGR API connection
 router.get('/test-magr', async (req, res) => {
   try {
     console.log('🧪 Testing MAGR API connection...');
@@ -289,7 +278,6 @@ router.get('/test-magr', async (req, res) => {
       throw new Error('MagrApiService not loaded');
     }
     
-    // Test with a sample search to get real company codes
     const testParams = {
       airport_code: 'LHR',
       dropoff_date: '2025-12-01',
@@ -334,7 +322,7 @@ router.get('/test-magr', async (req, res) => {
   }
 });
 
-// Get terminals for airport - PUBLIC
+// Get terminals for airport
 router.get('/terminals/:airport_code', 
   [
     param('airport_code').isIn(['LHR', 'LGW', 'STN', 'LTN', 'MAN', 'BHX', 'EDI', 'GLA']).withMessage('Invalid airport code')
@@ -345,7 +333,6 @@ router.get('/terminals/:airport_code',
       const { airport_code } = req.params;
       console.log('🏢 Terminals requested for airport:', airport_code);
       
-      // Return standard terminals based on airport
       const terminals = {
         'LHR': ['Terminal 1', 'Terminal 2', 'Terminal 3', 'Terminal 4', 'Terminal 5'],
         'LGW': ['North Terminal', 'South Terminal'],
@@ -381,7 +368,6 @@ router.get('/terminals/:airport_code',
 // Authentication middleware
 const authenticateToken = async (req, res, next) => {
   try {
-    // Get token from request body (browser memory) or header
     let token = req.body.token || req.body.auth_token;
     
     const authHeader = req.headers['authorization'];
@@ -413,7 +399,6 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
-    // Verify JWT token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     console.log('🔐 Token decoded for user:', decoded.email || decoded.id);
 
@@ -425,7 +410,6 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
-    // Find user in database
     const user = await User.findById(decoded.id);
     if (!user) {
       console.log('❌ User not found for token');
@@ -436,7 +420,6 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
-    // Check if user is verified
     if (!user.verified) {
       console.log('❌ User email not verified');
       return res.status(403).json({
@@ -479,7 +462,7 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
-// FIXED booking validation - removed company code validation since it comes from search results
+// Booking validation
 const validateCreateBooking = [
   body('company_code')
     .notEmpty()
@@ -508,7 +491,7 @@ const validateCreateBooking = [
   body('passenger').optional().isInt({ min: 1, max: 10 }).withMessage('Invalid passenger count')
 ];
 
-// FIXED: Create booking with proper company code handling
+// UPDATED: Create booking with proper database saving
 router.post('/bookings', 
   authenticateToken,
   validateCreateBooking, 
@@ -533,43 +516,30 @@ router.post('/bookings',
       // Generate unique booking reference for our system
       const ourBookingRef = `PKY-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-      // Prepare booking data for MAGR API according to documentation format
+      // Prepare booking data for MAGR API
       const magrBookingData = {
-        // Authentication
         agent_code: process.env.MAGR_AGENT_CODE,
         user_email: process.env.MAGR_USER_EMAIL || bookingData.customer_email,
         password: process.env.MAGR_PASSWORD,
-        
-        // Company and booking reference
-        company_code: bookingData.company_code, // Use the company code from search results
-        bookreference: ourBookingRef, // Our unique reference
-        
-        // Travel dates and times
+        company_code: bookingData.company_code,
+        bookreference: ourBookingRef,
         dropoff_time: bookingData.dropoff_time,
         dropoff_date: bookingData.dropoff_date,
         pickup_time: bookingData.pickup_time,
         pickup_date: bookingData.pickup_date,
-        
-        // Customer details
         title: bookingData.title,
         first_name: bookingData.first_name,
         last_name: bookingData.last_name,
         customer_email: bookingData.customer_email,
         phone_number: bookingData.phone_number,
-        
-        // Flight details
         departure_flight_number: bookingData.departure_flight_number || 'TBA',
         arrival_flight_number: bookingData.arrival_flight_number || 'TBA',
         departure_terminal: bookingData.departure_terminal,
         arrival_terminal: bookingData.arrival_terminal,
-        
-        // Vehicle details
         car_registration_number: bookingData.car_registration_number.toUpperCase(),
         car_make: bookingData.car_make,
         car_model: bookingData.car_model,
         car_color: bookingData.car_color,
-        
-        // Booking details
         park_api: 'b2b',
         passenger: parseInt(bookingData.passenger) || 1,
         paymentgateway: bookingData.paymentgateway || 'Invoice',
@@ -584,30 +554,51 @@ router.post('/bookings',
         booking_amount: magrBookingData.booking_amount
       });
 
-      // Create booking with MAGR API
+      // Create booking with MAGR API FIRST
       const magrResult = await MagrApiService.createBooking(magrBookingData);
       
       console.log('📋 MAGR API booking result:', magrResult);
 
       if (magrResult.success) {
-        // Save booking to database if Booking model is available
+        // UPDATED: Save booking to OUR database with proper error handling
         let savedBooking = null;
+        let databaseSaveSuccess = false;
+        
         if (Booking) {
+          console.log('💾 Saving booking to OUR database...');
+          console.log('🔍 Debug Info:', {
+            hasBookingModel: !!Booking,
+            userExists: !!req.user,
+            userId: req.user?._id,
+            userEmail: req.user?.email,
+            bookingReference: ourBookingRef,
+            magrReference: magrResult.data?.reference || magrResult.reference
+          });
+          
           try {
-            console.log('💾 Saving booking to database...');
-            
             savedBooking = new Booking({
+              // Booking References
               our_reference: ourBookingRef,
               magr_reference: magrResult.data?.reference || magrResult.reference,
+              booking_id: magrResult.data?.booking_id,
+              
+              // User Information
               user_id: req.user._id,
               user_email: req.user.email,
+              
+              // Service Details - ALL from bookingData
               company_code: bookingData.company_code,
               product_name: bookingData.product_name || 'Airport Parking Service',
+              product_code: bookingData.product_code || bookingData.company_code,
               airport_code: bookingData.airport_code,
               parking_type: bookingData.parking_type || 'Meet & Greet',
+              
+              // Financial Details
               booking_amount: parseFloat(bookingData.booking_amount),
               commission_percentage: parseFloat(bookingData.commission_percentage || 0),
-              commission_amount: (parseFloat(bookingData.booking_amount) * parseFloat(bookingData.commission_percentage || 0) / 100),
+              currency: 'GBP',
+              
+              // Customer Details - NESTED OBJECT
               customer_details: {
                 title: bookingData.title,
                 first_name: bookingData.first_name,
@@ -615,6 +606,8 @@ router.post('/bookings',
                 customer_email: bookingData.customer_email,
                 phone_number: bookingData.phone_number
               },
+              
+              // Travel Details - NESTED OBJECT
               travel_details: {
                 dropoff_date: bookingData.dropoff_date,
                 dropoff_time: bookingData.dropoff_time,
@@ -626,67 +619,114 @@ router.post('/bookings',
                 arrival_terminal: bookingData.arrival_terminal,
                 passenger_count: parseInt(bookingData.passenger) || 1
               },
+              
+              // Vehicle Details - NESTED OBJECT
               vehicle_details: {
                 car_registration_number: bookingData.car_registration_number.toUpperCase(),
                 car_make: bookingData.car_make,
                 car_model: bookingData.car_model,
                 car_color: bookingData.car_color
               },
+              
+              // Payment Details - SIMPLIFIED
               payment_details: {
                 payment_method: bookingData.paymentgateway || 'Invoice',
                 payment_token: magrBookingData.payment_token,
                 payment_status: 'confirmed'
               },
+              
+              // Service Features
               service_features: {
                 is_cancelable: bookingData.is_cancelable !== false,
                 is_editable: bookingData.is_editable !== false,
                 special_features: bookingData.special_features || []
               },
+              
+              // Status and Response
               status: 'confirmed',
-              magr_response: magrResult
+              magr_response: magrResult,
+              notes: `Booking created via Parksy dashboard by ${req.user.email}`
             });
 
+            // SAVE to database
             await savedBooking.save();
-            console.log('✅ Booking saved to database:', savedBooking._id);
+            databaseSaveSuccess = true;
+            
+            console.log('✅ Booking successfully saved to OUR database:', {
+              bookingId: savedBooking._id,
+              ourReference: savedBooking.our_reference,
+              magrReference: savedBooking.magr_reference,
+              customerEmail: savedBooking.customer_details.customer_email,
+              amount: savedBooking.booking_amount
+            });
+            
           } catch (dbError) {
-            console.error('⚠️ Database save failed (continuing anyway):', dbError.message);
+            console.error('❌ Database save failed:', {
+              error: dbError.message,
+              name: dbError.name,
+              code: dbError.code,
+              validationErrors: dbError.errors ? Object.keys(dbError.errors) : [],
+              stack: dbError.stack?.substring(0, 500)
+            });
+            
+            // Log full validation errors for debugging
+            if (dbError.errors) {
+              console.error('🔍 Detailed validation errors:');
+              Object.keys(dbError.errors).forEach(field => {
+                console.error(`  - ${field}: ${dbError.errors[field].message}`);
+              });
+            }
+            
+            console.error('⚠️ BOOKING CONFIRMED WITH MAGR BUT DATABASE SAVE FAILED!');
+            console.error('📋 MAGR booking still successful with reference:', magrResult.reference);
           }
+        } else {
+          console.log('⚠️ Booking model not available - MAGR booking successful but not saved locally');
         }
 
-        // Return success response
+        // ALWAYS return success if MAGR booking succeeded
+        // Even if database save failed, the customer has a valid booking
+        const responseData = {
+          our_reference: ourBookingRef,
+          magr_reference: magrResult.data?.reference || magrResult.reference,
+          booking_id: magrResult.data?.booking_id,
+          status: 'confirmed',
+          database_saved: databaseSaveSuccess,
+          database_id: savedBooking?._id,
+          user_email: req.user.email,
+          created_at: savedBooking?.created_at || new Date().toISOString(),
+          customer_name: `${bookingData.title} ${bookingData.first_name} ${bookingData.last_name}`,
+          service: bookingData.product_name || 'Airport Parking Service',
+          airport: bookingData.airport_code,
+          company_code: bookingData.company_code,
+          total_amount: parseFloat(bookingData.booking_amount),
+          commission: savedBooking?.commission_amount || (parseFloat(bookingData.booking_amount) * parseFloat(bookingData.commission_percentage || 0) / 100),
+          travel_details: {
+            dropoff_date: bookingData.dropoff_date,
+            dropoff_time: bookingData.dropoff_time,
+            pickup_date: bookingData.pickup_date,
+            pickup_time: bookingData.pickup_time,
+            departure_terminal: bookingData.departure_terminal,
+            arrival_terminal: bookingData.arrival_terminal
+          },
+          vehicle_details: {
+            registration: bookingData.car_registration_number.toUpperCase(),
+            make_model: `${bookingData.car_make} ${bookingData.car_model}`,
+            color: bookingData.car_color
+          }
+        };
+
+        // Success response
         res.json({
           success: true,
-          message: 'Booking created successfully!',
-          data: {
-            our_reference: ourBookingRef,
-            magr_reference: magrResult.data?.reference || magrResult.reference,
-            status: 'confirmed',
-            database_id: savedBooking?._id,
-            user_email: req.user.email,
-            created_at: savedBooking?.created_at || new Date().toISOString(),
-            customer_name: `${bookingData.title} ${bookingData.first_name} ${bookingData.last_name}`,
-            service: bookingData.product_name || 'Airport Parking Service',
-            airport: bookingData.airport_code,
-            company_code: bookingData.company_code,
-            total_amount: parseFloat(bookingData.booking_amount),
-            commission: (parseFloat(bookingData.booking_amount) * parseFloat(bookingData.commission_percentage || 0) / 100),
-            travel_details: {
-              dropoff_date: bookingData.dropoff_date,
-              dropoff_time: bookingData.dropoff_time,
-              pickup_date: bookingData.pickup_date,
-              pickup_time: bookingData.pickup_time,
-              departure_terminal: bookingData.departure_terminal,
-              arrival_terminal: bookingData.arrival_terminal
-            },
-            vehicle_details: {
-              registration: bookingData.car_registration_number.toUpperCase(),
-              make_model: `${bookingData.car_make} ${bookingData.car_model}`,
-              color: bookingData.car_color
-            }
-          }
+          message: databaseSaveSuccess 
+            ? 'Booking created successfully and saved to our database!' 
+            : 'Booking created successfully with MAGR (database save failed but booking is valid)',
+          data: responseData
         });
 
       } else {
+        // MAGR API booking failed
         throw new Error(magrResult.message || 'MAGR API booking failed');
       }
 
@@ -709,9 +749,8 @@ router.post('/bookings',
   }
 );
 
-// Optional routes that require Booking model
+// UPDATED: Get user's bookings with better error handling
 if (Booking) {
-  // Get user's bookings
   router.get('/my-bookings', authenticateToken, async (req, res) => {
     try {
       console.log('📋 Getting bookings for user:', req.user.email);
@@ -732,13 +771,19 @@ if (Booking) {
           airport_code: booking.airport_code,
           company_code: booking.company_code,
           product_name: booking.product_name,
-          customer_name: `${booking.customer_details.title} ${booking.customer_details.first_name} ${booking.customer_details.last_name}`,
+          customer_name: booking.customer_full_name,
+          customer_email: booking.customer_details?.customer_email,
           booking_amount: booking.booking_amount,
-          dropoff_date: booking.travel_details.dropoff_date,
-          pickup_date: booking.travel_details.pickup_date,
+          commission_amount: booking.commission_amount,
+          currency: booking.currency,
+          dropoff_date: booking.travel_details?.dropoff_date,
+          dropoff_time: booking.travel_details?.dropoff_time,
+          pickup_date: booking.travel_details?.pickup_date,
+          pickup_time: booking.travel_details?.pickup_time,
+          vehicle_registration: booking.vehicle_details?.car_registration_number,
           created_at: booking.created_at,
-          can_cancel: booking.service_features.is_cancelable,
-          can_edit: booking.service_features.is_editable
+          can_cancel: booking.canBeCancelled(),
+          can_edit: booking.canBeAmended()
         })),
         count: bookings.length,
         user: req.user.email
@@ -779,9 +824,10 @@ if (Booking) {
       
       res.json({
         success: true,
-        data: booking,
-        can_cancel: booking.service_features?.is_cancelable || false,
-        can_edit: booking.service_features?.is_editable || false
+        data: booking.toDisplayFormat(),
+        can_cancel: booking.canBeCancelled(),
+        can_edit: booking.canBeAmended(),
+        raw_data: booking // Include full booking data for debugging
       });
       
     } catch (error) {
