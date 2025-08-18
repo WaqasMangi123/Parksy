@@ -1,4 +1,4 @@
-// routes/parkingRoutes.js - FIXED VERSION
+// routes/parkingRoutes.js - UPDATED VERSION WITH COMPANY CODE FIX
 const express = require('express');
 const router = express.Router();
 const { body, param, validationResult } = require('express-validator');
@@ -98,6 +98,34 @@ router.get('/airports', (req, res) => {
   }
 });
 
+// NEW: Get valid company codes - PUBLIC
+router.get('/company-codes', (req, res) => {
+  try {
+    console.log('🏢 Company codes requested');
+    
+    if (!MagrApiService) {
+      throw new Error('MagrApiService not available');
+    }
+    
+    const companyCodes = MagrApiService.getValidCompanyCodes();
+    
+    console.log('✅ Returning company codes:', companyCodes.length);
+    res.json({
+      success: true,
+      data: companyCodes,
+      count: companyCodes.length,
+      message: 'Use one of these company codes when making bookings'
+    });
+  } catch (error) {
+    console.error('❌ Error fetching company codes:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch company codes',
+      error: error.message
+    });
+  }
+});
+
 // SIMPLIFIED Search parking validation - removed complex custom validators
 const validateSearchParking = [
   body('airport_code')
@@ -117,7 +145,7 @@ const validateSearchParking = [
     .withMessage('Invalid pickup time format (HH:MM)')
 ];
 
-// FIXED: Search parking - PUBLIC (No authentication required)
+// UPDATED: Search parking - now includes company codes in response
 router.post('/search-parking', 
   validateSearchParking, 
   handleValidationErrors, 
@@ -224,11 +252,24 @@ router.post('/search-parking',
         });
       }
 
-      // Return successful response
+      // ENHANCED: Add company codes to each product and get valid company codes
+      const validCompanyCodes = MagrApiService.getValidCompanyCodes();
+      const enhancedProducts = result.data.products.map(product => ({
+        ...product,
+        // Use the companyID from the product if available, otherwise use first valid code
+        company_code: product.companyID || validCompanyCodes[0],
+        available_company_codes: validCompanyCodes
+      }));
+
+      // Return successful response with enhanced data
       res.json({
         success: true,
-        data: result.data,
+        data: {
+          ...result.data,
+          products: enhancedProducts
+        },
         search_params: searchParams,
+        valid_company_codes: validCompanyCodes,
         message: `Found ${result.data.products.length} parking options`,
         timestamp: new Date().toISOString()
       });
@@ -268,6 +309,7 @@ router.get('/test-magr', async (req, res) => {
       success: true,
       message: 'MAGR API connection successful',
       data: result,
+      valid_company_codes: MagrApiService.getValidCompanyCodes(),
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -427,9 +469,19 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
-// SIMPLIFIED booking validation - removed some complex validations that might cause issues
+// ENHANCED booking validation with dynamic company code validation
 const validateCreateBooking = [
-  body('company_code').notEmpty().withMessage('Company code is required'),
+  body('company_code')
+    .custom(async (value) => {
+      if (!MagrApiService) {
+        throw new Error('MAGR API Service not available');
+      }
+      if (!MagrApiService.isValidCompanyCode(value)) {
+        const validCodes = MagrApiService.getValidCompanyCodes();
+        throw new Error(`Invalid company code. Valid codes are: ${validCodes.join(', ')}`);
+      }
+      return true;
+    }),
   body('airport_code').isIn(['LHR', 'LGW', 'STN', 'LTN', 'MAN', 'BHX', 'EDI', 'GLA']).withMessage('Invalid airport code'),
   body('title').isIn(['Mr', 'Mrs', 'Miss', 'Ms', 'Dr']).withMessage('Invalid title'),
   body('first_name').trim().isLength({ min: 1, max: 50 }).withMessage('First name must be 1-50 characters'),
@@ -443,7 +495,7 @@ const validateCreateBooking = [
   body('booking_amount').isFloat({ min: 0 }).withMessage('Booking amount must be a positive number')
 ];
 
-// Create booking - REQUIRES AUTHENTICATION
+// UPDATED: Create booking with enhanced company code handling
 router.post('/bookings', 
   authenticateToken,  // Authentication required
   validateCreateBooking, 
@@ -465,7 +517,31 @@ router.post('/bookings',
         throw new Error('MAGR API Service is not available');
       }
 
+      // ENHANCED: Validate company code before proceeding
+      if (!MagrApiService.isValidCompanyCode(bookingData.company_code)) {
+        const validCodes = MagrApiService.getValidCompanyCodes();
+        console.error('❌ Invalid company code provided:', bookingData.company_code);
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid company code provided',
+          error: `Company code '${bookingData.company_code}' is not valid`,
+          valid_company_codes: validCodes,
+          suggestion: `Please use one of these valid codes: ${validCodes.join(', ')}`
+        });
+      }
+
+      console.log('✅ Company code validation passed:', bookingData.company_code);
       console.log('🚀 Creating booking with MAGR API...');
+
+      // ENHANCED: Log the exact data being sent to MAGR API
+      console.log('📋 Booking data being sent to MAGR:', {
+        company_code: bookingData.company_code,
+        airport_code: bookingData.airport_code,
+        customer_email: bookingData.customer_email,
+        booking_amount: bookingData.booking_amount,
+        dropoff_date: bookingData.dropoff_date,
+        pickup_date: bookingData.pickup_date
+      });
 
       // Create booking with MAGR API
       const magrResult = await MagrApiService.createBooking(bookingData);
@@ -554,6 +630,7 @@ router.post('/bookings',
             customer_name: `${bookingData.title} ${bookingData.first_name} ${bookingData.last_name}`,
             service: bookingData.product_name || 'Parking Service',
             airport: bookingData.airport_code,
+            company_code: bookingData.company_code,
             total_amount: parseFloat(bookingData.booking_amount),
             commission: (parseFloat(bookingData.booking_amount) * parseFloat(bookingData.commission_percentage || 0) / 100)
           }
@@ -567,16 +644,30 @@ router.post('/bookings',
       console.error('❌ BOOKING ERROR:', {
         message: error.message,
         user: req.user?.email,
+        company_code: req.body?.company_code,
         stack: error.stack?.substring(0, 300),
         timestamp: new Date().toISOString()
       });
       
-      res.status(500).json({
+      // Enhanced error response with company code guidance
+      const errorResponse = {
         success: false,
         message: 'Failed to create booking',
         error: error.message,
         timestamp: new Date().toISOString()
-      });
+      };
+
+      // Add company code guidance if it's a company code error
+      if (error.message.includes('company code') || error.message.includes('Company Code')) {
+        try {
+          errorResponse.valid_company_codes = MagrApiService.getValidCompanyCodes();
+          errorResponse.guidance = 'Please use one of the valid company codes provided';
+        } catch (e) {
+          console.error('Failed to get valid company codes:', e.message);
+        }
+      }
+      
+      res.status(500).json(errorResponse);
     }
   }
 );

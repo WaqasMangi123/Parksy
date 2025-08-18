@@ -20,6 +20,14 @@ class MagrApiService {
       agent_code: process.env.MAGR_AGENT_CODE || '6vW2Ug0rUMAQAcPLmNfBSAVYPENg',
     };
 
+    // Valid company codes that MAGR API accepts - UPDATE THESE WITH ACTUAL VALID CODES
+    this.validCompanyCodes = [
+      'MAGR001',  // Primary MAGR company code
+      'AIRPORT1', // Airport parking provider
+      'PARKPRO',  // Professional parking services
+      // Add more valid codes as provided by MAGR API documentation
+    ];
+
     // Create axios instance with custom HTTPS agent
     this.axiosInstance = axios.create({
       baseURL: this.config.baseURL,
@@ -119,7 +127,8 @@ class MagrApiService {
       baseURL: this.config.baseURL,
       user_email: this.credentials.user_email,
       agent_code: this.credentials.agent_code.substring(0, 8) + '...',
-      password_set: !!this.credentials.password
+      password_set: !!this.credentials.password,
+      valid_company_codes: this.validCompanyCodes
     });
   }
 
@@ -355,12 +364,17 @@ class MagrApiService {
     }
   }
 
-  // Create a booking - ENHANCED WITH BETTER ERROR HANDLING
+  // Create a booking - ENHANCED WITH COMPANY CODE VALIDATION
   async createBooking(bookingData) {
     try {
       console.log('🎫 Creating MAGR API booking...');
       
-      // Validate booking data first
+      // Validate company code first
+      if (!this.validCompanyCodes.includes(bookingData.company_code)) {
+        throw new Error(`Invalid company code: ${bookingData.company_code}. Valid codes are: ${this.validCompanyCodes.join(', ')}`);
+      }
+      
+      // Validate booking data
       this.validateBookingData(bookingData);
 
       // Generate our booking reference
@@ -634,6 +648,16 @@ class MagrApiService {
 
   formatDate(date) {
     return new Date(date).toISOString().split('T')[0];
+  }
+
+  // NEW METHOD: Get valid company codes for frontend validation
+  getValidCompanyCodes() {
+    return this.validCompanyCodes;
+  }
+
+  // NEW METHOD: Validate company code
+  isValidCompanyCode(companyCode) {
+    return this.validCompanyCodes.includes(companyCode);
   }
 
   getAvailableAirports() {
