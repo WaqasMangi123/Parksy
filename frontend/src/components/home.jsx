@@ -5,14 +5,12 @@ import {
   CheckCircle, AlertCircle, Navigation, Home, Settings, Bell,
   Phone, Mail, CreditCard, Globe, Award
 } from "lucide-react";
-// Remove the EvChargingComponent import since we're navigating to a separate page
-// import EvChargingComponent from "./evcharging"; 
 import "./home.css";
 
 const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoicGFya3N5dWsiLCJhIjoiY21kODNsaG0yMGw3bzJscXN1bmlkbHk4ZiJ9.DaA0-wfNgf-1PIhJyHXCxg';
 
 const ProfessionalParksyDashboard = () => {
-  // API Configuration
+  // API Configuration - Fixed to deployed backend only
   const API_BASE_URL = "https://parksy-backend.onrender.com";
   
   // Map references
@@ -33,10 +31,10 @@ const ProfessionalParksyDashboard = () => {
     'GLA': 'https://images.unsplash.com/photo-1473625247510-8ceb1760943f?w=1200&auto=format&fit=crop&q=80'
   };
 
-  // State Management (Only Parking Related - removed "ev" from viewMode options)
+  // State Management
   const [selectedSpot, setSelectedSpot] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [viewMode, setViewMode] = useState("boxes"); // boxes or map only
+  const [viewMode, setViewMode] = useState("boxes");
   const [isLoading, setIsLoading] = useState(false);
   const [bookingStep, setBookingStep] = useState(1);
   const [bookingStatus, setBookingStatus] = useState(null);
@@ -48,6 +46,7 @@ const ProfessionalParksyDashboard = () => {
   const [userLocation, setUserLocation] = useState(null);
   const [currentLocation, setCurrentLocation] = useState("Detecting location...");
   const [showAirplaneAnimation, setShowAirplaneAnimation] = useState(true);
+  const [authStatus, setAuthStatus] = useState({ isLoggedIn: false, user: null });
 
   // Search Parameters
   const [searchParams, setSearchParams] = useState({
@@ -77,19 +76,362 @@ const ProfessionalParksyDashboard = () => {
     paymentgateway: "Invoice"
   });
 
+  // ========== AUTHENTICATION FUNCTIONS ==========
+
+  // Get authentication token from browser memory
+  const getAuthToken = () => {
+    // Try different storage locations where the login system might store the token
+    return localStorage.getItem('token') || 
+           localStorage.getItem('authToken') || 
+           localStorage.getItem('jwt') ||
+           localStorage.getItem('access_token') ||
+           sessionStorage.getItem('token') || 
+           sessionStorage.getItem('authToken') ||
+           sessionStorage.getItem('jwt') ||
+           sessionStorage.getItem('access_token');
+  };
+
+  // Check if user is logged in
+  const isUserLoggedIn = () => {
+    const token = getAuthToken();
+    return !!token;
+  };
+
+  // Get user info from token (decode without verification - just for display)
+  const getUserInfoFromToken = () => {
+    const token = getAuthToken();
+    if (!token) return null;
+    
+    try {
+      // Decode JWT payload (without verification)
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join(''));
+      
+      const payload = JSON.parse(jsonPayload);
+      return payload;
+    } catch (error) {
+      console.error('❌ Error decoding token:', error);
+      return null;
+    }
+  };
+
+  // Check authentication status on component mount
+  useEffect(() => {
+    const checkAuth = () => {
+      const isLoggedIn = isUserLoggedIn();
+      const userInfo = getUserInfoFromToken();
+      
+      setAuthStatus({
+        isLoggedIn: isLoggedIn,
+        user: userInfo
+      });
+
+      console.log('🔐 Authentication Status:', {
+        isLoggedIn: isLoggedIn,
+        userEmail: userInfo?.email || 'Not available',
+        tokenExists: !!getAuthToken()
+      });
+    };
+
+    checkAuth();
+  }, []);
+
+  // ========== API FUNCTIONS ==========
+
+  // Smart backend connection with fallback
+  const testBackendConnection = async () => {
+    setConnectionStatus('testing');
+    
+    try {
+      console.log(`🔍 Testing backend connection to: ${API_BASE_URL}`);
+      const response = await fetch(`${API_BASE_URL}/api/parking/health`, {
+        method: 'GET',
+        timeout: 10000
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Backend connected successfully:', data);
+        setConnectionStatus('connected');
+        return true;
+      } else {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+    } catch (error) {
+      console.error(`❌ Connection failed for ${API_BASE_URL}:`, error.message);
+      setConnectionStatus('failed');
+      setApiError(`Unable to connect to backend server: ${error.message}`);
+      return false;
+    }
+  };
+
+  // Updated API request function with authentication
+  const makeAPIRequest = async (endpoint, options = {}) => {
+    const token = getAuthToken();
+    
+    // Prepare request body - include token for authenticated requests
+    let requestBody = options.body || {};
+    
+    // Add token to request body for booking requests (authentication required)
+    if (token && endpoint.includes('/bookings')) {
+      requestBody = {
+        ...requestBody,
+        token: token  // Send token in body instead of header
+      };
+    }
+    
+    const config = {
+      method: options.method || 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+      body: Object.keys(requestBody).length > 0 ? JSON.stringify(requestBody) : undefined,
+    };
+
+    try {
+      console.log('🚀 API Request:', {
+        endpoint: `${API_BASE_URL}${endpoint}`,
+        method: config.method,
+        hasToken: !!token,
+        requiresAuth: endpoint.includes('/bookings')
+      });
+      
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        
+        // Handle authentication errors
+        if (response.status === 401 || errorData.requireAuth) {
+          console.log('❌ Authentication required');
+          throw new Error('Please log in to make bookings. You must be signed in to book parking spots.');
+        }
+        
+        if (response.status === 403 || errorData.requireVerification) {
+          console.log('❌ Email verification required');
+          throw new Error('Please verify your email address before making bookings.');
+        }
+        
+        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ API Response successful');
+      
+      return data;
+    } catch (error) {
+      console.error('❌ API Request failed:', error);
+      throw error;
+    }
+  };
+
+  const loadAirports = async () => {
+    try {
+      const isConnected = await testBackendConnection();
+      if (!isConnected) return;
+
+      const response = await makeAPIRequest('/api/parking/airports');
+      if (response.success) {
+        setAvailableAirports(response.data);
+        console.log('✅ Airports loaded:', response.data.length);
+      } else {
+        throw new Error('Failed to load airports');
+      }
+    } catch (error) {
+      console.error('❌ Error loading airports:', error);
+      setApiError(error.message);
+    }
+  };
+
+  const fetchParkingProducts = useCallback(async () => {
+    if (connectionStatus !== 'connected') {
+      setApiError('Backend server is not connected');
+      return;
+    }
+
+    setIsLoading(true);
+    setApiError(null);
+    
+    try {
+      console.log('🔍 Fetching parking products...');
+      const response = await makeAPIRequest('/api/parking/search-parking', {
+        method: 'POST',
+        body: searchParams
+      });
+      
+      if (response.success) {
+        const processedProducts = response.data.products.map(product => ({
+          ...product,
+          logo: airportImages[searchParams.airport_code] || airportImages['LHR'],
+          features_array: product.features_array || [],
+          availability_status: product.available_spaces 
+            ? `${product.available_spaces} spots available`
+            : 'Available Now',
+          last_updated: new Date().toLocaleTimeString(),
+          formatted_price: parseFloat(product.price).toFixed(2),
+          commission_amount: (parseFloat(product.price) * (parseFloat(product.share_percentage || 0) / 100)).toFixed(2),
+          coords: {
+            lat: 51.4694 + (Math.random() - 0.5) * 0.01,
+            lng: -0.4506 + (Math.random() - 0.5) * 0.01
+          }
+        }));
+        
+        setParkingProducts(processedProducts);
+        setFilteredProducts(processedProducts);
+        console.log('✅ Products loaded:', processedProducts.length);
+      } else {
+        throw new Error('No parking data available');
+      }
+    } catch (error) {
+      console.error('❌ Error fetching products:', error);
+      setApiError(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [searchParams, connectionStatus, API_BASE_URL]);
+
+  // ========== EVENT HANDLERS ==========
+
+  const handleSearch = () => {
+    if (connectionStatus !== 'connected') {
+      setApiError('Backend server is not connected');
+      return;
+    }
+    fetchParkingProducts();
+  };
+
+  const handleSearchParamChange = (field, value) => {
+    setSearchParams(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleBookingChange = (e) => {
+    const { name, value } = e.target;
+    setBookingDetails(prev => ({ ...prev, [name]: value }));
+  };
+
+  // UPDATED BOOKING SUBMIT WITH AUTHENTICATION
+  const handleBookingSubmit = async (e) => {
+    e.preventDefault();
+    
+    // Check if user is logged in FIRST
+    if (!isUserLoggedIn()) {
+      console.log('❌ User not logged in');
+      setBookingStatus({
+        success: false,
+        message: 'Please log in to make a booking. You must sign in to book parking spaces through our system.'
+      });
+      setBookingStep(2);
+      return;
+    }
+
+    // Get user info for logging
+    const userInfo = getUserInfoFromToken();
+    console.log('👤 Making booking for user:', userInfo?.email || 'Unknown');
+
+    setIsLoading(true);
+    setBookingStatus(null);
+    
+    try {
+      // Prepare booking data with all required fields
+      const bookingData = {
+        // Service details
+        company_code: selectedSpot.companyID || selectedSpot.product_code,
+        product_name: selectedSpot.name,
+        airport_code: searchParams.airport_code,
+        parking_type: selectedSpot.parking_type,
+        
+        // Dates and times
+        dropoff_date: searchParams.dropoff_date,
+        dropoff_time: searchParams.dropoff_time,
+        pickup_date: searchParams.pickup_date,
+        pickup_time: searchParams.pickup_time,
+        
+        // Financial
+        booking_amount: parseFloat(selectedSpot.price || selectedSpot.formatted_price),
+        commission_percentage: selectedSpot.share_percentage || 0,
+        
+        // Customer details
+        title: bookingDetails.title,
+        first_name: bookingDetails.first_name,
+        last_name: bookingDetails.last_name,
+        customer_email: bookingDetails.customer_email,
+        phone_number: bookingDetails.phone_number,
+        
+        // Travel details
+        departure_flight_number: bookingDetails.departure_flight_number || 'TBA',
+        arrival_flight_number: bookingDetails.arrival_flight_number || 'TBA',
+        departure_terminal: bookingDetails.departure_terminal || 'Terminal 1',
+        arrival_terminal: bookingDetails.arrival_terminal || 'Terminal 1',
+        passenger: parseInt(bookingDetails.passenger) || 1,
+        
+        // Vehicle details
+        car_registration_number: bookingDetails.car_registration_number,
+        car_make: bookingDetails.car_make,
+        car_model: bookingDetails.car_model,
+        car_color: bookingDetails.car_color,
+        
+        // Payment details
+        paymentgateway: bookingDetails.paymentgateway || 'Invoice',
+        payment_token: `pi_${Math.random().toString(36).substring(2, 15)}`,
+        
+        // Service features
+        is_cancelable: selectedSpot.cancelable === 'Yes',
+        is_editable: selectedSpot.editable === 'Yes',
+        special_features: selectedSpot.features_array || []
+      };
+
+      console.log('🎫 Submitting booking:', {
+        user: userInfo?.email,
+        service: bookingData.product_name,
+        airport: bookingData.airport_code,
+        amount: bookingData.booking_amount
+      });
+
+      const response = await makeAPIRequest('/api/parking/bookings', {
+        method: 'POST',
+        body: bookingData
+      });
+      
+      console.log('📋 Booking response:', response);
+      
+      if (response.success) {
+        setBookingStatus({
+          success: true,
+          message: 'Booking confirmed successfully!',
+          reference: response.data.our_reference,
+          magrReference: response.data.magr_reference,
+          bookingId: response.data.booking_id || response.data.database_id,
+          details: {
+            user: response.data.user_email,
+            service: response.data.service,
+            airport: response.data.airport,
+            amount: response.data.total_amount,
+            commission: response.data.commission
+          }
+        });
+        setBookingStep(2);
+      } else {
+        throw new Error(response.message || 'Booking failed');
+      }
+    } catch (error) {
+      console.error('❌ Booking submission error:', error);
+      setBookingStatus({
+        success: false,
+        message: error.message || 'Failed to create booking. Please try again.'
+      });
+      setBookingStep(2);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Navigation function for EV Charging
   const navigateToEvCharging = () => {
-    // Option 1: If using React Router
-    // window.location.href = '/ev-charging';
-    
-    // Option 2: If using hash routing
-    // window.location.hash = '#/ev-charging';
-    
-    // Option 3: Simple page navigation (most common)
     window.location.href = '/#/evcharging';
-    
-    // Option 4: If you have a specific routing setup, you can use:
-    // navigate('/ev-charging'); // requires useNavigate from react-router-dom
   };
 
   // Get user location with enhanced accuracy
@@ -177,7 +519,7 @@ const ProfessionalParksyDashboard = () => {
     }
   }, []);
 
-  // Initialize map (Only for parking)
+  // Initialize map
   const initializeMap = useCallback(() => {
     if (!mapLoaded || !mapRef.current || mapInstanceRef.current) return;
 
@@ -319,181 +661,6 @@ const ProfessionalParksyDashboard = () => {
       setMapError('Failed to initialize map');
     }
   }, [mapLoaded, userLocation, filteredProducts]);
-
-  // API functions (Only parking related)
-  const makeAPIRequest = async (endpoint, options = {}) => {
-    const config = {
-      method: options.method || 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    };
-
-    try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('API Request failed:', error);
-      throw error;
-    }
-  };
-
-  const testBackendConnection = async () => {
-    try {
-      setConnectionStatus('testing');
-      const response = await fetch(`${API_BASE_URL}/api/health`);
-      
-      if (response.ok) {
-        setConnectionStatus('connected');
-        return true;
-      } else {
-        setConnectionStatus('failed');
-        return false;
-      }
-    } catch (error) {
-      setConnectionStatus('failed');
-      setApiError(`Backend connection failed: ${error.message}`);
-      return false;
-    }
-  };
-
-  const loadAirports = async () => {
-    try {
-      const isConnected = await testBackendConnection();
-      if (!isConnected) return;
-
-      const response = await makeAPIRequest('/api/parking/airports');
-      if (response.success) {
-        setAvailableAirports(response.data);
-      } else {
-        throw new Error('Failed to load airports');
-      }
-    } catch (error) {
-      setApiError(error.message);
-    }
-  };
-
-  const fetchParkingProducts = useCallback(async () => {
-    if (connectionStatus !== 'connected') {
-      setApiError('Backend server is not running');
-      return;
-    }
-
-    setIsLoading(true);
-    setApiError(null);
-    
-    try {
-      const response = await makeAPIRequest('/api/parking/search-parking', {
-        method: 'POST',
-        body: searchParams
-      });
-      
-      if (response.success) {
-        const processedProducts = response.data.products.map(product => ({
-          ...product,
-          logo: airportImages[searchParams.airport_code] || airportImages['LHR'],
-          features_array: product.features_array || [],
-          availability_status: product.available_spaces 
-            ? `${product.available_spaces} spots available`
-            : 'Available Now',
-          last_updated: new Date().toLocaleTimeString(),
-          formatted_price: parseFloat(product.price).toFixed(2),
-          commission_amount: (parseFloat(product.price) * (parseFloat(product.share_percentage || 0) / 100)).toFixed(2),
-          coords: {
-            lat: 51.4694 + (Math.random() - 0.5) * 0.01,
-            lng: -0.4506 + (Math.random() - 0.5) * 0.01
-          }
-        }));
-        
-        setParkingProducts(processedProducts);
-        setFilteredProducts(processedProducts);
-      } else {
-        throw new Error('No parking data available');
-      }
-    } catch (error) {
-      setApiError(error.message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [searchParams, connectionStatus]);
-
-  // Event handlers
-  const handleSearch = () => {
-    if (connectionStatus !== 'connected') {
-      setApiError('Backend server is not running');
-      return;
-    }
-    fetchParkingProducts();
-  };
-
-  const handleSearchParamChange = (field, value) => {
-    setSearchParams(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleBookingChange = (e) => {
-    const { name, value } = e.target;
-    setBookingDetails(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleBookingSubmit = async (e) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setBookingStatus(null);
-    
-    try {
-      const bookingData = {
-        company_code: selectedSpot.companyID || selectedSpot.product_code,
-        product_name: selectedSpot.name,
-        airport_code: searchParams.airport_code,
-        dropoff_date: searchParams.dropoff_date,
-        dropoff_time: searchParams.dropoff_time,
-        pickup_date: searchParams.pickup_date,
-        pickup_time: searchParams.pickup_time,
-        booking_amount: parseFloat(selectedSpot.price || selectedSpot.formatted_price),
-        payment_token: `pi_${Math.random().toString(36).substring(2, 15)}`,
-        parking_type: selectedSpot.parking_type,
-        special_features: selectedSpot.features_array || [],
-        is_cancelable: selectedSpot.cancelable === 'Yes',
-        is_editable: selectedSpot.editable === 'Yes',
-        commission_percentage: selectedSpot.share_percentage,
-        ...bookingDetails
-      };
-
-      const response = await makeAPIRequest('/api/parking/bookings', {
-        method: 'POST',
-        body: bookingData
-      });
-      
-      if (response.success) {
-        setBookingStatus({
-          success: true,
-          message: 'Booking confirmed with Parksy API!',
-          reference: response.data.our_reference,
-          magrReference: response.data.magr_reference,
-          bookingId: response.data.booking_id
-        });
-        setBookingStep(2);
-      } else {
-        throw new Error(response.message || 'Booking failed');
-      }
-    } catch (error) {
-      setBookingStatus({
-        success: false,
-        message: error.message
-      });
-      setBookingStep(2);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // Filter products
   useEffect(() => {
@@ -710,6 +877,14 @@ const ProfessionalParksyDashboard = () => {
               <span className="stat-number">{connectionStatus === 'connected' ? '✅' : '❌'}</span>
               <span className="stat-label">API Status</span>
             </div>
+            <div className="stat-divider"></div>
+            <div className="stat-item">
+              <span className="stat-number">{authStatus.isLoggedIn ? '👤' : '🚫'}</span>
+              <span className="stat-label">{authStatus.isLoggedIn ? 'Logged In' : 'Not Logged In'}</span>
+            </div>
+          </div>
+          <div className="api-url-display">
+            <small>Backend: {API_BASE_URL}</small>
           </div>
         </div>
       </header>
@@ -718,7 +893,7 @@ const ProfessionalParksyDashboard = () => {
       {connectionStatus === 'failed' && (
         <div className="api-status-banner error">
           <AlertCircle size={16} />
-          <span>❌ BACKEND SERVER NOT RUNNING - Please start your backend server</span>
+          <span>❌ BACKEND SERVER CONNECTION FAILED - Check if Render backend is running</span>
         </div>
       )}
       
@@ -733,6 +908,21 @@ const ProfessionalParksyDashboard = () => {
         <div className="api-status-banner success">
           <CheckCircle size={16} />
           <span>🔴 LIVE CONNECTION - Real-time parking data from Parksy API</span>
+        </div>
+      )}
+
+      {/* Authentication Status Banner */}
+      {!authStatus.isLoggedIn && (
+        <div className="api-status-banner warning" style={{backgroundColor: '#fbbf24', color: '#000'}}>
+          <AlertCircle size={16} />
+          <span>⚠️ You must be logged in to make bookings. Please sign in to book parking spots.</span>
+        </div>
+      )}
+
+      {authStatus.isLoggedIn && (
+        <div className="api-status-banner success">
+          <CheckCircle size={16} />
+          <span>👤 Welcome {authStatus.user?.email || 'User'} - You can now make bookings!</span>
         </div>
       )}
 
@@ -855,7 +1045,7 @@ const ProfessionalParksyDashboard = () => {
               </div>
             </div>
 
-            {/* View Controls - Modified to include EV Charging navigation */}
+            {/* View Controls */}
             <div className="view-controls">
               <div className="control-group">
                 <button
@@ -867,7 +1057,6 @@ const ProfessionalParksyDashboard = () => {
                   <span>Parking Gallery</span>
                 </button>
                 
-                {/* EV Charging Button - Now navigates to separate page */}
                 <button
                   className="view-control ev-charging-nav"
                   onClick={navigateToEvCharging}
@@ -905,15 +1094,12 @@ const ProfessionalParksyDashboard = () => {
                 <div className="no-results-icon">
                   <AlertCircle size={64} />
                 </div>
-                <h3>❌ Backend Server Required</h3>
-                <p>Please start your backend server to load real-time parking data</p>
+                <h3>❌ Backend Server Connection Failed</h3>
+                <p>Unable to connect to the deployed backend server</p>
                 <div className="backend-instructions">
-                  <h4>To get real-time data:</h4>
-                  <ol>
-                    <li>Navigate to your backend directory</li>
-                    <li>Run: <code>npm start</code></li>
-                    <li>Make sure it's running on port 5000</li>
-                  </ol>
+                  <h4>Backend URL:</h4>
+                  <p>{API_BASE_URL}</p>
+                  <p>Please check if the backend is running on Render.</p>
                 </div>
                 <button 
                   className="retry-btn"
@@ -975,7 +1161,6 @@ const ProfessionalParksyDashboard = () => {
               <div className="map-wrapper">
                 <div ref={mapRef} className="map-container" />
                 
-                {/* Map Loading Overlay */}
                 {(!mapLoaded || isLoading) && (
                   <div className="loading-overlay">
                     <Loader2 size={32} className="spinner" />
@@ -983,7 +1168,6 @@ const ProfessionalParksyDashboard = () => {
                   </div>
                 )}
 
-                {/* Map Legend */}
                 <div className="map-legend">
                   <h4>Legend</h4>
                   <div className="legend-items">
@@ -999,7 +1183,6 @@ const ProfessionalParksyDashboard = () => {
                     )}
                   </div>
                   
-                  {/* Location Info */}
                   <div className="location-info">
                     <Navigation size={14} />
                     <span>{currentLocation}</span>
@@ -1033,6 +1216,14 @@ const ProfessionalParksyDashboard = () => {
             <div className="modal-content">
               {bookingStep === 1 ? (
                 <div className="booking-step-premium">
+                  {/* Authentication Warning */}
+                  {!authStatus.isLoggedIn && (
+                    <div className="auth-warning">
+                      <AlertCircle size={20} />
+                      <p>You must be logged in to make bookings. Please sign in first.</p>
+                    </div>
+                  )}
+
                   {/* Modal Header */}
                   <div className="modal-header-premium">
                     <div className="service-image">
@@ -1088,6 +1279,7 @@ const ProfessionalParksyDashboard = () => {
                             value={bookingDetails.title}
                             onChange={handleBookingChange}
                             required
+                            disabled={!authStatus.isLoggedIn}
                           >
                             <option value="Mr">Mr</option>
                             <option value="Mrs">Mrs</option>
@@ -1104,6 +1296,7 @@ const ProfessionalParksyDashboard = () => {
                             value={bookingDetails.first_name}
                             onChange={handleBookingChange}
                             required
+                            disabled={!authStatus.isLoggedIn}
                           />
                         </div>
                         <div className="form-group-premium">
@@ -1114,6 +1307,7 @@ const ProfessionalParksyDashboard = () => {
                             value={bookingDetails.last_name}
                             onChange={handleBookingChange}
                             required
+                            disabled={!authStatus.isLoggedIn}
                           />
                         </div>
                         <div className="form-group-premium">
@@ -1124,6 +1318,7 @@ const ProfessionalParksyDashboard = () => {
                             value={bookingDetails.customer_email}
                             onChange={handleBookingChange}
                             required
+                            disabled={!authStatus.isLoggedIn}
                           />
                         </div>
                         <div className="form-group-premium">
@@ -1134,6 +1329,7 @@ const ProfessionalParksyDashboard = () => {
                             value={bookingDetails.phone_number}
                             onChange={handleBookingChange}
                             required
+                            disabled={!authStatus.isLoggedIn}
                           />
                         </div>
                       </div>
@@ -1151,6 +1347,7 @@ const ProfessionalParksyDashboard = () => {
                             value={bookingDetails.departure_flight_number}
                             onChange={handleBookingChange}
                             placeholder="e.g. BA123"
+                            disabled={!authStatus.isLoggedIn}
                           />
                         </div>
                         <div className="form-group-premium">
@@ -1161,6 +1358,7 @@ const ProfessionalParksyDashboard = () => {
                             value={bookingDetails.arrival_flight_number}
                             onChange={handleBookingChange}
                             placeholder="e.g. BA456"
+                            disabled={!authStatus.isLoggedIn}
                           />
                         </div>
                         <div className="form-group-premium">
@@ -1170,6 +1368,7 @@ const ProfessionalParksyDashboard = () => {
                             value={bookingDetails.departure_terminal}
                             onChange={handleBookingChange}
                             required
+                            disabled={!authStatus.isLoggedIn}
                           >
                             <option value="Terminal 1">Terminal 1</option>
                             <option value="Terminal 2">Terminal 2</option>
@@ -1185,6 +1384,7 @@ const ProfessionalParksyDashboard = () => {
                             value={bookingDetails.arrival_terminal}
                             onChange={handleBookingChange}
                             required
+                            disabled={!authStatus.isLoggedIn}
                           >
                             <option value="Terminal 1">Terminal 1</option>
                             <option value="Terminal 2">Terminal 2</option>
@@ -1200,6 +1400,7 @@ const ProfessionalParksyDashboard = () => {
                             value={bookingDetails.passenger}
                             onChange={handleBookingChange}
                             required
+                            disabled={!authStatus.isLoggedIn}
                           >
                             {[1,2,3,4,5,6,7,8].map(num => (
                               <option key={num} value={num}>{num} passenger{num !== 1 ? 's' : ''}</option>
@@ -1222,6 +1423,7 @@ const ProfessionalParksyDashboard = () => {
                             onChange={handleBookingChange}
                             placeholder="e.g. AB12 CDE"
                             required
+                            disabled={!authStatus.isLoggedIn}
                           />
                         </div>
                         <div className="form-group-premium">
@@ -1233,6 +1435,7 @@ const ProfessionalParksyDashboard = () => {
                             onChange={handleBookingChange}
                             placeholder="e.g. BMW"
                             required
+                            disabled={!authStatus.isLoggedIn}
                           />
                         </div>
                         <div className="form-group-premium">
@@ -1244,6 +1447,7 @@ const ProfessionalParksyDashboard = () => {
                             onChange={handleBookingChange}
                             placeholder="e.g. X5"
                             required
+                            disabled={!authStatus.isLoggedIn}
                           />
                         </div>
                         <div className="form-group-premium">
@@ -1255,6 +1459,7 @@ const ProfessionalParksyDashboard = () => {
                             onChange={handleBookingChange}
                             placeholder="e.g. Black"
                             required
+                            disabled={!authStatus.isLoggedIn}
                           />
                         </div>
                       </div>
@@ -1293,9 +1498,14 @@ const ProfessionalParksyDashboard = () => {
                     <button
                       type="submit"
                       className="premium-confirm-btn"
-                      disabled={isLoading}
+                      disabled={isLoading || !authStatus.isLoggedIn}
                     >
-                      {isLoading ? (
+                      {!authStatus.isLoggedIn ? (
+                        <>
+                          <AlertCircle size={20} />
+                          <span>Please Log In First</span>
+                        </>
+                      ) : isLoading ? (
                         <>
                           <Loader2 size={20} className="btn-spinner" />
                           <span>Processing Real-Time Booking...</span>
@@ -1321,7 +1531,7 @@ const ProfessionalParksyDashboard = () => {
                       
                       <h2>🔴 Real-Time Booking Confirmed!</h2>
                       
-                      <p>Your parking space has been successfully reserved through Parksy API</p>
+                      <p>Your parking space has been successfully reserved through Parksy API and saved to our database</p>
                       
                       <div className="booking-details-premium">
                         <div className="detail-row">
@@ -1329,7 +1539,7 @@ const ProfessionalParksyDashboard = () => {
                           <strong>{bookingStatus.reference}</strong>
                         </div>
                         <div className="detail-row">
-                          <span>Parksy Reference</span>
+                          <span>MAGR Reference</span>
                           <strong>{bookingStatus.magrReference}</strong>
                         </div>
                         <div className="detail-row">
@@ -1337,9 +1547,21 @@ const ProfessionalParksyDashboard = () => {
                           <span>{selectedSpot.name}</span>
                         </div>
                         <div className="detail-row">
-                          <span>Total Paid</span>
+                          <span>Total Amount</span>
                           <strong>£{selectedSpot.formatted_price}</strong>
                         </div>
+                        {bookingStatus.details && (
+                          <>
+                            <div className="detail-row">
+                              <span>User</span>
+                              <span>{bookingStatus.details.user}</span>
+                            </div>
+                            <div className="detail-row">
+                              <span>Commission</span>
+                              <span>£{bookingStatus.details.commission}</span>
+                            </div>
+                          </>
+                        )}
                       </div>
 
                       <div className="success-actions">
