@@ -1,4 +1,4 @@
-// routes/parkingRoutes.js - UPDATED WITH PROPER DATABASE SAVING
+// routes/parkingRoutes.js - FULL STRIPE INTEGRATION WITH PAYMENT BEFORE BOOKING
 const express = require('express');
 const router = express.Router();
 const { body, param, validationResult } = require('express-validator');
@@ -8,6 +8,7 @@ const jwt = require('jsonwebtoken');
 let MagrApiService;
 let User;
 let Booking;
+let StripeService;
 
 try {
   MagrApiService = require('../services/magrApiService');
@@ -30,6 +31,13 @@ try {
   console.error('❌ Failed to load Booking model (this is optional):', error.message);
 }
 
+try {
+  StripeService = require('../services/stripeService');
+  console.log('✅ StripeService loaded successfully');
+} catch (error) {
+  console.error('❌ Failed to load StripeService:', error.message);
+}
+
 // Validation middleware
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
@@ -46,7 +54,7 @@ const handleValidationErrors = (req, res, next) => {
 
 // ===== PUBLIC ROUTES (NO AUTHENTICATION REQUIRED) =====
 
-// Health check endpoint
+// Health check endpoint - UPDATED with Stripe status
 router.get('/health', (req, res) => {
   console.log('🏥 Parking API health check requested');
   
@@ -58,17 +66,41 @@ router.get('/health', (req, res) => {
       magr_api_service: !!MagrApiService ? 'loaded' : 'failed',
       user_model: !!User ? 'loaded' : 'failed',
       booking_model: !!Booking ? 'loaded' : 'optional',
+      stripe_service: !!StripeService ? 'loaded' : 'failed',
       jwt_secret: !!process.env.JWT_SECRET ? 'configured' : 'missing'
     },
     environment: {
       magr_email: !!process.env.MAGR_USER_EMAIL ? 'set' : 'missing',
       magr_password: !!process.env.MAGR_PASSWORD ? 'set' : 'missing',
-      magr_agent_code: !!process.env.MAGR_AGENT_CODE ? 'set' : 'missing'
+      magr_agent_code: !!process.env.MAGR_AGENT_CODE ? 'set' : 'missing',
+      stripe_secret_key: !!process.env.STRIPE_SECRET_KEY ? 'set' : 'missing',
+      stripe_publishable_key: !!process.env.STRIPE_PUBLISHABLE_KEY ? 'set' : 'missing'
     }
   };
   
   console.log('📊 Health check result:', healthStatus);
   res.json(healthStatus);
+});
+
+// Get Stripe publishable key for frontend
+router.get('/stripe-config', (req, res) => {
+  try {
+    if (!process.env.STRIPE_PUBLISHABLE_KEY) {
+      throw new Error('Stripe publishable key not configured');
+    }
+
+    res.json({
+      success: true,
+      publishable_key: process.env.STRIPE_PUBLISHABLE_KEY
+    });
+  } catch (error) {
+    console.error('❌ Error getting Stripe config:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Stripe configuration error',
+      error: error.message
+    });
+  }
 });
 
 // Get available airports
@@ -462,6 +494,121 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
+// ===== STRIPE PAYMENT ROUTES =====
+
+// Step 1: Create payment intent BEFORE booking form submission
+router.post('/create-payment-intent', 
+  authenticateToken,
+  [
+    body('amount').isFloat({ min: 0.01 }).withMessage('Amount must be greater than 0'),
+    body('currency').optional().isIn(['gbp', 'eur', 'usd']).withMessage('Invalid currency'),
+    body('service_name').notEmpty().withMessage('Service name is required'),
+    body('airport_code').isIn(['LHR', 'LGW', 'STN', 'LTN', 'MAN', 'BHX', 'EDI', 'GLA']).withMessage('Invalid airport code'),
+    body('company_code').notEmpty().withMessage('Company code is required'),
+    body('dropoff_date').isISO8601().withMessage('Invalid dropoff date'),
+    body('pickup_date').isISO8601().withMessage('Invalid pickup date')
+  ],
+  handleValidationErrors,
+  async (req, res) => {
+    try {
+      console.log('💳 Creating payment intent for user:', req.user.email);
+
+      if (!StripeService) {
+        throw new Error('Stripe service not available');
+      }
+
+      const { 
+        amount, 
+        currency = 'gbp', 
+        service_name,
+        airport_code,
+        company_code,
+        dropoff_date,
+        pickup_date 
+      } = req.body;
+
+      // Generate a temporary booking reference for payment tracking
+      const tempBookingRef = `TEMP-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+
+      // Prepare payment data
+      const paymentData = {
+        amount: parseFloat(amount),
+        currency: currency,
+        customer_email: req.user.email,
+        our_reference: tempBookingRef,
+        service_name: service_name,
+        airport_code: airport_code,
+        company_code: company_code,
+        dropoff_date: dropoff_date,
+        pickup_date: pickup_date
+      };
+
+      console.log('🚀 Creating Stripe payment intent:', {
+        amount: paymentData.amount,
+        currency: paymentData.currency,
+        user: req.user.email,
+        service: service_name
+      });
+
+      // Create Stripe payment intent
+      const paymentResult = await StripeService.createPaymentIntent(paymentData);
+
+      res.json({
+        success: true,
+        client_secret: paymentResult.client_secret,
+        payment_intent_id: paymentResult.payment_intent_id,
+        amount: paymentData.amount,
+        currency: paymentData.currency,
+        temp_booking_reference: tempBookingRef,
+        message: 'Payment intent created successfully'
+      });
+
+    } catch (error) {
+      console.error('❌ Payment intent creation error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create payment intent',
+        error: error.message
+      });
+    }
+  }
+);
+
+// Step 2: Verify payment status before proceeding with booking
+router.get('/verify-payment/:payment_intent_id', 
+  authenticateToken,
+  async (req, res) => {
+    try {
+      if (!StripeService) {
+        throw new Error('Stripe service not available');
+      }
+
+      const { payment_intent_id } = req.params;
+      
+      console.log('🔍 Verifying payment for user:', req.user.email, 'Payment ID:', payment_intent_id);
+
+      const paymentDetails = await StripeService.getPaymentDetails(payment_intent_id);
+
+      res.json({
+        success: true,
+        payment_status: paymentDetails.status,
+        amount: paymentDetails.amount,
+        currency: paymentDetails.currency,
+        metadata: paymentDetails.metadata,
+        is_paid: paymentDetails.status === 'succeeded'
+      });
+
+    } catch (error) {
+      console.error('❌ Payment verification error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to verify payment',
+        error: error.message
+      });
+    }
+  }
+);
+
 // Booking validation
 const validateCreateBooking = [
   body('company_code')
@@ -488,35 +635,76 @@ const validateCreateBooking = [
   body('car_model').trim().isLength({ min: 1, max: 30 }).withMessage('Car model required'),
   body('car_color').trim().isLength({ min: 1, max: 20 }).withMessage('Car color required'),
   body('booking_amount').isFloat({ min: 0 }).withMessage('Booking amount must be a positive number'),
-  body('passenger').optional().isInt({ min: 1, max: 10 }).withMessage('Invalid passenger count')
+  body('passenger').optional().isInt({ min: 1, max: 10 }).withMessage('Invalid passenger count'),
+  body('payment_intent_id').notEmpty().withMessage('Payment intent ID is required')
 ];
 
-// UPDATED: Create booking with proper database saving
-router.post('/bookings', 
+// Step 3: Create booking AFTER payment is confirmed
+router.post('/bookings-with-payment', 
   authenticateToken,
   validateCreateBooking, 
   handleValidationErrors, 
   async (req, res) => {
     try {
       const bookingData = req.body;
+      const { payment_intent_id } = bookingData;
 
-      console.log('🎫 AUTHENTICATED BOOKING REQUEST:', {
+      console.log('🎫 BOOKING WITH PAYMENT REQUEST:', {
         user: req.user.email,
         company_code: bookingData.company_code,
-        airport_code: bookingData.airport_code,
-        customer_email: bookingData.customer_email,
-        booking_amount: bookingData.booking_amount,
+        payment_intent_id: payment_intent_id,
+        amount: bookingData.booking_amount,
         timestamp: new Date().toISOString()
       });
 
+      // Check services availability
       if (!MagrApiService) {
         throw new Error('MAGR API Service is not available');
       }
 
-      // Generate unique booking reference for our system
+      if (!StripeService) {
+        throw new Error('Stripe service is not available');
+      }
+
+      // Step 1: Verify payment with Stripe FIRST
+      let paymentDetails = null;
+      try {
+        console.log('💳 Verifying Stripe payment before booking...');
+        paymentDetails = await StripeService.getPaymentDetails(payment_intent_id);
+        console.log('💳 Payment verification result:', {
+          status: paymentDetails.status,
+          amount: paymentDetails.amount,
+          currency: paymentDetails.currency
+        });
+        
+        if (paymentDetails.status !== 'succeeded') {
+          throw new Error(`Payment not completed. Status: ${paymentDetails.status}. Please complete payment first.`);
+        }
+
+        // Verify payment amount matches booking amount
+        const paidAmount = paymentDetails.amount;
+        const bookingAmount = parseFloat(bookingData.booking_amount);
+        
+        if (Math.abs(paidAmount - bookingAmount) > 0.01) { // Allow for small rounding differences
+          throw new Error(`Payment amount mismatch. Paid: £${paidAmount}, Required: £${bookingAmount}`);
+        }
+
+        console.log('✅ Payment verified successfully');
+        
+      } catch (paymentError) {
+        console.error('❌ Payment verification failed:', paymentError.message);
+        return res.status(400).json({
+          success: false,
+          message: 'Payment verification failed',
+          error: paymentError.message,
+          payment_required: true
+        });
+      }
+
+      // Step 2: Generate booking reference
       const ourBookingRef = `PKY-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-      // Prepare booking data for MAGR API
+      // Step 3: Prepare booking data for MAGR API
       const magrBookingData = {
         agent_code: process.env.MAGR_AGENT_CODE,
         user_email: process.env.MAGR_USER_EMAIL || bookingData.customer_email,
@@ -542,38 +730,29 @@ router.post('/bookings',
         car_color: bookingData.car_color,
         park_api: 'b2b',
         passenger: parseInt(bookingData.passenger) || 1,
-        paymentgateway: bookingData.paymentgateway || 'Invoice',
-        payment_token: bookingData.payment_token || `token_${Date.now()}`,
+        paymentgateway: 'Stripe',
+        payment_token: payment_intent_id,
         booking_amount: parseFloat(bookingData.booking_amount)
       };
 
-      console.log('🚀 Sending booking to MAGR API:', {
+      console.log('🚀 Sending PAID booking to MAGR API:', {
         company_code: magrBookingData.company_code,
         bookreference: magrBookingData.bookreference,
         customer_email: magrBookingData.customer_email,
-        booking_amount: magrBookingData.booking_amount
+        booking_amount: magrBookingData.booking_amount,
+        payment_method: 'Stripe'
       });
 
-      // Create booking with MAGR API FIRST
+      // Step 4: Create booking with MAGR API
       const magrResult = await MagrApiService.createBooking(magrBookingData);
-      
-      console.log('📋 MAGR API booking result:', magrResult);
 
       if (magrResult.success) {
-        // UPDATED: Save booking to OUR database with proper error handling
+        // Step 5: Save booking to OUR database with payment information
         let savedBooking = null;
         let databaseSaveSuccess = false;
         
         if (Booking) {
-          console.log('💾 Saving booking to OUR database...');
-          console.log('🔍 Debug Info:', {
-            hasBookingModel: !!Booking,
-            userExists: !!req.user,
-            userId: req.user?._id,
-            userEmail: req.user?.email,
-            bookingReference: ourBookingRef,
-            magrReference: magrResult.data?.reference || magrResult.reference
-          });
+          console.log('💾 Saving PAID booking to database...');
           
           try {
             savedBooking = new Booking({
@@ -586,7 +765,7 @@ router.post('/bookings',
               user_id: req.user._id,
               user_email: req.user.email,
               
-              // Service Details - ALL from bookingData
+              // Service Details
               company_code: bookingData.company_code,
               product_name: bookingData.product_name || 'Airport Parking Service',
               product_code: bookingData.product_code || bookingData.company_code,
@@ -596,9 +775,9 @@ router.post('/bookings',
               // Financial Details
               booking_amount: parseFloat(bookingData.booking_amount),
               commission_percentage: parseFloat(bookingData.commission_percentage || 0),
-              currency: 'GBP',
+              currency: paymentDetails?.currency?.toUpperCase() || 'GBP',
               
-              // Customer Details - NESTED OBJECT
+              // Customer Details
               customer_details: {
                 title: bookingData.title,
                 first_name: bookingData.first_name,
@@ -607,7 +786,7 @@ router.post('/bookings',
                 phone_number: bookingData.phone_number
               },
               
-              // Travel Details - NESTED OBJECT
+              // Travel Details
               travel_details: {
                 dropoff_date: bookingData.dropoff_date,
                 dropoff_time: bookingData.dropoff_time,
@@ -620,7 +799,7 @@ router.post('/bookings',
                 passenger_count: parseInt(bookingData.passenger) || 1
               },
               
-              // Vehicle Details - NESTED OBJECT
+              // Vehicle Details
               vehicle_details: {
                 car_registration_number: bookingData.car_registration_number.toUpperCase(),
                 car_make: bookingData.car_make,
@@ -628,11 +807,15 @@ router.post('/bookings',
                 car_color: bookingData.car_color
               },
               
-              // Payment Details - SIMPLIFIED
+              // Payment Details - WITH STRIPE INFORMATION
               payment_details: {
-                payment_method: bookingData.paymentgateway || 'Invoice',
-                payment_token: magrBookingData.payment_token,
-                payment_status: 'confirmed'
+                payment_method: 'Stripe',
+                payment_token: payment_intent_id,
+                payment_status: 'paid', // Payment is already confirmed
+                payment_reference: payment_intent_id,
+                stripe_payment_intent_id: payment_intent_id,
+                stripe_amount: paymentDetails?.amount,
+                stripe_currency: paymentDetails?.currency
               },
               
               // Service Features
@@ -645,51 +828,40 @@ router.post('/bookings',
               // Status and Response
               status: 'confirmed',
               magr_response: magrResult,
-              notes: `Booking created via Parksy dashboard by ${req.user.email}`
+              notes: `Paid booking created via Stripe by ${req.user.email}. Payment ID: ${payment_intent_id}`
             });
 
-            // SAVE to database
             await savedBooking.save();
             databaseSaveSuccess = true;
             
-            console.log('✅ Booking successfully saved to OUR database:', {
+            console.log('✅ PAID booking saved to database:', {
               bookingId: savedBooking._id,
               ourReference: savedBooking.our_reference,
               magrReference: savedBooking.magr_reference,
-              customerEmail: savedBooking.customer_details.customer_email,
-              amount: savedBooking.booking_amount
+              paymentIntentId: payment_intent_id,
+              amount: savedBooking.booking_amount,
+              paymentStatus: 'paid'
             });
             
           } catch (dbError) {
-            console.error('❌ Database save failed:', {
+            console.error('❌ Database save failed for PAID booking:', {
               error: dbError.message,
               name: dbError.name,
-              code: dbError.code,
-              validationErrors: dbError.errors ? Object.keys(dbError.errors) : [],
-              stack: dbError.stack?.substring(0, 500)
+              payment_intent_id: payment_intent_id,
+              magr_reference: magrResult.reference
             });
-            
-            // Log full validation errors for debugging
-            if (dbError.errors) {
-              console.error('🔍 Detailed validation errors:');
-              Object.keys(dbError.errors).forEach(field => {
-                console.error(`  - ${field}: ${dbError.errors[field].message}`);
-              });
-            }
-            
-            console.error('⚠️ BOOKING CONFIRMED WITH MAGR BUT DATABASE SAVE FAILED!');
-            console.error('📋 MAGR booking still successful with reference:', magrResult.reference);
           }
-        } else {
-          console.log('⚠️ Booking model not available - MAGR booking successful but not saved locally');
         }
 
-        // ALWAYS return success if MAGR booking succeeded
-        // Even if database save failed, the customer has a valid booking
+        // Step 6: Return success response
         const responseData = {
           our_reference: ourBookingRef,
           magr_reference: magrResult.data?.reference || magrResult.reference,
           booking_id: magrResult.data?.booking_id,
+          payment_intent_id: payment_intent_id,
+          payment_status: 'paid',
+          payment_amount: paymentDetails?.amount,
+          payment_currency: paymentDetails?.currency,
           status: 'confirmed',
           database_saved: databaseSaveSuccess,
           database_id: savedBooking?._id,
@@ -700,7 +872,7 @@ router.post('/bookings',
           airport: bookingData.airport_code,
           company_code: bookingData.company_code,
           total_amount: parseFloat(bookingData.booking_amount),
-          commission: savedBooking?.commission_amount || (parseFloat(bookingData.booking_amount) * parseFloat(bookingData.commission_percentage || 0) / 100),
+          commission: savedBooking?.commission_amount || 0,
           travel_details: {
             dropoff_date: bookingData.dropoff_date,
             dropoff_time: bookingData.dropoff_time,
@@ -716,32 +888,50 @@ router.post('/bookings',
           }
         };
 
-        // Success response
         res.json({
           success: true,
-          message: databaseSaveSuccess 
-            ? 'Booking created successfully and saved to our database!' 
-            : 'Booking created successfully with MAGR (database save failed but booking is valid)',
+          message: 'Booking created successfully with payment!',
           data: responseData
         });
 
       } else {
-        // MAGR API booking failed
-        throw new Error(magrResult.message || 'MAGR API booking failed');
+        // MAGR booking failed - REFUND the payment automatically
+        console.error('❌ MAGR booking failed, initiating refund...');
+        
+        try {
+          const refundResult = await StripeService.createRefund(payment_intent_id, null, 'booking_failed');
+          console.log('💰 Payment refunded due to booking failure:', refundResult.refund_id);
+          
+          return res.status(500).json({
+            success: false,
+            message: `Booking failed: ${magrResult.message}. Your payment has been automatically refunded.`,
+            refund_id: refundResult.refund_id,
+            refund_status: refundResult.status
+          });
+        } catch (refundError) {
+          console.error('❌ CRITICAL: Booking failed AND refund failed!', refundError.message);
+          
+          return res.status(500).json({
+            success: false,
+            message: `Booking failed: ${magrResult.message}. CRITICAL: Automatic refund failed. Please contact support immediately.`,
+            payment_intent_id: payment_intent_id,
+            refund_error: refundError.message,
+            requires_manual_refund: true
+          });
+        }
       }
 
     } catch (error) {
-      console.error('❌ BOOKING ERROR:', {
+      console.error('❌ BOOKING WITH PAYMENT ERROR:', {
         message: error.message,
         user: req.user?.email,
-        company_code: req.body?.company_code,
-        stack: error.stack?.substring(0, 300),
+        payment_intent_id: req.body?.payment_intent_id,
         timestamp: new Date().toISOString()
       });
       
       res.status(500).json({
         success: false,
-        message: 'Failed to create booking',
+        message: 'Failed to create booking with payment',
         error: error.message,
         timestamp: new Date().toISOString()
       });
@@ -749,7 +939,74 @@ router.post('/bookings',
   }
 );
 
-// UPDATED: Get user's bookings with better error handling
+// ===== LEGACY BOOKING ROUTE (WITHOUT PAYMENT) - DEPRECATED =====
+
+// Old booking route - now redirects to payment flow
+router.post('/bookings', 
+  authenticateToken,
+  async (req, res) => {
+    console.log('⚠️ Legacy booking endpoint accessed - redirecting to payment flow');
+    
+    res.status(400).json({
+      success: false,
+      message: 'This booking endpoint is deprecated. Please use the payment flow.',
+      redirect_to: '/create-payment-intent',
+      required_steps: [
+        '1. Create payment intent with /create-payment-intent',
+        '2. Process payment on frontend with Stripe',
+        '3. Create booking with /bookings-with-payment'
+      ]
+    });
+  }
+);
+
+// ===== STRIPE WEBHOOK =====
+
+// Stripe webhook handler
+router.post('/stripe-webhook', 
+  express.raw({ type: 'application/json' }),
+  async (req, res) => {
+    try {
+      if (!StripeService) {
+        throw new Error('Stripe service not available');
+      }
+
+      const signature = req.headers['stripe-signature'];
+      const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+      if (!endpointSecret) {
+        console.error('❌ Stripe webhook secret not configured');
+        return res.status(500).json({ error: 'Webhook secret not configured' });
+      }
+
+      let event;
+      try {
+        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+        event = stripe.webhooks.constructEvent(req.body, signature, endpointSecret);
+      } catch (err) {
+        console.error('❌ Webhook signature verification failed:', err.message);
+        return res.status(400).send(`Webhook Error: ${err.message}`);
+      }
+
+      console.log('🔔 Stripe webhook received:', event.type);
+
+      // Handle the event
+      const result = await StripeService.handleWebhook(event);
+      
+      res.json({ received: true, result: result });
+    } catch (error) {
+      console.error('❌ Webhook handling error:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+);
+
+// ===== BOOKING MANAGEMENT ROUTES =====
+
+// Get user's bookings with enhanced payment information
 if (Booking) {
   router.get('/my-bookings', authenticateToken, async (req, res) => {
     try {
@@ -776,14 +1033,22 @@ if (Booking) {
           booking_amount: booking.booking_amount,
           commission_amount: booking.commission_amount,
           currency: booking.currency,
+          // Enhanced payment information
+          payment_method: booking.payment_details?.payment_method,
+          payment_status: booking.payment_details?.payment_status,
+          stripe_payment_intent_id: booking.payment_details?.stripe_payment_intent_id,
+          // Travel details
           dropoff_date: booking.travel_details?.dropoff_date,
           dropoff_time: booking.travel_details?.dropoff_time,
           pickup_date: booking.travel_details?.pickup_date,
           pickup_time: booking.travel_details?.pickup_time,
+          // Vehicle details
           vehicle_registration: booking.vehicle_details?.car_registration_number,
+          // Metadata
           created_at: booking.created_at,
           can_cancel: booking.canBeCancelled(),
-          can_edit: booking.canBeAmended()
+          can_edit: booking.canBeAmended(),
+          is_paid: booking.payment_details?.payment_status === 'paid'
         })),
         count: bookings.length,
         user: req.user.email
@@ -799,7 +1064,7 @@ if (Booking) {
     }
   });
 
-  // Get specific booking details
+  // Get specific booking details with payment information
   router.get('/bookings/:reference', authenticateToken, async (req, res) => {
     try {
       const { reference } = req.params;
@@ -825,9 +1090,16 @@ if (Booking) {
       res.json({
         success: true,
         data: booking.toDisplayFormat(),
+        payment_details: {
+          method: booking.payment_details?.payment_method,
+          status: booking.payment_details?.payment_status,
+          stripe_payment_intent_id: booking.payment_details?.stripe_payment_intent_id,
+          amount: booking.payment_details?.stripe_amount,
+          currency: booking.payment_details?.stripe_currency
+        },
         can_cancel: booking.canBeCancelled(),
         can_edit: booking.canBeAmended(),
-        raw_data: booking // Include full booking data for debugging
+        raw_data: booking
       });
       
     } catch (error) {
@@ -835,6 +1107,91 @@ if (Booking) {
       res.status(500).json({
         success: false,
         message: 'Failed to fetch booking details',
+        error: error.message
+      });
+    }
+  });
+
+  // Cancel booking with refund handling
+  router.post('/bookings/:reference/cancel', authenticateToken, async (req, res) => {
+    try {
+      const { reference } = req.params;
+      const { reason } = req.body;
+
+      console.log('❌ Cancellation request for booking:', reference);
+
+      const booking = await Booking.findOne({
+        $or: [
+          { our_reference: reference },
+          { magr_reference: reference }
+        ],
+        user_email: req.user.email
+      });
+
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found or not accessible'
+        });
+      }
+
+      if (!booking.canBeCancelled()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Booking cannot be cancelled at this time'
+        });
+      }
+
+      // Cancel with MAGR API
+      const cancelResult = await MagrApiService.cancelBooking(booking.magr_reference);
+
+      if (cancelResult.success) {
+        // Process refund if payment was made via Stripe
+        let refundResult = null;
+        if (booking.payment_details?.stripe_payment_intent_id && StripeService) {
+          try {
+            refundResult = await StripeService.createRefund(
+              booking.payment_details.stripe_payment_intent_id,
+              null,
+              reason || 'cancelled_by_customer'
+            );
+            console.log('💰 Refund processed:', refundResult.refund_id);
+          } catch (refundError) {
+            console.error('❌ Refund failed:', refundError.message);
+            // Don't fail the entire cancellation if refund fails
+          }
+        }
+
+        // Update booking status
+        booking.status = 'cancelled';
+        booking.cancelled_at = new Date();
+        booking.notes = `${booking.notes || ''}\nCancelled by user: ${reason || 'No reason provided'}`;
+        
+        if (refundResult) {
+          booking.payment_details.refund_amount = refundResult.amount;
+          booking.payment_details.payment_status = 'refunded';
+        }
+
+        await booking.save();
+
+        res.json({
+          success: true,
+          message: 'Booking cancelled successfully',
+          refund: refundResult ? {
+            refund_id: refundResult.refund_id,
+            amount: refundResult.amount,
+            status: refundResult.status
+          } : null
+        });
+      } else {
+        throw new Error(cancelResult.message || 'Cancellation failed');
+      }
+
+    } catch (error) {
+      console.error('❌ Error cancelling booking:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to cancel booking',
         error: error.message
       });
     }

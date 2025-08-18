@@ -263,12 +263,12 @@ const bookingSchema = new mongoose.Schema({
     index: true
   },
 
-  // Payment Details - SIMPLIFIED (no payment processing)
+  // Payment Details - ENHANCED WITH STRIPE INTEGRATION
   payment_details: {
     payment_method: {
       type: String,
       enum: ['Invoice', 'Card', 'PayPal', 'Cash', 'Bank_Transfer', 'Stripe', 'None'],
-      default: 'Invoice'
+      default: 'Stripe' // Changed default to Stripe since routes use payment flow
     },
     payment_token: {
       type: String,
@@ -277,9 +277,62 @@ const bookingSchema = new mongoose.Schema({
     },
     payment_status: {
       type: String,
-      enum: ['pending', 'paid', 'failed', 'not_required', 'confirmed'],
-      default: 'confirmed',
+      enum: ['pending', 'paid', 'failed', 'not_required', 'confirmed', 'refunded', 'partially_refunded'],
+      default: 'pending', // Changed default to pending for payment flow
       index: true
+    },
+    payment_reference: {
+      type: String,
+      required: false,
+      trim: true
+    },
+    // Stripe-specific fields - MATCHES your route implementation
+    stripe_payment_intent_id: {
+      type: String,
+      required: false,
+      trim: true,
+      index: true // For quick lookups
+    },
+    stripe_amount: {
+      type: Number,
+      required: false,
+      min: 0
+    },
+    stripe_currency: {
+      type: String,
+      required: false,
+      uppercase: true,
+      default: 'GBP'
+    },
+    stripe_customer_id: {
+      type: String,
+      required: false,
+      trim: true
+    },
+    // Refund tracking
+    refund_amount: {
+      type: Number,
+      required: false,
+      min: 0,
+      default: 0
+    },
+    refund_reference: {
+      type: String,
+      required: false,
+      trim: true
+    },
+    refund_date: {
+      type: Date,
+      required: false
+    },
+    // Payment timestamps
+    payment_date: {
+      type: Date,
+      required: false
+    },
+    payment_confirmed_at: {
+      type: Date,
+      required: false
     }
   },
 
@@ -308,6 +361,10 @@ const bookingSchema = new mongoose.Schema({
   updated_at: {
     type: Date,
     default: Date.now
+  },
+  cancelled_at: {
+    type: Date,
+    required: false
   },
   
   // MAGR API Response Data - for debugging
@@ -338,10 +395,14 @@ bookingSchema.index({ company_code: 1 });
 bookingSchema.index({ status: 1 });
 bookingSchema.index({ created_at: -1 });
 bookingSchema.index({ 'travel_details.dropoff_date': 1 });
+// Stripe-specific indexes
+bookingSchema.index({ 'payment_details.stripe_payment_intent_id': 1 });
+bookingSchema.index({ 'payment_details.payment_status': 1 });
 
 // Compound indexes for common queries
 bookingSchema.index({ user_email: 1, status: 1 });
 bookingSchema.index({ airport_code: 1, 'travel_details.dropoff_date': 1 });
+bookingSchema.index({ user_email: 1, 'payment_details.payment_status': 1 });
 
 // Pre-save middleware
 bookingSchema.pre('save', function(next) {
@@ -356,6 +417,11 @@ bookingSchema.pre('save', function(next) {
   // Ensure user_email matches customer_details.customer_email
   if (this.customer_details && this.customer_details.customer_email) {
     this.user_email = this.customer_details.customer_email.toLowerCase();
+  }
+  
+  // Set payment confirmation timestamp when status changes to paid
+  if (this.payment_details.payment_status === 'paid' && !this.payment_details.payment_confirmed_at) {
+    this.payment_details.payment_confirmed_at = new Date();
   }
   
   next();
@@ -373,6 +439,17 @@ bookingSchema.virtual('duration_days').get(function() {
   const pickup = new Date(this.travel_details.pickup_date);
   const diffTime = Math.abs(pickup - dropoff);
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+});
+
+// Virtual for payment status checking
+bookingSchema.virtual('is_paid').get(function() {
+  return this.payment_details && this.payment_details.payment_status === 'paid';
+});
+
+bookingSchema.virtual('is_refunded').get(function() {
+  return this.payment_details && 
+         (this.payment_details.payment_status === 'refunded' || 
+          this.payment_details.payment_status === 'partially_refunded');
 });
 
 // Instance methods
@@ -396,7 +473,15 @@ bookingSchema.methods.canBeAmended = function() {
          hoursUntilDropoff > 48;
 };
 
-// Method to format booking for display - MATCHES your route response format
+// Method to check if booking can be refunded
+bookingSchema.methods.canBeRefunded = function() {
+  return this.payment_details && 
+         this.payment_details.payment_status === 'paid' && 
+         this.payment_details.stripe_payment_intent_id && 
+         ['confirmed', 'active', 'cancelled'].includes(this.status);
+};
+
+// Method to format booking for display - ENHANCED WITH STRIPE INFO
 bookingSchema.methods.toDisplayFormat = function() {
   return {
     id: this._id,
@@ -414,9 +499,17 @@ bookingSchema.methods.toDisplayFormat = function() {
     commission: this.commission_amount,
     currency: this.currency,
     status: this.status,
+    // Enhanced payment information
     payment_status: this.payment_details.payment_status,
+    payment_method: this.payment_details.payment_method,
+    is_paid: this.is_paid,
+    is_refunded: this.is_refunded,
+    stripe_payment_intent_id: this.payment_details.stripe_payment_intent_id,
+    refund_amount: this.payment_details.refund_amount,
+    // Action capabilities
     can_cancel: this.canBeCancelled(),
     can_amend: this.canBeAmended(),
+    can_refund: this.canBeRefunded(),
     created: this.created_at,
     vehicle: {
       registration: this.vehicle_details.car_registration_number,
@@ -438,6 +531,23 @@ bookingSchema.statics.findRecent = function(limit = 10) {
 
 bookingSchema.statics.findByStatus = function(status, limit = 50) {
   return this.find({ status }).sort({ created_at: -1 }).limit(limit);
+};
+
+// Stripe-specific static methods
+bookingSchema.statics.findByPaymentIntent = function(paymentIntentId) {
+  return this.findOne({ 'payment_details.stripe_payment_intent_id': paymentIntentId });
+};
+
+bookingSchema.statics.findPaidBookings = function(limit = 50) {
+  return this.find({ 'payment_details.payment_status': 'paid' })
+             .sort({ created_at: -1 })
+             .limit(limit);
+};
+
+bookingSchema.statics.findPendingPayments = function(limit = 50) {
+  return this.find({ 'payment_details.payment_status': 'pending' })
+             .sort({ created_at: -1 })
+             .limit(limit);
 };
 
 // Better error handling

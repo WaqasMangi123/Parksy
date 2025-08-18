@@ -8,19 +8,70 @@ const http = require('http');
 const socketio = require('socket.io');
 const path = require('path');
 
-// Validate required environment variables
+// Validate required environment variables - UPDATED WITH STRIPE
 const requiredEnvVars = [
   'MONGO_URI',
   'JWT_SECRET',
   'ADMIN_EMAIL',
-  'ADMIN_PASSWORD'
+  'ADMIN_PASSWORD',
+  // Stripe required environment variables
+  'STRIPE_SECRET_KEY',
+  'STRIPE_PUBLISHABLE_KEY'
+];
+
+// Optional Stripe environment variables (warn if missing but don't exit)
+const optionalStripeVars = [
+  'STRIPE_WEBHOOK_SECRET'
 ];
 
 const missingVars = requiredEnvVars.filter(v => !process.env[v]);
 if (missingVars.length > 0) {
   console.error('❌ Missing required environment variables:', missingVars);
+  console.error('📝 Required Stripe variables:');
+  console.error('   - STRIPE_SECRET_KEY=sk_test_... (from Stripe Dashboard)');
+  console.error('   - STRIPE_PUBLISHABLE_KEY=pk_test_... (from Stripe Dashboard)');
   process.exit(1);
 }
+
+// Check optional Stripe variables
+const missingOptionalVars = optionalStripeVars.filter(v => !process.env[v]);
+if (missingOptionalVars.length > 0) {
+  console.warn('⚠️ Missing optional Stripe environment variables:', missingOptionalVars);
+  console.warn('   - STRIPE_WEBHOOK_SECRET=whsec_... (needed for webhook security)');
+}
+
+// Validate Stripe keys format
+const validateStripeKeys = () => {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  const publishableKey = process.env.STRIPE_PUBLISHABLE_KEY;
+  
+  if (secretKey && !secretKey.startsWith('sk_')) {
+    console.error('❌ Invalid STRIPE_SECRET_KEY format. Should start with "sk_"');
+    process.exit(1);
+  }
+  
+  if (publishableKey && !publishableKey.startsWith('pk_')) {
+    console.error('❌ Invalid STRIPE_PUBLISHABLE_KEY format. Should start with "pk_"');
+    process.exit(1);
+  }
+  
+  // Check if using test or live keys
+  const isTestMode = secretKey?.includes('test') && publishableKey?.includes('test');
+  const isLiveMode = secretKey?.includes('live') && publishableKey?.includes('live');
+  
+  if (!isTestMode && !isLiveMode) {
+    console.error('❌ Stripe keys mismatch. Both keys should be either test or live keys.');
+    process.exit(1);
+  }
+  
+  console.log(`💳 Stripe configured in ${isTestMode ? 'TEST' : 'LIVE'} mode`);
+  
+  if (process.env.NODE_ENV === 'production' && isTestMode) {
+    console.warn('⚠️ WARNING: Using Stripe TEST keys in production environment!');
+  }
+};
+
+validateStripeKeys();
 
 // Initialize Express
 const app = express();
@@ -214,7 +265,7 @@ routes.forEach(route => {
 
 console.log('✅ All routes loaded and mounted');
 
-// Health check endpoint - Enhanced
+// Health check endpoint - ENHANCED WITH STRIPE STATUS
 app.get('/api/health', (req, res) => {
   const dbStatus = mongoose.connection.readyState;
   const dbStates = {
@@ -222,6 +273,17 @@ app.get('/api/health', (req, res) => {
     1: 'connected',
     2: 'connecting',
     3: 'disconnecting'
+  };
+
+  // Check Stripe configuration
+  const stripeStatus = {
+    secret_key_configured: !!process.env.STRIPE_SECRET_KEY,
+    publishable_key_configured: !!process.env.STRIPE_PUBLISHABLE_KEY,
+    webhook_secret_configured: !!process.env.STRIPE_WEBHOOK_SECRET,
+    mode: process.env.STRIPE_SECRET_KEY?.includes('test') ? 'test' : 
+          process.env.STRIPE_SECRET_KEY?.includes('live') ? 'live' : 'unknown',
+    keys_match: (process.env.STRIPE_SECRET_KEY?.includes('test') && process.env.STRIPE_PUBLISHABLE_KEY?.includes('test')) ||
+                (process.env.STRIPE_SECRET_KEY?.includes('live') && process.env.STRIPE_PUBLISHABLE_KEY?.includes('live'))
   };
 
   res.status(200).json({
@@ -237,8 +299,10 @@ app.get('/api/health', (req, res) => {
     services: {
       parking: 'available',
       ev_charging: 'available',
-      core_api: 'running'
-    }
+      core_api: 'running',
+      stripe_payments: stripeStatus.secret_key_configured && stripeStatus.publishable_key_configured ? 'configured' : 'not_configured'
+    },
+    stripe: stripeStatus
   });
 });
 
@@ -265,12 +329,21 @@ app.get('/api', (req, res) => {
     ],
     new_features: [
       'EV Charging Station Search',
-      'Airport Parking Services'
+      'Airport Parking Services',
+      'Stripe Payment Integration'
+    ],
+    payment_features: [
+      'Secure Stripe Payments',
+      'Real-time Payment Processing',
+      'Automatic Refunds',
+      'Payment Verification'
     ],
     cors_domains: [
       'https://parksy.uk',
       'https://www.parksy.uk'
-    ]
+    ],
+    stripe_mode: process.env.STRIPE_SECRET_KEY?.includes('test') ? 'test' : 
+                 process.env.STRIPE_SECRET_KEY?.includes('live') ? 'live' : 'not_configured'
   });
 });
 
@@ -287,6 +360,11 @@ app.get('/', (req, res) => {
       docs: '/api',
       parking: '/api/parking',
       ev_charging: '/api/ev-charging'
+    },
+    payments: {
+      stripe_enabled: !!(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_PUBLISHABLE_KEY),
+      payment_modes: ['stripe'],
+      stripe_mode: process.env.STRIPE_SECRET_KEY?.includes('test') ? 'test' : 'live'
     }
   });
 });
@@ -395,6 +473,7 @@ try {
     console.log(`📡 Port: ${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🗄️  Database: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Connecting...'}`);
+    console.log(`💳 Stripe: ${process.env.STRIPE_SECRET_KEY?.includes('test') ? 'TEST MODE' : 'LIVE MODE'}`);
     console.log(`🔗 Health Check: http://localhost:${PORT}/api/health`);
     console.log(`📋 API Routes: http://localhost:${PORT}/api`);
     console.log('🚀 ====================================\n');
