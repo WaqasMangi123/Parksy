@@ -3,16 +3,41 @@ import {
   MapPin, Zap, Grid3X3, Map, Search, Clock, Star, ChevronRight, 
   X, Loader2, Plane, Calendar, Users, Car, Shield, Wifi, Camera, 
   CheckCircle, AlertCircle, Navigation, Home, Settings, Bell,
-  Phone, Mail, CreditCard, Globe, Award
+  Phone, Mail, CreditCard, Globe, Award, Lock
 } from "lucide-react";
 import "./home.css";
 
 const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoicGFya3N5dWsiLCJhIjoiY21kODNsaG0yMGw3bzJscXN1bmlkbHk4ZiJ9.DaA0-wfNgf-1PIhJyHXCxg';
 
+// Load Stripe
+const loadStripe = async () => {
+  if (window.Stripe) return window.Stripe;
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://js.stripe.com/v3/';
+    script.onload = () => {
+      resolve(window.Stripe);
+    };
+    script.onerror = () => {
+      reject(new Error('Failed to load Stripe'));
+    };
+    document.head.appendChild(script);
+  });
+};
+
 const ProfessionalParksyDashboard = () => {
   // API Configuration - Fixed to deployed backend only
   const API_BASE_URL = "https://parksy-backend.onrender.com";
   
+  // Stripe Configuration
+  const [stripe, setStripe] = useState(null);
+  const [stripePublishableKey, setStripePublishableKey] = useState(null);
+  const [paymentIntentId, setPaymentIntentId] = useState(null);
+  const [paymentStatus, setPaymentStatus] = useState(null);
+  const [processingPayment, setProcessingPayment] = useState(false);
+  const [paymentStep, setPaymentStep] = useState(1); // 1: Form, 2: Payment, 3: Booking
+
   // Map references
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
@@ -72,7 +97,7 @@ const [searchParams, setSearchParams] = useState({
     car_model: "",
     car_color: "",
     passenger: 1,
-    paymentgateway: "Invoice"
+    paymentgateway: "Stripe"
   });
 
   // ========== PRODUCTION AUTHENTICATION FUNCTIONS ==========
@@ -218,6 +243,44 @@ const [searchParams, setSearchParams] = useState({
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
+
+  // ========== STRIPE INITIALIZATION ==========
+
+  useEffect(() => {
+    const initializeStripe = async () => {
+      try {
+        console.log('🔄 Initializing Stripe...');
+        
+        // Get Stripe publishable key from backend
+        const response = await fetch(`${API_BASE_URL}/api/parking/stripe-config`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.publishable_key) {
+            console.log('✅ Got Stripe publishable key');
+            setStripePublishableKey(data.publishable_key);
+            
+            // Load Stripe with the key
+            const stripeInstance = await loadStripe();
+            const stripeClient = stripeInstance(data.publishable_key);
+            setStripe(stripeClient);
+            
+            console.log('✅ Stripe initialized successfully');
+          } else {
+            throw new Error('Failed to get Stripe config');
+          }
+        } else {
+          throw new Error('Failed to fetch Stripe config');
+        }
+      } catch (error) {
+        console.error('❌ Stripe initialization error:', error);
+        setApiError(`Stripe setup error: ${error.message}`);
+      }
+    };
+
+    if (connectionStatus === 'connected') {
+      initializeStripe();
+    }
+  }, [connectionStatus, API_BASE_URL]);
 
   // ========== API FUNCTIONS ==========
 
@@ -385,75 +448,167 @@ const [searchParams, setSearchParams] = useState({
     }
   }, [searchParams, connectionStatus, API_BASE_URL]);
 
-  // ========== EVENT HANDLERS ==========
+  // ========== STRIPE PAYMENT FUNCTIONS ==========
 
-  const handleSearch = () => {
-    console.log('🔍 Search button clicked with:', {
-      connectionStatus,
-      searchParams,
-      timestamp: new Date().toISOString()
-    });
-
-    if (connectionStatus !== 'connected') {
-      console.log('❌ Search blocked - backend not connected');
-      setApiError('Backend server is not connected. Please wait for connection or refresh the page.');
-      return;
-    }
-
-    console.log('✅ Starting search...');
-    fetchParkingProducts();
-  };
-
-  const handleSearchParamChange = (field, value) => {
-    setSearchParams(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleBookingChange = (e) => {
-    const { name, value } = e.target;
-    setBookingDetails(prev => ({ ...prev, [name]: value }));
-  };
-
-  // PRODUCTION BOOKING SUBMIT WITH REAL AUTHENTICATION
-  const handleBookingSubmit = async (e) => {
-    e.preventDefault();
-    
-    console.log('🎫 Booking submission started...');
-    
-    // Check if user is logged in FIRST
-    if (!isUserLoggedIn()) {
-      console.log('❌ User not logged in - blocking booking');
-      setBookingStatus({
-        success: false,
-        message: 'Please log in to make a booking. You must sign in to book parking spaces through our system.'
-      });
-      setBookingStep(2);
-      return;
-    }
-
-    // Get user info and token for request
-    const userInfo = getUserInfoFromToken();
-    const authToken = getAuthToken();
-    
-    console.log('👤 Processing booking for authenticated user:', {
-      email: userInfo?.email || 'Unknown',
-      userId: userInfo?.id || userInfo?.user_id || userInfo?.sub || 'Unknown',
-      hasToken: !!authToken,
-      tokenLength: authToken?.length || 0
-    });
-
-    setIsLoading(true);
-    setBookingStatus(null);
-    
+  const createPaymentIntent = async () => {
     try {
-      // Prepare comprehensive booking data with authentication token
+      console.log('💳 Creating payment intent...');
+      
+      if (!selectedSpot) {
+        throw new Error('No parking spot selected');
+      }
+
+      if (!authStatus.isLoggedIn) {
+        throw new Error('User must be logged in');
+      }
+
+      const authToken = getAuthToken();
+      const paymentData = {
+        amount: parseFloat(selectedSpot.price || selectedSpot.formatted_price),
+        currency: 'gbp',
+        service_name: selectedSpot.name,
+        airport_code: searchParams.airport_code,
+        company_code: selectedSpot.company_code || selectedSpot.product_code,
+        dropoff_date: searchParams.dropoff_date,
+        pickup_date: searchParams.pickup_date,
+        token: authToken,
+        auth_token: authToken
+      };
+
+      console.log('🚀 Creating payment intent with data:', {
+        amount: paymentData.amount,
+        service: paymentData.service_name,
+        user: authStatus.user?.email
+      });
+
+      const response = await fetch(`${API_BASE_URL}/api/parking/create-payment-intent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify(paymentData)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Payment intent creation failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        setPaymentIntentId(result.payment_intent_id);
+        setPaymentStatus('payment_intent_created');
+        console.log('✅ Payment intent created:', result.payment_intent_id);
+        return result;
+      } else {
+        throw new Error(result.message || 'Failed to create payment intent');
+      }
+    } catch (error) {
+      console.error('❌ Payment intent creation error:', error);
+      throw error;
+    }
+  };
+
+  const processStripePayment = async (clientSecret) => {
+    try {
+      if (!stripe) {
+        throw new Error('Stripe not initialized');
+      }
+
+      console.log('💳 Processing Stripe payment...');
+      setProcessingPayment(true);
+
+      const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: {
+            // Using test card number for demonstration
+            number: '4242424242424242',
+            exp_month: 12,
+            exp_year: 2025,
+            cvc: '123',
+          },
+          billing_details: {
+            name: `${bookingDetails.first_name} ${bookingDetails.last_name}`,
+            email: bookingDetails.customer_email,
+            phone: bookingDetails.phone_number,
+          },
+        }
+      });
+
+      if (error) {
+        console.error('❌ Stripe payment error:', error);
+        throw new Error(`Payment failed: ${error.message}`);
+      }
+
+      if (paymentIntent.status === 'succeeded') {
+        console.log('✅ Payment successful:', paymentIntent.id);
+        setPaymentStatus('payment_succeeded');
+        return paymentIntent;
+      } else {
+        throw new Error(`Payment status: ${paymentIntent.status}`);
+      }
+    } catch (error) {
+      console.error('❌ Stripe payment processing error:', error);
+      throw error;
+    } finally {
+      setProcessingPayment(false);
+    }
+  };
+
+  const verifyPayment = async (paymentIntentId) => {
+    try {
+      console.log('🔍 Verifying payment:', paymentIntentId);
+
+      const authToken = getAuthToken();
+      const response = await fetch(`${API_BASE_URL}/api/parking/verify-payment/${paymentIntentId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Payment verification failed');
+      }
+
+      const result = await response.json();
+      console.log('✅ Payment verification result:', result);
+      
+      return result.is_paid;
+    } catch (error) {
+      console.error('❌ Payment verification error:', error);
+      throw error;
+    }
+  };
+
+  const createBookingWithPayment = async (paymentIntentId) => {
+    try {
+      console.log('🎫 Creating booking with payment:', paymentIntentId);
+
+      if (!authStatus.isLoggedIn) {
+        throw new Error('User must be logged in');
+      }
+
+      const authToken = getAuthToken();
+      const userInfo = getUserInfoFromToken();
+
+      // Prepare comprehensive booking data with payment intent
       const bookingData = {
-        // Include authentication token - try multiple ways
+        // Authentication
         token: authToken,
         auth_token: authToken,
+        
+        // Payment
+        payment_intent_id: paymentIntentId,
         
         // Service details
         company_code: selectedSpot.company_code || selectedSpot.product_code,
         product_name: selectedSpot.name,
+        product_code: selectedSpot.product_code,
         airport_code: searchParams.airport_code,
         parking_type: selectedSpot.parking_type,
         
@@ -487,38 +642,31 @@ const [searchParams, setSearchParams] = useState({
         car_model: bookingDetails.car_model,
         car_color: bookingDetails.car_color,
         
-        // Payment details
-        paymentgateway: bookingDetails.paymentgateway || 'Invoice',
-        payment_token: `pi_${Math.random().toString(36).substring(2, 15)}`,
-        
         // Service features
         is_cancelable: selectedSpot.cancelable === 'Yes',
         is_editable: selectedSpot.editable === 'Yes',
         special_features: selectedSpot.features_array || []
       };
 
-      console.log('🚀 Submitting authenticated booking:', {
+      console.log('🚀 Submitting paid booking with data:', {
+        payment_intent_id: paymentIntentId,
         user: userInfo?.email,
         service: bookingData.product_name,
         airport: bookingData.airport_code,
-        amount: bookingData.booking_amount,
-        hasToken: !!authToken,
-        authMethod: 'token_in_body'
+        amount: bookingData.booking_amount
       });
 
-      // Make API request with comprehensive headers
-      const response = await fetch(`${API_BASE_URL}/api/parking/bookings`, {
+      const response = await fetch(`${API_BASE_URL}/api/parking/bookings-with-payment`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // Also try Authorization header as backup
           'Authorization': `Bearer ${authToken}`,
         },
         body: JSON.stringify(bookingData)
       });
-      
+
       console.log('📋 Booking API Response Status:', response.status, response.statusText);
-      
+
       if (!response.ok) {
         let errorMessage;
         try {
@@ -532,42 +680,136 @@ const [searchParams, setSearchParams] = useState({
         }
         throw new Error(`Booking failed: ${errorMessage}`);
       }
-      
+
       const result = await response.json();
-      console.log('✅ Booking response successful:', result);
-      
-      if (result.success) {
-        setBookingStatus({
-          success: true,
-          message: 'Booking confirmed successfully!',
-          reference: result.data.our_reference,
-          magrReference: result.data.magr_reference,
-          bookingId: result.data.booking_id || result.data.database_id,
-          details: {
-            user: result.data.user_email,
-            service: result.data.service,
-            airport: result.data.airport,
-            amount: result.data.total_amount,
-            commission: result.data.commission
-          }
-        });
-        setBookingStep(2);
-      } else {
-        throw new Error(result.message || 'Booking failed - unknown error');
-      }
+      console.log('✅ Booking with payment successful:', result);
+
+      return result;
     } catch (error) {
-      console.error('❌ Booking submission error:', {
-        message: error.message,
-        name: error.name,
-        timestamp: new Date().toISOString()
-      });
+      console.error('❌ Booking with payment error:', error);
+      throw error;
+    }
+  };
+
+  // ========== EVENT HANDLERS ==========
+
+  const handleSearch = () => {
+    console.log('🔍 Search button clicked with:', {
+      connectionStatus,
+      searchParams,
+      timestamp: new Date().toISOString()
+    });
+
+    if (connectionStatus !== 'connected') {
+      console.log('❌ Search blocked - backend not connected');
+      setApiError('Backend server is not connected. Please wait for connection or refresh the page.');
+      return;
+    }
+
+    console.log('✅ Starting search...');
+    fetchParkingProducts();
+  };
+
+  const handleSearchParamChange = (field, value) => {
+    setSearchParams(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleBookingChange = (e) => {
+    const { name, value } = e.target;
+    setBookingDetails(prev => ({ ...prev, [name]: value }));
+  };
+
+  // STRIPE PAYMENT FLOW - STEP 1: FORM SUBMISSION
+  const handleBookingSubmit = async (e) => {
+    e.preventDefault();
+    
+    console.log('🎫 Starting Stripe payment flow...');
+    
+    // Check if user is logged in FIRST
+    if (!isUserLoggedIn()) {
+      console.log('❌ User not logged in - blocking booking');
       setBookingStatus({
         success: false,
-        message: error.message || 'Failed to create booking. Please try again.'
+        message: 'Please log in to make a booking. You must sign in to book parking spaces through our system.'
+      });
+      setBookingStep(2);
+      return;
+    }
+
+    if (!stripe || !stripePublishableKey) {
+      console.log('❌ Stripe not initialized');
+      setBookingStatus({
+        success: false,
+        message: 'Payment system not ready. Please refresh the page and try again.'
+      });
+      setBookingStep(2);
+      return;
+    }
+
+    setIsLoading(true);
+    setBookingStatus(null);
+    setPaymentStep(2); // Move to payment step
+
+    try {
+      // Step 1: Create payment intent
+      const paymentIntentResult = await createPaymentIntent();
+      
+      // Step 2: Process payment with Stripe
+      const paymentIntent = await processStripePayment(paymentIntentResult.client_secret);
+      
+      // Step 3: Verify payment
+      const isPaymentVerified = await verifyPayment(paymentIntent.id);
+      
+      if (!isPaymentVerified) {
+        throw new Error('Payment verification failed');
+      }
+
+      setPaymentStep(3); // Move to booking step
+
+      // Step 4: Create booking with payment
+      const bookingResult = await createBookingWithPayment(paymentIntent.id);
+      
+      if (bookingResult.success) {
+        setBookingStatus({
+          success: true,
+          message: 'Payment processed and booking confirmed successfully!',
+          reference: bookingResult.data.our_reference,
+          magrReference: bookingResult.data.magr_reference,
+          bookingId: bookingResult.data.booking_id || bookingResult.data.database_id,
+          paymentIntentId: paymentIntent.id,
+          paymentAmount: bookingResult.data.payment_amount,
+          paymentCurrency: bookingResult.data.payment_currency,
+          details: {
+            user: bookingResult.data.user_email,
+            service: bookingResult.data.service,
+            airport: bookingResult.data.airport,
+            amount: bookingResult.data.total_amount,
+            commission: bookingResult.data.commission
+          }
+        });
+        setBookingStep(2); // Show success
+      } else {
+        throw new Error(bookingResult.message || 'Booking creation failed after payment');
+      }
+
+    } catch (error) {
+      console.error('❌ Stripe payment flow error:', {
+        message: error.message,
+        name: error.name,
+        timestamp: new Date().toISOString(),
+        step: paymentStep
+      });
+      
+      setBookingStatus({
+        success: false,
+        message: error.message || 'Failed to process payment and create booking. Please try again.',
+        paymentStep: paymentStep
       });
       setBookingStep(2);
     } finally {
       setIsLoading(false);
+      setProcessingPayment(false);
+      setPaymentStep(1);
     }
   };
 
@@ -970,7 +1212,7 @@ const [searchParams, setSearchParams] = useState({
               setSelectedSpot(product);
             }}
           >
-            <span className="btn-text">Book Real-Time</span>
+            <span className="btn-text">💳 Book with Stripe</span>
             <ChevronRight size={18} className="btn-icon" />
           </button>
         </div>
@@ -1003,7 +1245,7 @@ const [searchParams, setSearchParams] = useState({
             <span className="title-accent">Airport</span>
             <span className="title-secondary">Parking</span>
           </h1>
-          <p className="header-subtitle">Premium real-time parking solutions with live availability</p>
+          <p className="header-subtitle">Premium real-time parking solutions with secure Stripe payments</p>
           <div className="header-stats">
             <div className="stat-item">
               <span className="stat-number">{filteredProducts.length}</span>
@@ -1018,6 +1260,11 @@ const [searchParams, setSearchParams] = useState({
             <div className="stat-item">
               <span className="stat-number">{connectionStatus === 'connected' ? '✅' : '❌'}</span>
               <span className="stat-label">API Status</span>
+            </div>
+            <div className="stat-divider"></div>
+            <div className="stat-item">
+              <span className="stat-number">{stripe ? '💳' : '❌'}</span>
+              <span className="stat-label">{stripe ? 'Stripe Ready' : 'Stripe Loading'}</span>
             </div>
             <div className="stat-divider"></div>
             <div className="stat-item">
@@ -1049,7 +1296,22 @@ const [searchParams, setSearchParams] = useState({
       {connectionStatus === 'connected' && (
         <div className="api-status-banner success">
           <CheckCircle size={16} />
-          <span>🔴 LIVE CONNECTION - Real-time parking data from Parksy API</span>
+          <span>🔴 LIVE CONNECTION - Real-time parking data with Stripe payments ready</span>
+        </div>
+      )}
+
+      {/* Stripe Status Banner */}
+      {!stripe && connectionStatus === 'connected' && (
+        <div className="api-status-banner warning" style={{backgroundColor: '#f59e0b', color: '#000'}}>
+          <Lock size={16} />
+          <span>💳 Loading Stripe payment system...</span>
+        </div>
+      )}
+
+      {stripe && (
+        <div className="api-status-banner success">
+          <CreditCard size={16} />
+          <span>💳 Stripe payments ready - Secure payment processing available</span>
         </div>
       )}
 
@@ -1065,7 +1327,7 @@ const [searchParams, setSearchParams] = useState({
       {authStatus.isLoggedIn && (
         <div className="api-status-banner success">
           <CheckCircle size={16} />
-          <span>👤 Welcome {authStatus.user?.email || authStatus.user?.username || 'User'} - You can now make bookings!</span>
+          <span>👤 Welcome {authStatus.user?.email || authStatus.user?.username || 'User'} - You can now make secure bookings!</span>
         </div>
       )}
 
@@ -1337,12 +1599,15 @@ const [searchParams, setSearchParams] = useState({
         )}
       </main>
 
-      {/* Parking Booking Modal */}
+      {/* Enhanced Stripe Payment & Booking Modal */}
       {selectedSpot && (
         <div className="premium-modal-overlay" onClick={() => {
           setSelectedSpot(null);
           setBookingStep(1);
           setBookingStatus(null);
+          setPaymentStep(1);
+          setPaymentIntentId(null);
+          setPaymentStatus(null);
         }}>
           <div className="premium-booking-modal" onClick={(e) => e.stopPropagation()}>
             <button 
@@ -1351,6 +1616,9 @@ const [searchParams, setSearchParams] = useState({
                 setSelectedSpot(null);
                 setBookingStep(1);
                 setBookingStatus(null);
+                setPaymentStep(1);
+                setPaymentIntentId(null);
+                setPaymentStatus(null);
               }}
             >
               <X size={20} />
@@ -1359,12 +1627,49 @@ const [searchParams, setSearchParams] = useState({
             <div className="modal-content">
               {bookingStep === 1 ? (
                 <div className="booking-step-premium">
-                  {/* Authentication Warning */}
+                  {/* Authentication & Stripe Warnings */}
                   {!authStatus.isLoggedIn && (
                     <div className="auth-warning">
                       <AlertCircle size={20} />
                       <p>You must be logged in to make bookings. Please sign in first through your authentication system.</p>
                       <small>Make sure your login system saves the authentication token to browser storage (localStorage or sessionStorage).</small>
+                    </div>
+                  )}
+
+                  {!stripe && (
+                    <div className="stripe-warning" style={{backgroundColor: '#f59e0b', color: '#000', padding: '12px', borderRadius: '8px', marginBottom: '16px'}}>
+                      <Lock size={20} />
+                      <p>Payment system is loading. Please wait for Stripe to initialize.</p>
+                      <small>Secure payment processing will be available shortly.</small>
+                    </div>
+                  )}
+
+                  {/* Payment Processing Status */}
+                  {(processingPayment || paymentStep > 1) && (
+                    <div className="payment-status-banner" style={{
+                      backgroundColor: paymentStep === 3 ? '#10b981' : '#3b82f6',
+                      color: 'white',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      marginBottom: '16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}>
+                      {processingPayment ? (
+                        <>
+                          <Loader2 size={16} className="animate-spin" />
+                          <span>
+                            {paymentStep === 2 ? '💳 Processing Payment...' : 
+                             paymentStep === 3 ? '🎫 Creating Booking...' : '🔄 Processing...'}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <CreditCard size={16} />
+                          <span>💳 Ready for Stripe Payment</span>
+                        </>
+                      )}
                     </div>
                   )}
 
@@ -1385,14 +1690,15 @@ const [searchParams, setSearchParams] = useState({
                           <span className="badge cancelable">Cancelable</span>
                         )}
                         <span className="badge live">🔴 Real-Time Pricing</span>
+                        <span className="badge stripe">💳 Stripe Secure</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Service Overview */}
                   <div className="service-overview-premium">
-                    <h4>Real-Time Service Details</h4>
-                    <p>Live parking service with real-time availability and pricing</p>
+                    <h4>Secure Payment & Booking</h4>
+                    <p>Complete your booking with secure Stripe payment processing</p>
                     
                     <div className="service-highlights">
                       <div className="highlight-item">
@@ -1406,6 +1712,10 @@ const [searchParams, setSearchParams] = useState({
                       <div className="highlight-item live">
                         <CheckCircle size={16} />
                         <span>🔴 {selectedSpot.availability_status || 'Live availability'}</span>
+                      </div>
+                      <div className="highlight-item">
+                        <CreditCard size={16} />
+                        <span>💳 Stripe Secure Payment</span>
                       </div>
                     </div>
                   </div>
@@ -1423,7 +1733,7 @@ const [searchParams, setSearchParams] = useState({
                             value={bookingDetails.title}
                             onChange={handleBookingChange}
                             required
-                            disabled={!authStatus.isLoggedIn}
+                            disabled={!authStatus.isLoggedIn || !stripe}
                           >
                             <option value="Mr">Mr</option>
                             <option value="Mrs">Mrs</option>
@@ -1440,7 +1750,7 @@ const [searchParams, setSearchParams] = useState({
                             value={bookingDetails.first_name}
                             onChange={handleBookingChange}
                             required
-                            disabled={!authStatus.isLoggedIn}
+                            disabled={!authStatus.isLoggedIn || !stripe}
                           />
                         </div>
                         <div className="form-group-premium">
@@ -1451,7 +1761,7 @@ const [searchParams, setSearchParams] = useState({
                             value={bookingDetails.last_name}
                             onChange={handleBookingChange}
                             required
-                            disabled={!authStatus.isLoggedIn}
+                            disabled={!authStatus.isLoggedIn || !stripe}
                           />
                         </div>
                         <div className="form-group-premium">
@@ -1462,7 +1772,7 @@ const [searchParams, setSearchParams] = useState({
                             value={bookingDetails.customer_email}
                             onChange={handleBookingChange}
                             required
-                            disabled={!authStatus.isLoggedIn}
+                            disabled={!authStatus.isLoggedIn || !stripe}
                           />
                         </div>
                         <div className="form-group-premium">
@@ -1473,7 +1783,7 @@ const [searchParams, setSearchParams] = useState({
                             value={bookingDetails.phone_number}
                             onChange={handleBookingChange}
                             required
-                            disabled={!authStatus.isLoggedIn}
+                            disabled={!authStatus.isLoggedIn || !stripe}
                           />
                         </div>
                       </div>
@@ -1491,7 +1801,7 @@ const [searchParams, setSearchParams] = useState({
                             value={bookingDetails.departure_flight_number}
                             onChange={handleBookingChange}
                             placeholder="e.g. BA123"
-                            disabled={!authStatus.isLoggedIn}
+                            disabled={!authStatus.isLoggedIn || !stripe}
                           />
                         </div>
                         <div className="form-group-premium">
@@ -1502,7 +1812,7 @@ const [searchParams, setSearchParams] = useState({
                             value={bookingDetails.arrival_flight_number}
                             onChange={handleBookingChange}
                             placeholder="e.g. BA456"
-                            disabled={!authStatus.isLoggedIn}
+                            disabled={!authStatus.isLoggedIn || !stripe}
                           />
                         </div>
                         <div className="form-group-premium">
@@ -1512,7 +1822,7 @@ const [searchParams, setSearchParams] = useState({
                             value={bookingDetails.departure_terminal}
                             onChange={handleBookingChange}
                             required
-                            disabled={!authStatus.isLoggedIn}
+                            disabled={!authStatus.isLoggedIn || !stripe}
                           >
                             <option value="Terminal 1">Terminal 1</option>
                             <option value="Terminal 2">Terminal 2</option>
@@ -1528,7 +1838,7 @@ const [searchParams, setSearchParams] = useState({
                             value={bookingDetails.arrival_terminal}
                             onChange={handleBookingChange}
                             required
-                            disabled={!authStatus.isLoggedIn}
+                            disabled={!authStatus.isLoggedIn || !stripe}
                           >
                             <option value="Terminal 1">Terminal 1</option>
                             <option value="Terminal 2">Terminal 2</option>
@@ -1544,7 +1854,7 @@ const [searchParams, setSearchParams] = useState({
                             value={bookingDetails.passenger}
                             onChange={handleBookingChange}
                             required
-                            disabled={!authStatus.isLoggedIn}
+                            disabled={!authStatus.isLoggedIn || !stripe}
                           >
                             {[1,2,3,4,5,6,7,8].map(num => (
                               <option key={num} value={num}>{num} passenger{num !== 1 ? 's' : ''}</option>
@@ -1567,7 +1877,7 @@ const [searchParams, setSearchParams] = useState({
                             onChange={handleBookingChange}
                             placeholder="e.g. AB12 CDE"
                             required
-                            disabled={!authStatus.isLoggedIn}
+                            disabled={!authStatus.isLoggedIn || !stripe}
                           />
                         </div>
                         <div className="form-group-premium">
@@ -1579,7 +1889,7 @@ const [searchParams, setSearchParams] = useState({
                             onChange={handleBookingChange}
                             placeholder="e.g. BMW"
                             required
-                            disabled={!authStatus.isLoggedIn}
+                            disabled={!authStatus.isLoggedIn || !stripe}
                           />
                         </div>
                         <div className="form-group-premium">
@@ -1591,7 +1901,7 @@ const [searchParams, setSearchParams] = useState({
                             onChange={handleBookingChange}
                             placeholder="e.g. X5"
                             required
-                            disabled={!authStatus.isLoggedIn}
+                            disabled={!authStatus.isLoggedIn || !stripe}
                           />
                         </div>
                         <div className="form-group-premium">
@@ -1603,19 +1913,24 @@ const [searchParams, setSearchParams] = useState({
                             onChange={handleBookingChange}
                             placeholder="e.g. Black"
                             required
-                            disabled={!authStatus.isLoggedIn}
+                            disabled={!authStatus.isLoggedIn || !stripe}
                           />
                         </div>
                       </div>
                     </div>
 
-                    {/* Pricing Summary */}
+                    {/* Pricing Summary with Stripe */}
                     <div className="pricing-summary-premium">
                       <div className="pricing-header">
-                        <h4>Real-Time Booking Summary</h4>
-                        <span className="price-updated">
-                          🔴 Live pricing updated: {selectedSpot.last_updated}
-                        </span>
+                        <h4>Secure Payment Summary</h4>
+                        <div className="payment-badges">
+                          <span className="price-updated">
+                            🔴 Live pricing updated: {selectedSpot.last_updated}
+                          </span>
+                          <span className="stripe-badge">
+                            💳 Secured by Stripe
+                          </span>
+                        </div>
                       </div>
                       <div className="pricing-items">
                         <div className="pricing-item">
@@ -1631,36 +1946,78 @@ const [searchParams, setSearchParams] = useState({
                           <span>Commission ({selectedSpot.share_percentage}%)</span>
                           <span>£{selectedSpot.commission_amount}</span>
                         </div>
+                        <div className="pricing-item stripe-fee">
+                          <span>Processing (Stripe)</span>
+                          <span>Included</span>
+                        </div>
                         <div className="pricing-total">
                           <span>Total Amount (Live Price)</span>
                           <span>£{selectedSpot.formatted_price}</span>
                         </div>
                       </div>
+                      
+                      <div className="stripe-info">
+                        <div className="stripe-security">
+                          <Lock size={14} />
+                          <span>Your payment is secured by Stripe's industry-leading encryption</span>
+                        </div>
+                        <div className="payment-methods">
+                          <span>Accepted:</span>
+                          <div className="card-icons">
+                            <span>💳 Visa</span>
+                            <span>💳 Mastercard</span>
+                            <span>💳 Amex</span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
-                    {/* Submit Button */}
+                    {/* Submit Button - Enhanced for Stripe */}
                     <button
                       type="submit"
-                      className="premium-confirm-btn"
-                      disabled={isLoading || !authStatus.isLoggedIn}
+                      className="premium-confirm-btn stripe-enhanced"
+                      disabled={isLoading || !authStatus.isLoggedIn || !stripe || processingPayment}
+                      style={{
+                        background: !authStatus.isLoggedIn || !stripe ? '#94a3b8' : 
+                                   processingPayment ? '#3b82f6' : 
+                                   'linear-gradient(135deg, #635BFF, #4F46E5)',
+                        opacity: (!authStatus.isLoggedIn || !stripe || processingPayment) ? 0.7 : 1
+                      }}
                     >
                       {!authStatus.isLoggedIn ? (
                         <>
                           <AlertCircle size={20} />
                           <span>Please Log In First</span>
                         </>
-                      ) : isLoading ? (
+                      ) : !stripe ? (
                         <>
                           <Loader2 size={20} className="btn-spinner" />
-                          <span>Processing Real-Time Booking...</span>
+                          <span>Loading Stripe...</span>
+                        </>
+                      ) : processingPayment || isLoading ? (
+                        <>
+                          <Loader2 size={20} className="btn-spinner" />
+                          <span>
+                            {paymentStep === 2 ? '💳 Processing Payment...' : 
+                             paymentStep === 3 ? '🎫 Creating Booking...' : 
+                             '🔄 Processing...'}
+                          </span>
                         </>
                       ) : (
                         <>
-                          <CheckCircle size={20} />
-                          <span>🔴 Confirm Live Booking</span>
+                          <CreditCard size={20} />
+                          <span>💳 Pay £{selectedSpot.formatted_price} with Stripe</span>
                         </>
                       )}
                     </button>
+
+                    <div className="stripe-disclaimer">
+                      <small>
+                        By clicking "Pay with Stripe", you agree to our Terms of Service and 
+                        authorize Stripe to process your payment securely. 
+                        This will create a payment intent and process your booking immediately.
+                      </small>
+                    </div>
                   </form>
                 </div>
               ) : (
@@ -1668,77 +2025,145 @@ const [searchParams, setSearchParams] = useState({
                   {bookingStatus?.success ? (
                     <>
                       <div className="success-animation">
-                        <div className="success-icon">
+                        <div className="success-icon stripe-success">
                           <CheckCircle size={64} />
+                          <div className="success-pulse"></div>
                         </div>
                       </div>
                       
-                      <h2>🔴 Real-Time Booking Confirmed!</h2>
+                      <h2>💳 Payment Successful & Booking Confirmed!</h2>
                       
-                      <p>Your parking space has been successfully reserved through Parksy API and saved to our database</p>
+                      <p>Your payment has been processed securely by Stripe and your parking space has been reserved</p>
                       
-                      <div className="booking-details-premium">
-                        <div className="detail-row">
-                          <span>Booking Reference</span>
-                          <strong>{bookingStatus.reference}</strong>
-                        </div>
-                        <div className="detail-row">
-                          <span>MAGR Reference</span>
-                          <strong>{bookingStatus.magrReference}</strong>
-                        </div>
-                        <div className="detail-row">
-                          <span>Service</span>
-                          <span>{selectedSpot.name}</span>
-                        </div>
-                        <div className="detail-row">
-                          <span>Total Amount</span>
-                          <strong>£{selectedSpot.formatted_price}</strong>
-                        </div>
-                        {bookingStatus.details && (
-                          <>
+                      <div className="booking-details-premium stripe-enhanced">
+                        <div className="payment-confirmation">
+                          <div className="payment-header">
+                            <CreditCard size={20} />
+                            <span>Payment Confirmation</span>
+                          </div>
+                          <div className="payment-details">
                             <div className="detail-row">
-                              <span>User</span>
-                              <span>{bookingStatus.details.user}</span>
+                              <span>Payment ID</span>
+                              <strong>{bookingStatus.paymentIntentId}</strong>
                             </div>
                             <div className="detail-row">
-                              <span>Commission</span>
-                              <span>£{bookingStatus.details.commission}</span>
+                              <span>Amount Paid</span>
+                              <strong>£{bookingStatus.paymentAmount} {bookingStatus.paymentCurrency?.toUpperCase()}</strong>
                             </div>
-                          </>
-                        )}
+                            <div className="detail-row">
+                              <span>Payment Status</span>
+                              <span className="status-badge success">✅ Paid</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="booking-confirmation">
+                          <div className="booking-header">
+                            <CheckCircle size={20} />
+                            <span>Booking Confirmation</span>
+                          </div>
+                          <div className="booking-details">
+                            <div className="detail-row">
+                              <span>Booking Reference</span>
+                              <strong>{bookingStatus.reference}</strong>
+                            </div>
+                            <div className="detail-row">
+                              <span>MAGR Reference</span>
+                              <strong>{bookingStatus.magrReference}</strong>
+                            </div>
+                            <div className="detail-row">
+                              <span>Service</span>
+                              <span>{selectedSpot.name}</span>
+                            </div>
+                            <div className="detail-row">
+                              <span>Airport</span>
+                              <span>{availableAirports.find(a => a.code === searchParams.airport_code)?.name || searchParams.airport_code}</span>
+                            </div>
+                            {bookingStatus.details && (
+                              <>
+                                <div className="detail-row">
+                                  <span>User</span>
+                                  <span>{bookingStatus.details.user}</span>
+                                </div>
+                                <div className="detail-row">
+                                  <span>Commission Earned</span>
+                                  <span>£{bookingStatus.details.commission}</span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
                       </div>
 
                       <div className="success-actions">
                         <button 
-                          className="action-btn primary"
+                          className="action-btn primary stripe-primary"
                           onClick={() => {
                             setSelectedSpot(null);
                             setBookingStep(1);
                             setBookingStatus(null);
+                            setPaymentStep(1);
+                            setPaymentIntentId(null);
+                            setPaymentStatus(null);
                             fetchParkingProducts();
                           }}
                         >
-                          Done
+                          <CheckCircle size={18} />
+                          <span>Complete</span>
                         </button>
+                      </div>
+
+                      <div className="stripe-success-footer">
+                        <div className="stripe-info">
+                          <Lock size={14} />
+                          <span>Your payment was processed securely by Stripe</span>
+                        </div>
+                        <div className="receipt-info">
+                          <Mail size={14} />
+                          <span>Receipt and booking details sent to {bookingDetails.customer_email}</span>
+                        </div>
                       </div>
                     </>
                   ) : (
-                    <div className="booking-error-premium">
+                    <div className="booking-error-premium stripe-error">
                       <div className="error-icon">
                         <AlertCircle size={64} />
+                        <div className="error-pulse"></div>
                       </div>
-                      <h2>Booking Failed</h2>
-                      <p>{bookingStatus?.message || "Unable to complete your booking"}</p>
+                      <h2>💳 Payment or Booking Failed</h2>
+                      <p>{bookingStatus?.message || "Unable to complete your payment or booking"}</p>
+                      
+                      {bookingStatus?.paymentStep && (
+                        <div className="error-details">
+                          <p><strong>Failed at step:</strong> {
+                            bookingStatus.paymentStep === 1 ? 'Form Validation' :
+                            bookingStatus.paymentStep === 2 ? 'Payment Processing' :
+                            bookingStatus.paymentStep === 3 ? 'Booking Creation' : 'Unknown'
+                          }</p>
+                        </div>
+                      )}
+                      
                       <div className="error-actions">
                         <button 
-                          className="retry-btn"
+                          className="retry-btn stripe-retry"
                           onClick={() => {
                             setBookingStep(1);
                             setBookingStatus(null);
+                            setPaymentStep(1);
+                            setPaymentIntentId(null);
+                            setPaymentStatus(null);
                           }}
                         >
-                          Try Again
+                          <CreditCard size={18} />
+                          <span>Try Payment Again</span>
                         </button>
+                      </div>
+
+                      <div className="stripe-error-footer">
+                        <div className="support-info">
+                          <Phone size={14} />
+                          <span>Need help? Contact our support team</span>
+                        </div>
                       </div>
                     </div>
                   )}
