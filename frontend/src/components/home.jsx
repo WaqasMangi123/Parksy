@@ -452,7 +452,7 @@ const [searchParams, setSearchParams] = useState({
         auth_token: authToken,
         
         // Service details
-        company_code: selectedSpot.companyID || selectedSpot.product_code,
+        company_code: selectedSpot.company_code || selectedSpot.product_code,
         product_name: selectedSpot.name,
         airport_code: searchParams.airport_code,
         parking_type: selectedSpot.parking_type,
