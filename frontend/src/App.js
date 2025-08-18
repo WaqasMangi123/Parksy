@@ -26,7 +26,11 @@ import EmailVerification from './components/emailverification';
 // Admin components
 import AdminLogin from './components/adminlogin';
 import AdminDashboard from './components/admindashboard';
-import AdminUserActivity from './components/adminuseractivity'; // New component
+import AdminUserActivity from './components/adminuseractivity';
+import AdminBookingsDetail from './components/adminbookingdetail'; // New admin bookings component
+
+// User components
+import UserBookings from './components/userbooking'; // New user bookings component
 
 // Chatbot component
 import ParkingBot from './components/parkingbot';
@@ -86,6 +90,15 @@ const AdminLayout = ({ children }) => (
   </div>
 );
 
+// User dashboard layout (with navbar and footer)
+const UserDashboardLayout = ({ children }) => (
+  <>
+    <Navbar />
+    <main className="main-content user-dashboard">{children}</main>
+    <Footer />
+  </>
+);
+
 function App() {
   return (
     <Router>
@@ -115,10 +128,17 @@ function App() {
           <Route path="/reset-password/:token" element={<AuthLayout><ResetPassword /></AuthLayout>} />
           <Route path="/verify-email" element={<AuthLayout><EmailVerification /></AuthLayout>} />
           
+          {/* ========== USER DASHBOARD ROUTES ========== */}
+          <Route path="/my-bookings" element={<UserDashboardLayout><UserBookings /></UserDashboardLayout>} />
+          <Route path="/user/bookings" element={<UserDashboardLayout><UserBookings /></UserDashboardLayout>} />
+          <Route path="/dashboard/bookings" element={<UserDashboardLayout><UserBookings /></UserDashboardLayout>} />
+          
           {/* ========== ADMIN ROUTES ========== */}
           <Route path="/admin/login" element={<AdminLayout><AdminLogin /></AdminLayout>} />
           <Route path="/admin/dashboard" element={<AdminLayout><AdminDashboard /></AdminLayout>} />
           <Route path="/admin/user-activity" element={<AdminLayout><AdminUserActivity /></AdminLayout>} />
+          <Route path="/admin/bookings" element={<AdminLayout><AdminBookingsDetail /></AdminLayout>} />
+          <Route path="/admin/bookings/dashboard" element={<AdminLayout><AdminBookingsDetail /></AdminLayout>} />
           <Route path="/admin" element={<AdminLayout><AdminDashboard /></AdminLayout>} />
           
           {/* ========== SIMPLE PAGES ========== */}
