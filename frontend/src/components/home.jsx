@@ -76,44 +76,109 @@ const ProfessionalParksyDashboard = () => {
     paymentgateway: "Invoice"
   });
 
-  // ========== AUTHENTICATION FUNCTIONS ==========
+  // ========== PRODUCTION AUTHENTICATION FUNCTIONS ==========
 
-  // Get authentication token from browser memory
+  // Comprehensive token detection for production environment
   const getAuthToken = () => {
-    // Try different storage locations where the login system might store the token
-    return localStorage.getItem('token') || 
-           localStorage.getItem('authToken') || 
-           localStorage.getItem('jwt') ||
-           localStorage.getItem('access_token') ||
-           sessionStorage.getItem('token') || 
-           sessionStorage.getItem('authToken') ||
-           sessionStorage.getItem('jwt') ||
-           sessionStorage.getItem('access_token');
+    try {
+      // Check all possible localStorage keys
+      const localStorageKeys = [
+        'token', 'authToken', 'jwt', 'access_token', 
+        'auth_token', 'userToken', 'accessToken',
+        'parksy_token', 'user_token'
+      ];
+      
+      for (const key of localStorageKeys) {
+        const token = localStorage.getItem(key);
+        if (token && token !== 'null' && token !== 'undefined') {
+          console.log(`🔑 Found token in localStorage.${key}`);
+          return token;
+        }
+      }
+
+      // Check sessionStorage
+      const sessionStorageKeys = [
+        'token', 'authToken', 'jwt', 'access_token',
+        'auth_token', 'userToken', 'accessToken'
+      ];
+      
+      for (const key of sessionStorageKeys) {
+        const token = sessionStorage.getItem(key);
+        if (token && token !== 'null' && token !== 'undefined') {
+          console.log(`🔑 Found token in sessionStorage.${key}`);
+          return token;
+        }
+      }
+
+      // Check cookies as fallback
+      const cookies = document.cookie.split(';');
+      for (const cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (['token', 'authToken', 'jwt', 'access_token'].includes(name) && value) {
+          console.log(`🔑 Found token in cookie.${name}`);
+          return decodeURIComponent(value);
+        }
+      }
+
+      console.log('❌ No authentication token found in any storage location');
+      return null;
+    } catch (error) {
+      console.error('❌ Error accessing browser storage:', error);
+      return null;
+    }
   };
 
   // Check if user is logged in
   const isUserLoggedIn = () => {
     const token = getAuthToken();
-    return !!token;
+    const isLoggedIn = !!token;
+    console.log('🔐 Login check:', { hasToken: isLoggedIn, tokenLength: token?.length || 0 });
+    return isLoggedIn;
   };
 
-  // Get user info from token (decode without verification - just for display)
+  // Decode JWT token safely for user information
   const getUserInfoFromToken = () => {
     const token = getAuthToken();
-    if (!token) return null;
+    if (!token) {
+      console.log('❌ No token available for decoding');
+      return null;
+    }
     
     try {
-      // Decode JWT payload (without verification)
-      const base64Url = token.split('.')[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-      }).join(''));
+      // Handle both JWT and simple JSON tokens
+      let payload;
       
-      const payload = JSON.parse(jsonPayload);
+      if (token.includes('.')) {
+        // JWT format
+        const base64Url = token.split('.')[1];
+        if (!base64Url) {
+          throw new Error('Invalid JWT format');
+        }
+        
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+        
+        payload = JSON.parse(jsonPayload);
+        console.log('✅ JWT token decoded successfully');
+      } else {
+        // Try direct JSON parsing for non-JWT tokens
+        payload = JSON.parse(atob(token));
+        console.log('✅ Base64 token decoded successfully');
+      }
+      
+      console.log('👤 User info extracted:', {
+        id: payload.id || payload.user_id || payload.sub,
+        email: payload.email,
+        name: payload.name || payload.username,
+        exp: payload.exp ? new Date(payload.exp * 1000) : null
+      });
+      
       return payload;
     } catch (error) {
-      console.error('❌ Error decoding token:', error);
+      console.error('❌ Error decoding token:', error.message);
+      console.log('🔍 Token format check - first 50 chars:', token.substring(0, 50));
       return null;
     }
   };
@@ -121,6 +186,8 @@ const ProfessionalParksyDashboard = () => {
   // Check authentication status on component mount
   useEffect(() => {
     const checkAuth = () => {
+      console.log('🔍 Checking authentication status...');
+      
       const isLoggedIn = isUserLoggedIn();
       const userInfo = getUserInfoFromToken();
       
@@ -129,103 +196,86 @@ const ProfessionalParksyDashboard = () => {
         user: userInfo
       });
 
-      console.log('🔐 Authentication Status:', {
+      console.log('🔐 Final Authentication Status:', {
         isLoggedIn: isLoggedIn,
         userEmail: userInfo?.email || 'Not available',
-        tokenExists: !!getAuthToken()
+        userId: userInfo?.id || userInfo?.user_id || userInfo?.sub || 'Not available',
+        tokenExists: !!getAuthToken(),
+        hasValidUserInfo: !!userInfo
       });
     };
 
+    // Check auth immediately and also when storage changes
     checkAuth();
+    
+    // Listen for storage changes (login/logout in other tabs)
+    const handleStorageChange = (e) => {
+      console.log('💾 Storage changed:', e.key, 'New value exists:', !!e.newValue);
+      if (e.key && ['token', 'authToken', 'jwt', 'access_token'].includes(e.key)) {
+        checkAuth();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   // ========== API FUNCTIONS ==========
 
-  // Smart backend connection with fallback
   const testBackendConnection = async () => {
     setConnectionStatus('testing');
     
     try {
       console.log(`🔍 Testing backend connection to: ${API_BASE_URL}`);
-      const response = await fetch(`${API_BASE_URL}/api/parking/health`, {
-        method: 'GET',
-        timeout: 10000
-      });
       
-      if (response.ok) {
-        const data = await response.json();
-        console.log('✅ Backend connected successfully:', data);
-        setConnectionStatus('connected');
-        return true;
-      } else {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      // First try the test-magr endpoint since we know it works
+      let response;
+      
+      try {
+        console.log('Testing MAGR connection...');
+        response = await fetch(`${API_BASE_URL}/api/parking/test-magr`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('✅ MAGR API test successful:', data);
+          setConnectionStatus('connected');
+          return true;
+        }
+      } catch (err) {
+        console.log('MAGR test failed, trying health endpoint...');
       }
+      
+      // Fallback to health endpoint
+      try {
+        response = await fetch(`${API_BASE_URL}/api/parking/health`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('✅ Backend connected via health endpoint:', data);
+          setConnectionStatus('connected');
+          return true;
+        }
+      } catch (err) {
+        console.log('Health endpoint also failed');
+      }
+      
+      throw new Error(`Unable to connect to backend server`);
+      
     } catch (error) {
       console.error(`❌ Connection failed for ${API_BASE_URL}:`, error.message);
       setConnectionStatus('failed');
-      setApiError(`Unable to connect to backend server: ${error.message}`);
+      setApiError(`Backend server error: ${error.message}`);
       return false;
-    }
-  };
-
-  // Updated API request function with authentication
-  const makeAPIRequest = async (endpoint, options = {}) => {
-    const token = getAuthToken();
-    
-    // Prepare request body - include token for authenticated requests
-    let requestBody = options.body || {};
-    
-    // Add token to request body for booking requests (authentication required)
-    if (token && endpoint.includes('/bookings')) {
-      requestBody = {
-        ...requestBody,
-        token: token  // Send token in body instead of header
-      };
-    }
-    
-    const config = {
-      method: options.method || 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-      body: Object.keys(requestBody).length > 0 ? JSON.stringify(requestBody) : undefined,
-    };
-
-    try {
-      console.log('🚀 API Request:', {
-        endpoint: `${API_BASE_URL}${endpoint}`,
-        method: config.method,
-        hasToken: !!token,
-        requiresAuth: endpoint.includes('/bookings')
-      });
-      
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        
-        // Handle authentication errors
-        if (response.status === 401 || errorData.requireAuth) {
-          console.log('❌ Authentication required');
-          throw new Error('Please log in to make bookings. You must be signed in to book parking spots.');
-        }
-        
-        if (response.status === 403 || errorData.requireVerification) {
-          console.log('❌ Email verification required');
-          throw new Error('Please verify your email address before making bookings.');
-        }
-        
-        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      console.log('✅ API Response successful');
-      
-      return data;
-    } catch (error) {
-      console.error('❌ API Request failed:', error);
-      throw error;
     }
   };
 
@@ -234,12 +284,23 @@ const ProfessionalParksyDashboard = () => {
       const isConnected = await testBackendConnection();
       if (!isConnected) return;
 
-      const response = await makeAPIRequest('/api/parking/airports');
-      if (response.success) {
-        setAvailableAirports(response.data);
-        console.log('✅ Airports loaded:', response.data.length);
+      const response = await fetch(`${API_BASE_URL}/api/parking/airports`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setAvailableAirports(data.data);
+          console.log('✅ Airports loaded:', data.data.length);
+        } else {
+          throw new Error('Failed to load airports');
+        }
       } else {
-        throw new Error('Failed to load airports');
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
     } catch (error) {
       console.error('❌ Error loading airports:', error);
@@ -248,8 +309,15 @@ const ProfessionalParksyDashboard = () => {
   };
 
   const fetchParkingProducts = useCallback(async () => {
+    console.log('🔍 fetchParkingProducts called with:', {
+      connectionStatus,
+      searchParams,
+      API_BASE_URL
+    });
+
     if (connectionStatus !== 'connected') {
-      setApiError('Backend server is not connected');
+      console.log('❌ Backend not connected, skipping search');
+      setApiError('Backend server is not connected. Please check if the server is running.');
       return;
     }
 
@@ -257,14 +325,30 @@ const ProfessionalParksyDashboard = () => {
     setApiError(null);
     
     try {
-      console.log('🔍 Fetching parking products...');
-      const response = await makeAPIRequest('/api/parking/search-parking', {
-        method: 'POST',
-        body: searchParams
-      });
+      console.log('🔍 Fetching parking products with params:', searchParams);
       
-      if (response.success) {
-        const processedProducts = response.data.products.map(product => ({
+      // Make direct fetch call for better error handling
+      const response = await fetch(`${API_BASE_URL}/api/parking/search-parking`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(searchParams)
+      });
+
+      console.log('📋 Search API Response Status:', response.status, response.statusText);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ API Response Error:', errorText);
+        throw new Error(`API Error ${response.status}: ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Search API Response:', result);
+      
+      if (result.success && result.data && result.data.products) {
+        const processedProducts = result.data.products.map(product => ({
           ...product,
           logo: airportImages[searchParams.airport_code] || airportImages['LHR'],
           features_array: product.features_array || [],
@@ -282,13 +366,21 @@ const ProfessionalParksyDashboard = () => {
         
         setParkingProducts(processedProducts);
         setFilteredProducts(processedProducts);
-        console.log('✅ Products loaded:', processedProducts.length);
+        setApiError(null);
+        console.log('✅ Products processed and loaded:', processedProducts.length);
       } else {
-        throw new Error('No parking data available');
+        console.error('❌ Invalid API response:', result);
+        throw new Error(result.message || 'No parking data available from API');
       }
     } catch (error) {
-      console.error('❌ Error fetching products:', error);
-      setApiError(error.message);
+      console.error('❌ Error fetching products:', {
+        message: error.message,
+        name: error.name,
+        stack: error.stack
+      });
+      setApiError(`Search failed: ${error.message}`);
+      setParkingProducts([]);
+      setFilteredProducts([]);
     } finally {
       setIsLoading(false);
     }
@@ -297,10 +389,19 @@ const ProfessionalParksyDashboard = () => {
   // ========== EVENT HANDLERS ==========
 
   const handleSearch = () => {
+    console.log('🔍 Search button clicked with:', {
+      connectionStatus,
+      searchParams,
+      timestamp: new Date().toISOString()
+    });
+
     if (connectionStatus !== 'connected') {
-      setApiError('Backend server is not connected');
+      console.log('❌ Search blocked - backend not connected');
+      setApiError('Backend server is not connected. Please wait for connection or refresh the page.');
       return;
     }
+
+    console.log('✅ Starting search...');
     fetchParkingProducts();
   };
 
@@ -313,13 +414,15 @@ const ProfessionalParksyDashboard = () => {
     setBookingDetails(prev => ({ ...prev, [name]: value }));
   };
 
-  // UPDATED BOOKING SUBMIT WITH AUTHENTICATION
+  // PRODUCTION BOOKING SUBMIT WITH REAL AUTHENTICATION
   const handleBookingSubmit = async (e) => {
     e.preventDefault();
     
+    console.log('🎫 Booking submission started...');
+    
     // Check if user is logged in FIRST
     if (!isUserLoggedIn()) {
-      console.log('❌ User not logged in');
+      console.log('❌ User not logged in - blocking booking');
       setBookingStatus({
         success: false,
         message: 'Please log in to make a booking. You must sign in to book parking spaces through our system.'
@@ -328,16 +431,27 @@ const ProfessionalParksyDashboard = () => {
       return;
     }
 
-    // Get user info for logging
+    // Get user info and token for request
     const userInfo = getUserInfoFromToken();
-    console.log('👤 Making booking for user:', userInfo?.email || 'Unknown');
+    const authToken = getAuthToken();
+    
+    console.log('👤 Processing booking for authenticated user:', {
+      email: userInfo?.email || 'Unknown',
+      userId: userInfo?.id || userInfo?.user_id || userInfo?.sub || 'Unknown',
+      hasToken: !!authToken,
+      tokenLength: authToken?.length || 0
+    });
 
     setIsLoading(true);
     setBookingStatus(null);
     
     try {
-      // Prepare booking data with all required fields
+      // Prepare comprehensive booking data with authentication token
       const bookingData = {
+        // Include authentication token - try multiple ways
+        token: authToken,
+        auth_token: authToken,
+        
         // Service details
         company_code: selectedSpot.companyID || selectedSpot.product_code,
         product_name: selectedSpot.name,
@@ -384,41 +498,70 @@ const ProfessionalParksyDashboard = () => {
         special_features: selectedSpot.features_array || []
       };
 
-      console.log('🎫 Submitting booking:', {
+      console.log('🚀 Submitting authenticated booking:', {
         user: userInfo?.email,
         service: bookingData.product_name,
         airport: bookingData.airport_code,
-        amount: bookingData.booking_amount
+        amount: bookingData.booking_amount,
+        hasToken: !!authToken,
+        authMethod: 'token_in_body'
       });
 
-      const response = await makeAPIRequest('/api/parking/bookings', {
+      // Make API request with comprehensive headers
+      const response = await fetch(`${API_BASE_URL}/api/parking/bookings`, {
         method: 'POST',
-        body: bookingData
+        headers: {
+          'Content-Type': 'application/json',
+          // Also try Authorization header as backup
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify(bookingData)
       });
       
-      console.log('📋 Booking response:', response);
+      console.log('📋 Booking API Response Status:', response.status, response.statusText);
       
-      if (response.success) {
+      if (!response.ok) {
+        let errorMessage;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || `HTTP ${response.status}`;
+          console.log('❌ Booking API Error Details:', errorData);
+        } catch (parseError) {
+          const errorText = await response.text();
+          errorMessage = errorText || `HTTP ${response.status}`;
+          console.log('❌ Booking API Error Text:', errorText);
+        }
+        throw new Error(`Booking failed: ${errorMessage}`);
+      }
+      
+      const result = await response.json();
+      console.log('✅ Booking response successful:', result);
+      
+      if (result.success) {
         setBookingStatus({
           success: true,
           message: 'Booking confirmed successfully!',
-          reference: response.data.our_reference,
-          magrReference: response.data.magr_reference,
-          bookingId: response.data.booking_id || response.data.database_id,
+          reference: result.data.our_reference,
+          magrReference: result.data.magr_reference,
+          bookingId: result.data.booking_id || result.data.database_id,
           details: {
-            user: response.data.user_email,
-            service: response.data.service,
-            airport: response.data.airport,
-            amount: response.data.total_amount,
-            commission: response.data.commission
+            user: result.data.user_email,
+            service: result.data.service,
+            airport: result.data.airport,
+            amount: result.data.total_amount,
+            commission: result.data.commission
           }
         });
         setBookingStep(2);
       } else {
-        throw new Error(response.message || 'Booking failed');
+        throw new Error(result.message || 'Booking failed - unknown error');
       }
     } catch (error) {
-      console.error('❌ Booking submission error:', error);
+      console.error('❌ Booking submission error:', {
+        message: error.message,
+        name: error.name,
+        timestamp: new Date().toISOString()
+      });
       setBookingStatus({
         success: false,
         message: error.message || 'Failed to create booking. Please try again.'
@@ -916,13 +1059,14 @@ const ProfessionalParksyDashboard = () => {
         <div className="api-status-banner warning" style={{backgroundColor: '#fbbf24', color: '#000'}}>
           <AlertCircle size={16} />
           <span>⚠️ You must be logged in to make bookings. Please sign in to book parking spots.</span>
+          <small style={{marginLeft: '10px'}}>Token not found in browser storage - ensure your login system stores auth tokens.</small>
         </div>
       )}
 
       {authStatus.isLoggedIn && (
         <div className="api-status-banner success">
           <CheckCircle size={16} />
-          <span>👤 Welcome {authStatus.user?.email || 'User'} - You can now make bookings!</span>
+          <span>👤 Welcome {authStatus.user?.email || authStatus.user?.username || 'User'} - You can now make bookings!</span>
         </div>
       )}
 
@@ -1220,7 +1364,8 @@ const ProfessionalParksyDashboard = () => {
                   {!authStatus.isLoggedIn && (
                     <div className="auth-warning">
                       <AlertCircle size={20} />
-                      <p>You must be logged in to make bookings. Please sign in first.</p>
+                      <p>You must be logged in to make bookings. Please sign in first through your authentication system.</p>
+                      <small>Make sure your login system saves the authentication token to browser storage (localStorage or sessionStorage).</small>
                     </div>
                   )}
 
