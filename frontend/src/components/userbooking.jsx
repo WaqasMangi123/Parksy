@@ -38,63 +38,67 @@ const UserBooking = () => {
     'GLA': 'Glasgow'
   };
 
-  // ENHANCED Authentication functions with debugging
+  // FIXED: Enhanced Authentication functions with comprehensive token detection
   const getAuthToken = () => {
     try {
+      // Check localStorage first (most common)
       const localStorageKeys = [
         'token', 'authToken', 'jwt', 'access_token', 
         'auth_token', 'userToken', 'accessToken',
-        'parksy_token', 'user_token'
+        'parksy_token', 'user_token', 'Authorization'
       ];
       
-      // Debug: Log all localStorage items
-      console.log('🔍 Checking localStorage for tokens...');
+      console.log('🔍 UserBooking: Checking localStorage for tokens...');
       for (const key of localStorageKeys) {
         const token = localStorage.getItem(key);
-        if (token && token !== 'null' && token !== 'undefined') {
-          console.log(`✅ Found token in localStorage[${key}]:`, {
-            exists: !!token,
+        if (token && token !== 'null' && token !== 'undefined' && token.length > 10) {
+          console.log(`✅ UserBooking: Found valid token in localStorage[${key}]`, {
             length: token.length,
             isJWT: token.includes('.') && token.split('.').length === 3,
-            preview: token.substring(0, 50) + '...'
+            preview: token.substring(0, 30) + '...'
           });
           return token;
         }
       }
 
+      // Check sessionStorage
       const sessionStorageKeys = [
         'token', 'authToken', 'jwt', 'access_token',
         'auth_token', 'userToken', 'accessToken'
       ];
       
-      // Debug: Log all sessionStorage items
-      console.log('🔍 Checking sessionStorage for tokens...');
+      console.log('🔍 UserBooking: Checking sessionStorage for tokens...');
       for (const key of sessionStorageKeys) {
         const token = sessionStorage.getItem(key);
-        if (token && token !== 'null' && token !== 'undefined') {
-          console.log(`✅ Found token in sessionStorage[${key}]:`, {
-            exists: !!token,
-            length: token.length,
-            isJWT: token.includes('.') && token.split('.').length === 3,
-            preview: token.substring(0, 50) + '...'
-          });
+        if (token && token !== 'null' && token !== 'undefined' && token.length > 10) {
+          console.log(`✅ UserBooking: Found valid token in sessionStorage[${key}]`);
           return token;
         }
       }
 
-      console.log('❌ No valid token found in storage');
+      // Check cookies as fallback
+      const cookies = document.cookie.split(';');
+      for (const cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (['token', 'authToken', 'jwt', 'access_token'].includes(name) && value && value.length > 10) {
+          console.log(`✅ UserBooking: Found token in cookie[${name}]`);
+          return decodeURIComponent(value);
+        }
+      }
+
+      console.log('❌ UserBooking: No valid authentication token found anywhere');
       
       // Debug: Log what's actually in storage
-      console.log('📋 Current localStorage contents:');
+      console.log('📋 UserBooking: Current localStorage contents:');
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         const value = localStorage.getItem(key);
-        console.log(`  ${key}: ${value ? value.substring(0, 50) + '...' : 'null'}`);
+        console.log(`  ${key}: ${value ? (value.length > 50 ? value.substring(0, 50) + '...' : value) : 'null'}`);
       }
 
       return null;
     } catch (error) {
-      console.error('❌ Error accessing browser storage:', error);
+      console.error('❌ UserBooking: Error accessing browser storage:', error);
       return null;
     }
   };
@@ -102,22 +106,20 @@ const UserBooking = () => {
   const getUserInfoFromToken = () => {
     const token = getAuthToken();
     if (!token) {
-      console.log('❌ No token available for decoding');
+      console.log('❌ UserBooking: No token available for decoding');
       return null;
     }
     
     try {
       let payload;
       
-      if (token.includes('.')) {
+      // Handle JWT format
+      if (token.includes('.') && token.split('.').length === 3) {
         const parts = token.split('.');
-        if (parts.length !== 3) {
-          throw new Error('Invalid JWT format - not 3 parts');
-        }
-        
         const base64Url = parts[1];
+        
         if (!base64Url) {
-          throw new Error('Invalid JWT format - no payload');
+          throw new Error('Invalid JWT format - no payload section');
         }
         
         const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
@@ -126,21 +128,31 @@ const UserBooking = () => {
         }).join(''));
         
         payload = JSON.parse(jsonPayload);
-        console.log('✅ JWT token decoded successfully:', {
-          id: payload.id,
+        console.log('✅ UserBooking: JWT token decoded successfully:', {
+          id: payload.id || payload.user_id || payload.sub,
           email: payload.email,
           role: payload.role,
           exp: payload.exp ? new Date(payload.exp * 1000) : 'no expiry'
         });
       } else {
-        // Try to parse as base64 encoded JSON (fallback)
-        payload = JSON.parse(atob(token));
-        console.log('✅ Base64 token decoded successfully:', payload);
+        // Try parsing as base64 encoded JSON (fallback)
+        try {
+          payload = JSON.parse(atob(token));
+          console.log('✅ UserBooking: Base64 token decoded successfully');
+        } catch (base64Error) {
+          // Maybe it's already a JSON string?
+          try {
+            payload = JSON.parse(token);
+            console.log('✅ UserBooking: JSON token parsed successfully');
+          } catch (jsonError) {
+            throw new Error('Token is not in JWT, Base64, or JSON format');
+          }
+        }
       }
       
       return payload;
     } catch (error) {
-      console.error('❌ Error decoding token:', {
+      console.error('❌ UserBooking: Error decoding token:', {
         message: error.message,
         tokenLength: token ? token.length : 0,
         tokenStart: token ? token.substring(0, 20) : 'none',
@@ -153,123 +165,176 @@ const UserBooking = () => {
   // Check authentication status with enhanced debugging
   useEffect(() => {
     const checkAuth = () => {
-      console.log('🔐 Checking authentication status...');
+      console.log('🔐 UserBooking: Checking authentication status...');
       
       const token = getAuthToken();
       const userInfo = getUserInfoFromToken();
       
-      console.log('🔐 Authentication check result:', {
+      console.log('🔐 UserBooking: Authentication check result:', {
         hasToken: !!token,
         hasUserInfo: !!userInfo,
         tokenLength: token ? token.length : 0,
-        userEmail: userInfo?.email || 'none'
+        userEmail: userInfo?.email || 'none',
+        userId: userInfo?.id || userInfo?.user_id || userInfo?.sub || 'none'
       });
       
+      const isLoggedIn = !!(token && userInfo);
+      
       setAuthStatus({
-        isLoggedIn: !!token,
+        isLoggedIn: isLoggedIn,
         user: userInfo
       });
 
-      if (!token) {
-        setError('Please log in to view your bookings');
+      if (!isLoggedIn) {
+        setError('Please log in to view your bookings. No valid authentication token found.');
         setLoading(false);
       }
     };
 
     checkAuth();
+    
+    // Listen for storage changes (login/logout in other tabs)
+    const handleStorageChange = (e) => {
+      console.log('💾 UserBooking: Storage changed:', e.key, 'New value exists:', !!e.newValue);
+      if (e.key && ['token', 'authToken', 'jwt', 'access_token'].includes(e.key)) {
+        checkAuth();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // ENHANCED Fetch user's bookings with better debugging
+  // ENHANCED Fetch user's bookings with better debugging and error handling
   const fetchUserBookings = async () => {
     if (!authStatus.isLoggedIn) {
-      console.log('❌ Cannot fetch bookings - user not logged in');
+      console.log('❌ UserBookings: Cannot fetch bookings - user not logged in');
       return;
     }
 
     try {
       setLoading(true);
+      setError(null); // Clear previous errors
+      
       const authToken = getAuthToken();
       
-      // Enhanced token validation
-      console.log('🚀 Starting fetchUserBookings with token debug:', {
+      console.log('🚀 UserBookings: Starting fetchUserBookings with enhanced debug:', {
         tokenExists: !!authToken,
         tokenLength: authToken ? authToken.length : 0,
         isValidJWT: authToken ? (authToken.includes('.') && authToken.split('.').length === 3) : false,
-        tokenPreview: authToken ? authToken.substring(0, 30) + '...' : 'none'
+        tokenPreview: authToken ? authToken.substring(0, 30) + '...' : 'none',
+        userEmail: authStatus.user?.email,
+        apiUrl: `${API_BASE_URL}/api/parking/my-bookings`
       });
       
       if (!authToken) {
-        throw new Error('No authentication token found');
+        throw new Error('No authentication token found in storage');
       }
 
-      // Validate JWT format
-      if (!authToken.includes('.') || authToken.split('.').length !== 3) {
-        throw new Error('Invalid token format - not a proper JWT token');
-      }
-
-      console.log('🌐 Making API request to:', `${API_BASE_URL}/api/parking/my-bookings`);
+      console.log('🌐 UserBookings: Making API request...');
 
       const response = await fetch(`${API_BASE_URL}/api/parking/my-bookings`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`,
+          // Add additional headers for debugging
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'application/json'
         }
       });
 
-      console.log('📡 API Response received:', {
+      console.log('📡 UserBookings: API Response received:', {
         status: response.status,
         statusText: response.statusText,
-        ok: response.ok
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries())
       });
 
       if (!response.ok) {
-        // Get error details from response
         let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        let errorDetails = null;
         
         try {
           const errorData = await response.json();
           errorMessage = errorData.message || errorMessage;
-          console.error('❌ API Error Details:', errorData);
+          errorDetails = errorData;
+          console.error('❌ UserBookings: API Error Details:', errorData);
         } catch (parseError) {
-          console.error('❌ Could not parse error response:', parseError);
+          console.error('❌ UserBookings: Could not parse error response:', parseError);
+          try {
+            const errorText = await response.text();
+            console.error('❌ UserBookings: Error response text:', errorText);
+            errorMessage = errorText || errorMessage;
+          } catch (textError) {
+            console.error('❌ UserBookings: Could not get error text:', textError);
+          }
         }
         
+        // Handle specific error cases
         if (response.status === 401) {
-          // Clear invalid tokens
-          localStorage.removeItem('token');
-          localStorage.removeItem('authToken');
-          sessionStorage.removeItem('token');
-          sessionStorage.removeItem('authToken');
+          // Clear potentially invalid tokens
+          const keysToRemove = ['token', 'authToken', 'jwt', 'access_token', 'auth_token'];
+          keysToRemove.forEach(key => {
+            localStorage.removeItem(key);
+            sessionStorage.removeItem(key);
+          });
           
           setAuthStatus({ isLoggedIn: false, user: null });
           throw new Error('Your session has expired. Please log in again.');
         }
         
+        if (response.status === 403) {
+          throw new Error('Access denied. Please check your permissions.');
+        }
+        
+        if (response.status === 404) {
+          throw new Error('Bookings API endpoint not found. Please contact support.');
+        }
+        
         throw new Error(errorMessage);
       }
 
+      // Parse successful response
       const data = await response.json();
       
-      console.log('✅ API Response data:', {
+      console.log('✅ UserBookings: API Response data:', {
         success: data.success,
-        dataCount: data.data ? data.data.length : 0,
+        dataExists: !!data.data,
+        dataType: Array.isArray(data.data) ? 'array' : typeof data.data,
+        dataCount: Array.isArray(data.data) ? data.data.length : 'not array',
         message: data.message
       });
       
-      if (data.success) {
-        setUserBookings(data.data);
-        setFilteredBookings(data.data);
-        console.log('✅ User bookings loaded successfully:', data.count || data.data.length);
+      if (data.success && data.data) {
+        // Ensure data.data is an array
+        const bookingsArray = Array.isArray(data.data) ? data.data : [];
+        
+        setUserBookings(bookingsArray);
+        setFilteredBookings(bookingsArray);
+        setError(null);
+        
+        console.log('✅ UserBookings: Bookings loaded successfully:', bookingsArray.length);
       } else {
-        throw new Error(data.message || 'Failed to fetch bookings');
+        console.warn('⚠️ UserBookings: API returned success=false or no data:', data);
+        throw new Error(data.message || 'No booking data received from server');
       }
     } catch (error) {
-      console.error('❌ Error in fetchUserBookings:', {
+      console.error('❌ UserBookings: Complete error in fetchUserBookings:', {
+        name: error.name,
         message: error.message,
-        stack: error.stack?.substring(0, 200)
+        stack: error.stack?.substring(0, 300),
+        authStatus: authStatus.isLoggedIn,
+        hasToken: !!getAuthToken()
       });
-      setError(`Failed to load your bookings: ${error.message}`);
+      
+      setError(`Failed to load bookings: ${error.message}`);
+      
+      // If it's an auth error, clear the bookings
+      if (error.message.includes('session') || error.message.includes('token')) {
+        setUserBookings([]);
+        setFilteredBookings([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -419,9 +484,10 @@ const UserBooking = () => {
 
   // Load data on component mount with debugging
   useEffect(() => {
-    console.log('🔄 useEffect triggered for data loading:', {
+    console.log('🔄 UserBookings: useEffect triggered for data loading:', {
       isLoggedIn: authStatus.isLoggedIn,
-      userEmail: authStatus.user?.email
+      userEmail: authStatus.user?.email,
+      userId: authStatus.user?.id || authStatus.user?.user_id
     });
     
     if (authStatus.isLoggedIn) {
@@ -463,25 +529,25 @@ const UserBooking = () => {
   // Get status badge class
   const getStatusBadge = (status) => {
     const statusClasses = {
-      'confirmed': 'status-badge confirmed',
-      'cancelled': 'status-badge cancelled',
-      'pending': 'status-badge pending',
-      'refunded': 'status-badge refunded',
-      'payment_failed': 'status-badge failed'
+      'confirmed': 'ub-status-badge ub-confirmed',
+      'cancelled': 'ub-status-badge ub-cancelled',
+      'pending': 'ub-status-badge ub-pending',
+      'refunded': 'ub-status-badge ub-refunded',
+      'payment_failed': 'ub-status-badge ub-failed'
     };
-    return statusClasses[status] || 'status-badge unknown';
+    return statusClasses[status] || 'ub-status-badge ub-unknown';
   };
 
   // Get payment status badge
   const getPaymentStatusBadge = (paymentStatus) => {
     const statusClasses = {
-      'paid': 'payment-badge paid',
-      'refunded': 'payment-badge refunded',
-      'failed': 'payment-badge failed',
-      'pending': 'payment-badge pending',
-      'partially_refunded': 'payment-badge partial'
+      'paid': 'ub-payment-badge ub-paid',
+      'refunded': 'ub-payment-badge ub-refunded',
+      'failed': 'ub-payment-badge ub-failed',
+      'pending': 'ub-payment-badge ub-pending',
+      'partially_refunded': 'ub-payment-badge ub-partial'
     };
-    return statusClasses[paymentStatus] || 'payment-badge unknown';
+    return statusClasses[paymentStatus] || 'ub-payment-badge ub-unknown';
   };
 
   // Navigation functions
@@ -495,44 +561,48 @@ const UserBooking = () => {
 
   // Debug button to check token manually
   const debugToken = () => {
-    console.log('🔧 Manual token debug triggered');
+    console.log('🔧 UserBookings: Manual token debug triggered');
     const token = getAuthToken();
     const userInfo = getUserInfoFromToken();
     
-    alert(`Token Debug:
+    alert(`UserBookings Token Debug:
 Token exists: ${!!token}
 Token length: ${token ? token.length : 0}
 Is JWT: ${token ? (token.includes('.') && token.split('.').length === 3) : false}
 User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
+Auth status: ${authStatus.isLoggedIn}
 `);
   };
 
   // If not logged in
   if (!authStatus.isLoggedIn) {
     return (
-      <div className="user-bookings">
-        <div className="auth-required">
-          <div className="auth-message">
+      <div className="ub-user-bookings">
+        <div className="ub-auth-required">
+          <div className="ub-auth-message">
             <AlertCircle size={64} />
             <h2>Authentication Required</h2>
             <p>Please log in to view your booking history</p>
-            <button className="login-btn" onClick={() => window.location.href = '/#/login'}>
-              <User size={16} />
-              Go to Login
-            </button>
-            {/* Debug button */}
-            <button 
-              onClick={debugToken}
-              style={{
-                marginTop: '10px',
-                padding: '5px 10px',
-                background: '#ccc',
-                border: 'none',
-                borderRadius: '3px'
-              }}
-            >
-              Debug Token
-            </button>
+            <div className="ub-auth-actions">
+              <button className="ub-login-btn" onClick={() => window.location.href = '/#/login'}>
+                <User size={16} />
+                Go to Login
+              </button>
+              <button className="ub-home-btn" onClick={goToHome}>
+                <Home size={16} />
+                Back to Home
+              </button>
+            </div>
+            {/* Debug section */}
+            <div className="ub-debug-section">
+              <button 
+                onClick={debugToken}
+                className="ub-debug-btn"
+              >
+                🔧 Debug Token
+              </button>
+              <small>Click to check authentication status</small>
+            </div>
           </div>
         </div>
       </div>
@@ -541,11 +611,11 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
 
   if (loading) {
     return (
-      <div className="user-bookings">
-        <div className="loading-container">
-          <RefreshCw className="loading-spinner" size={48} />
+      <div className="ub-user-bookings">
+        <div className="ub-loading-container">
+          <RefreshCw className="ub-loading-spinner" size={48} />
           <h2>Loading Your Bookings...</h2>
-          <p>Fetching your travel history...</p>
+          <p>Fetching your travel history from secure servers...</p>
         </div>
       </div>
     );
@@ -553,31 +623,25 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
 
   if (error) {
     return (
-      <div className="user-bookings">
-        <div className="error-container">
+      <div className="ub-user-bookings">
+        <div className="ub-error-container">
           <AlertCircle size={48} />
           <h2>Unable to Load Bookings</h2>
-          <p>{error}</p>
-          <div className="error-actions">
-            <button className="retry-btn" onClick={fetchUserBookings}>
+          <p className="ub-error-message">{error}</p>
+          <div className="ub-error-actions">
+            <button className="ub-retry-btn" onClick={fetchUserBookings}>
               <RefreshCw size={16} />
               Try Again
             </button>
-            <button className="home-btn" onClick={goToHome}>
+            <button className="ub-home-btn" onClick={goToHome}>
               <Home size={16} />
               Go Home
             </button>
             <button 
               onClick={debugToken}
-              style={{
-                marginLeft: '10px',
-                padding: '8px 16px',
-                background: '#ccc',
-                border: 'none',
-                borderRadius: '3px'
-              }}
+              className="ub-debug-btn"
             >
-              Debug Token
+              🔧 Debug
             </button>
           </div>
         </div>
@@ -586,25 +650,25 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
   }
 
   return (
-    <div className="user-bookings">
+    <div className="ub-user-bookings">
       {/* Header */}
-      <div className="user-header">
-        <div className="header-content">
-          <div className="header-left">
-            <button className="back-btn" onClick={goToHome}>
+      <div className="ub-user-header">
+        <div className="ub-header-content">
+          <div className="ub-header-left">
+            <button className="ub-back-btn" onClick={goToHome}>
               <ArrowLeft size={20} />
             </button>
-            <div className="header-title">
+            <div className="ub-header-title">
               <h1>My Bookings</h1>
-              <p>Welcome back, {authStatus.user?.email || 'User'}!</p>
+              <p>Welcome back, {authStatus.user?.email || authStatus.user?.username || 'User'}!</p>
             </div>
           </div>
-          <div className="header-actions">
-            <button className="new-booking-btn" onClick={goToNewBooking}>
+          <div className="ub-header-actions">
+            <button className="ub-new-booking-btn" onClick={goToNewBooking}>
               <Plus size={16} />
               New Booking
             </button>
-            <button className="refresh-btn" onClick={fetchUserBookings} disabled={loading}>
+            <button className="ub-refresh-btn" onClick={fetchUserBookings} disabled={loading}>
               <RefreshCw size={16} />
               Refresh
             </button>
@@ -613,47 +677,47 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
       </div>
 
       {/* Stats Summary */}
-      <div className="user-stats">
-        <div className="stat-item">
-          <div className="stat-number">{userBookings.length}</div>
-          <div className="stat-label">Total Bookings</div>
+      <div className="ub-user-stats">
+        <div className="ub-stat-item">
+          <div className="ub-stat-number">{userBookings.length}</div>
+          <div className="ub-stat-label">Total Bookings</div>
         </div>
-        <div className="stat-item">
-          <div className="stat-number">{userBookings.filter(b => b.status === 'confirmed').length}</div>
-          <div className="stat-label">Active</div>
+        <div className="ub-stat-item">
+          <div className="ub-stat-number">{userBookings.filter(b => b.status === 'confirmed').length}</div>
+          <div className="ub-stat-label">Active</div>
         </div>
-        <div className="stat-item">
-          <div className="stat-number">{userBookings.filter(b => b.status === 'cancelled').length}</div>
-          <div className="stat-label">Cancelled</div>
+        <div className="ub-stat-item">
+          <div className="ub-stat-number">{userBookings.filter(b => b.status === 'cancelled').length}</div>
+          <div className="ub-stat-label">Cancelled</div>
         </div>
-        <div className="stat-item">
-          <div className="stat-number">
+        <div className="ub-stat-item">
+          <div className="ub-stat-number">
             {formatCurrency(userBookings.reduce((sum, booking) => sum + (booking.booking_amount || 0), 0))}
           </div>
-          <div className="stat-label">Total Spent</div>
+          <div className="ub-stat-label">Total Spent</div>
         </div>
       </div>
 
       {/* Controls */}
-      <div className="booking-controls">
-        <div className="search-section">
-          <div className="search-input-container">
+      <div className="ub-booking-controls">
+        <div className="ub-search-section">
+          <div className="ub-search-input-container">
             <Search size={20} />
             <input
               type="text"
               placeholder="Search your bookings..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="search-input"
+              className="ub-search-input"
             />
           </div>
         </div>
 
-        <div className="filter-section">
+        <div className="ub-filter-section">
           <select 
             value={statusFilter} 
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="filter-select"
+            className="ub-filter-select"
           >
             <option value="all">All Bookings</option>
             <option value="confirmed">Active Bookings</option>
@@ -664,7 +728,7 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
           <select 
             value={sortBy} 
             onChange={(e) => setSortBy(e.target.value)}
-            className="filter-select"
+            className="ub-filter-select"
           >
             <option value="created_at">Recent First</option>
             <option value="dropoff_date">By Travel Date</option>
@@ -674,10 +738,10 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
       </div>
 
       {/* Bookings List */}
-      <div className="bookings-container">
+      <div className="ub-bookings-container">
         {filteredBookings.length === 0 ? (
-          <div className="no-bookings">
-            <div className="no-bookings-icon">
+          <div className="ub-no-bookings">
+            <div className="ub-no-bookings-icon">
               <Plane size={64} />
             </div>
             <h3>No Bookings Found</h3>
@@ -688,26 +752,26 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
               }
             </p>
             {userBookings.length === 0 && (
-              <button className="new-booking-btn primary" onClick={goToNewBooking}>
+              <button className="ub-new-booking-btn ub-primary" onClick={goToNewBooking}>
                 <Plus size={16} />
                 Make Your First Booking
               </button>
             )}
           </div>
         ) : (
-          <div className="bookings-grid">
+          <div className="ub-bookings-grid">
             {filteredBookings.map((booking) => (
-              <div key={booking.id} className="booking-card">
-                <div className="card-header">
-                  <div className="booking-reference">
+              <div key={booking.id} className="ub-booking-card">
+                <div className="ub-card-header">
+                  <div className="ub-booking-reference">
                     <strong>#{booking.our_reference}</strong>
                     <span className={getStatusBadge(booking.status)}>
                       {booking.status}
                     </span>
                   </div>
-                  <div className="booking-actions">
+                  <div className="ub-booking-actions">
                     <button
-                      className="action-btn view"
+                      className="ub-action-btn ub-view"
                       onClick={() => {
                         setSelectedBooking(booking);
                         setModalType('view');
@@ -719,7 +783,7 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
                     </button>
                     {booking.can_cancel && booking.status === 'confirmed' && (
                       <button
-                        className="action-btn cancel"
+                        className="ub-action-btn ub-cancel"
                         onClick={() => {
                           setSelectedBooking(booking);
                           setModalType('cancel');
@@ -732,7 +796,7 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
                     )}
                     {booking.status === 'cancelled' && (
                       <button
-                        className="action-btn delete"
+                        className="ub-action-btn ub-delete"
                         onClick={() => {
                           setSelectedBooking(booking);
                           setModalType('delete');
@@ -746,27 +810,27 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
                   </div>
                 </div>
 
-                <div className="card-content">
-                  <div className="service-info">
-                    <div className="service-header">
+                <div className="ub-card-content">
+                  <div className="ub-service-info">
+                    <div className="ub-service-header">
                       <h3>{booking.product_name || 'Airport Parking'}</h3>
-                      <div className="airport-info">
+                      <div className="ub-airport-info">
                         <Plane size={16} />
                         <span>{airportNames[booking.airport_code] || booking.airport_code}</span>
                       </div>
                     </div>
                     
-                    <div className="booking-details">
-                      <div className="detail-row">
+                    <div className="ub-booking-details">
+                      <div className="ub-detail-row">
                         <Calendar size={14} />
                         <span>Drop-off: {formatDateOnly(booking.dropoff_date)} at {booking.dropoff_time}</span>
                       </div>
-                      <div className="detail-row">
+                      <div className="ub-detail-row">
                         <Calendar size={14} />
                         <span>Pick-up: {formatDateOnly(booking.pickup_date)} at {booking.pickup_time}</span>
                       </div>
                       {booking.vehicle_registration && (
-                        <div className="detail-row">
+                        <div className="ub-detail-row">
                           <Car size={14} />
                           <span>{booking.vehicle_registration}</span>
                         </div>
@@ -774,11 +838,11 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
                     </div>
                   </div>
 
-                  <div className="payment-info">
-                    <div className="amount">
+                  <div className="ub-payment-info">
+                    <div className="ub-amount">
                       {formatCurrency(booking.booking_amount)}
                     </div>
-                    <div className="payment-status">
+                    <div className="ub-payment-status">
                       <span className={getPaymentStatusBadge(booking.payment_status)}>
                         {booking.payment_status || 'N/A'}
                       </span>
@@ -786,12 +850,12 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
                   </div>
                 </div>
 
-                <div className="card-footer">
-                  <div className="booking-date">
+                <div className="ub-card-footer">
+                  <div className="ub-booking-date">
                     <small>Booked on {formatDate(booking.created_at)}</small>
                   </div>
                   {booking.magr_reference && (
-                    <div className="provider-ref">
+                    <div className="ub-provider-ref">
                       <small>Ref: {booking.magr_reference}</small>
                     </div>
                   )}
@@ -804,29 +868,29 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
 
       {/* Modal */}
       {showModal && selectedBooking && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+        <div className="ub-modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="ub-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="ub-modal-header">
               <h2>
                 {modalType === 'view' && 'Booking Details'}
                 {modalType === 'cancel' && 'Cancel Booking'}
                 {modalType === 'delete' && 'Delete Booking'}
               </h2>
               <button 
-                className="modal-close-btn"
+                className="ub-modal-close-btn"
                 onClick={() => setShowModal(false)}
               >
                 <XCircle size={20} />
               </button>
             </div>
 
-            <div className="modal-body">
+            <div className="ub-modal-body">
               {modalType === 'view' ? (
-                <div className="booking-details-modal">
+                <div className="ub-booking-details-modal">
                   {/* Booking Status */}
-                  <div className="detail-section">
+                  <div className="ub-detail-section">
                     <h3>Booking Status</h3>
-                    <div className="status-display">
+                    <div className="ub-status-display">
                       <span className={getStatusBadge(selectedBooking.status)}>
                         {selectedBooking.status}
                       </span>
@@ -837,23 +901,23 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
                   </div>
 
                   {/* Service Information */}
-                  <div className="detail-section">
+                  <div className="ub-detail-section">
                     <h3>Service Information</h3>
-                    <div className="detail-grid">
-                      <div className="detail-item">
+                    <div className="ub-detail-grid">
+                      <div className="ub-detail-item">
                         <label>Service</label>
                         <span>{selectedBooking.product_name}</span>
                       </div>
-                      <div className="detail-item">
+                      <div className="ub-detail-item">
                         <label>Airport</label>
                         <span>{airportNames[selectedBooking.airport_code] || selectedBooking.airport_code}</span>
                       </div>
-                      <div className="detail-item">
+                      <div className="ub-detail-item">
                         <label>Reference</label>
                         <span>{selectedBooking.our_reference}</span>
                       </div>
                       {selectedBooking.magr_reference && (
-                        <div className="detail-item">
+                        <div className="ub-detail-item">
                           <label>Provider Reference</label>
                           <span>{selectedBooking.magr_reference}</span>
                         </div>
@@ -862,14 +926,14 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
                   </div>
 
                   {/* Travel Information */}
-                  <div className="detail-section">
+                  <div className="ub-detail-section">
                     <h3>Travel Information</h3>
-                    <div className="detail-grid">
-                      <div className="detail-item">
+                    <div className="ub-detail-grid">
+                      <div className="ub-detail-item">
                         <label>Drop-off</label>
                         <span>{formatDateOnly(selectedBooking.dropoff_date)} at {selectedBooking.dropoff_time}</span>
                       </div>
-                      <div className="detail-item">
+                      <div className="ub-detail-item">
                         <label>Pick-up</label>
                         <span>{formatDateOnly(selectedBooking.pickup_date)} at {selectedBooking.pickup_time}</span>
                       </div>
@@ -878,10 +942,10 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
 
                   {/* Vehicle Information */}
                   {selectedBooking.vehicle_registration && (
-                    <div className="detail-section">
+                    <div className="ub-detail-section">
                       <h3>Vehicle Information</h3>
-                      <div className="detail-grid">
-                        <div className="detail-item">
+                      <div className="ub-detail-grid">
+                        <div className="ub-detail-item">
                           <label>Registration</label>
                           <span>{selectedBooking.vehicle_registration}</span>
                         </div>
@@ -890,41 +954,41 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
                   )}
 
                   {/* Payment Information */}
-                  <div className="detail-section">
+                  <div className="ub-detail-section">
                     <h3>Payment Information</h3>
-                    <div className="detail-grid">
-                      <div className="detail-item">
+                    <div className="ub-detail-grid">
+                      <div className="ub-detail-item">
                         <label>Total Amount</label>
-                        <span className="amount-highlight">{formatCurrency(selectedBooking.booking_amount)}</span>
+                        <span className="ub-amount-highlight">{formatCurrency(selectedBooking.booking_amount)}</span>
                       </div>
-                      <div className="detail-item">
+                      <div className="ub-detail-item">
                         <label>Payment Method</label>
                         <span>{selectedBooking.payment_method || 'Card Payment'}</span>
                       </div>
-                      <div className="detail-item">
+                      <div className="ub-detail-item">
                         <label>Currency</label>
                         <span>{selectedBooking.currency || 'GBP'}</span>
                       </div>
                       {selectedBooking.refund_amount > 0 && (
-                        <div className="detail-item">
+                        <div className="ub-detail-item">
                           <label>Refund Amount</label>
-                          <span className="refund-highlight">{formatCurrency(selectedBooking.refund_amount)}</span>
+                          <span className="ub-refund-highlight">{formatCurrency(selectedBooking.refund_amount)}</span>
                         </div>
                       )}
                     </div>
                   </div>
 
                   {/* Booking Date */}
-                  <div className="detail-section">
-                    <div className="detail-item">
+                  <div className="ub-detail-section">
+                    <div className="ub-detail-item">
                       <label>Booking Created</label>
                       <span>{formatDate(selectedBooking.created_at)}</span>
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="action-form">
-                  <div className="warning-message">
+                <div className="ub-action-form">
+                  <div className="ub-warning-message">
                     <AlertCircle size={24} />
                     <div>
                       <h4>
@@ -939,27 +1003,27 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
                     </div>
                   </div>
 
-                  <div className="form-group">
+                  <div className="ub-form-group">
                     <label>Reason (Optional)</label>
                     <textarea
                       value={cancelReason}
                       onChange={(e) => setCancelReason(e.target.value)}
                       placeholder={`Why are you ${modalType === 'cancel' ? 'cancelling' : 'deleting'} this booking?`}
                       rows={3}
-                      className="reason-textarea"
+                      className="ub-reason-textarea"
                     />
                   </div>
 
-                  <div className="modal-actions">
+                  <div className="ub-modal-actions">
                     <button 
-                      className="btn-secondary"
+                      className="ub-btn-secondary"
                       onClick={() => setShowModal(false)}
                       disabled={processingAction}
                     >
                       Keep Booking
                     </button>
                     <button 
-                      className={`btn-primary ${modalType === 'delete' ? 'btn-danger' : 'btn-warning'}`}
+                      className={`ub-btn-primary ${modalType === 'delete' ? 'ub-btn-danger' : 'ub-btn-warning'}`}
                       onClick={() => {
                         if (modalType === 'cancel') {
                           cancelBooking(selectedBooking.our_reference, cancelReason);
@@ -971,7 +1035,7 @@ User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
                     >
                       {processingAction ? (
                         <>
-                          <RefreshCw className="spinning" size={16} />
+                          <RefreshCw className="ub-spinning" size={16} />
                           Processing...
                         </>
                       ) : (

@@ -270,25 +270,25 @@ const AdminBookingDetail = () => {
   // Get status badge class
   const getStatusBadge = (status) => {
     const statusClasses = {
-      'confirmed': 'status-badge confirmed',
-      'cancelled': 'status-badge cancelled',
-      'pending': 'status-badge pending',
-      'refunded': 'status-badge refunded',
-      'payment_failed': 'status-badge failed'
+      'confirmed': 'admin-status-badge admin-confirmed',
+      'cancelled': 'admin-status-badge admin-cancelled',
+      'pending': 'admin-status-badge admin-pending',
+      'refunded': 'admin-status-badge admin-refunded',
+      'payment_failed': 'admin-status-badge admin-failed'
     };
-    return statusClasses[status] || 'status-badge unknown';
+    return statusClasses[status] || 'admin-status-badge admin-unknown';
   };
 
   // Get payment status badge
   const getPaymentStatusBadge = (paymentStatus) => {
     const statusClasses = {
-      'paid': 'payment-badge paid',
-      'refunded': 'payment-badge refunded',
-      'failed': 'payment-badge failed',
-      'pending': 'payment-badge pending',
-      'partially_refunded': 'payment-badge partial'
+      'paid': 'admin-payment-badge admin-paid',
+      'refunded': 'admin-payment-badge admin-refunded',
+      'failed': 'admin-payment-badge admin-failed',
+      'pending': 'admin-payment-badge admin-pending',
+      'partially_refunded': 'admin-payment-badge admin-partial'
     };
-    return statusClasses[paymentStatus] || 'payment-badge unknown';
+    return statusClasses[paymentStatus] || 'admin-payment-badge admin-unknown';
   };
 
   // Export bookings to CSV
@@ -332,9 +332,9 @@ const AdminBookingDetail = () => {
 
   if (loading) {
     return (
-      <div className="admin-dashboard">
-        <div className="loading-container">
-          <RefreshCw className="loading-spinner" size={48} />
+      <div className="admin-booking-dashboard">
+        <div className="admin-loading-container">
+          <RefreshCw className="admin-loading-spinner" size={48} />
           <h2>Loading Booking Dashboard...</h2>
           <p>Fetching booking data and statistics...</p>
         </div>
@@ -344,12 +344,12 @@ const AdminBookingDetail = () => {
 
   if (error) {
     return (
-      <div className="admin-dashboard">
-        <div className="error-container">
+      <div className="admin-booking-dashboard">
+        <div className="admin-error-container">
           <AlertCircle size={48} />
           <h2>Dashboard Error</h2>
           <p>{error}</p>
-          <button className="retry-btn" onClick={() => window.location.reload()}>
+          <button className="admin-retry-btn" onClick={() => window.location.reload()}>
             <RefreshCw size={16} />
             Retry
           </button>
@@ -359,20 +359,20 @@ const AdminBookingDetail = () => {
   }
 
   return (
-    <div className="admin-dashboard">
+    <div className="admin-booking-dashboard">
       {/* Header */}
-      <div className="dashboard-header">
-        <div className="header-content">
-          <div className="header-title">
+      <div className="admin-dashboard-header">
+        <div className="admin-header-content">
+          <div className="admin-header-title">
             <h1>Parksy Admin Dashboard</h1>
             <p>Comprehensive booking management and analytics</p>
           </div>
-          <div className="header-actions">
-            <button className="refresh-btn" onClick={fetchBookings} disabled={loading}>
+          <div className="admin-header-actions">
+            <button className="admin-refresh-btn" onClick={fetchBookings} disabled={loading}>
               <RefreshCw size={16} />
               Refresh
             </button>
-            <button className="export-btn" onClick={exportToCSV}>
+            <button className="admin-export-btn" onClick={exportToCSV}>
               <Download size={16} />
               Export CSV
             </button>
@@ -381,74 +381,74 @@ const AdminBookingDetail = () => {
       </div>
 
       {/* Statistics Cards */}
-      <div className="stats-grid">
-        <div className="stat-card total">
-          <div className="stat-icon">
+      <div className="admin-stats-grid">
+        <div className="admin-stat-card admin-total">
+          <div className="admin-stat-icon">
             <BarChart3 size={24} />
           </div>
-          <div className="stat-content">
+          <div className="admin-stat-content">
             <h3>Total Bookings</h3>
-            <div className="stat-number">{stats.total_bookings}</div>
-            <div className="stat-subtitle">All time bookings</div>
+            <div className="admin-stat-number">{stats.total_bookings}</div>
+            <div className="admin-stat-subtitle">All time bookings</div>
           </div>
         </div>
 
-        <div className="stat-card confirmed">
-          <div className="stat-icon">
+        <div className="admin-stat-card admin-confirmed">
+          <div className="admin-stat-icon">
             <CheckCircle size={24} />
           </div>
-          <div className="stat-content">
+          <div className="admin-stat-content">
             <h3>Confirmed</h3>
-            <div className="stat-number">{stats.confirmed_bookings}</div>
-            <div className="stat-subtitle">Active bookings</div>
+            <div className="admin-stat-number">{stats.confirmed_bookings}</div>
+            <div className="admin-stat-subtitle">Active bookings</div>
           </div>
         </div>
 
-        <div className="stat-card revenue">
-          <div className="stat-icon">
+        <div className="admin-stat-card admin-revenue">
+          <div className="admin-stat-icon">
             <DollarSign size={24} />
           </div>
-          <div className="stat-content">
+          <div className="admin-stat-content">
             <h3>Total Revenue</h3>
-            <div className="stat-number">{formatCurrency(stats.total_revenue)}</div>
-            <div className="stat-subtitle">From confirmed bookings</div>
+            <div className="admin-stat-number">{formatCurrency(stats.total_revenue)}</div>
+            <div className="admin-stat-subtitle">From confirmed bookings</div>
           </div>
         </div>
 
-        <div className="stat-card average">
-          <div className="stat-icon">
+        <div className="admin-stat-card admin-average">
+          <div className="admin-stat-icon">
             <TrendingUp size={24} />
           </div>
-          <div className="stat-content">
+          <div className="admin-stat-content">
             <h3>Average Value</h3>
-            <div className="stat-number">{formatCurrency(stats.average_booking_value)}</div>
-            <div className="stat-subtitle">Per booking</div>
+            <div className="admin-stat-number">{formatCurrency(stats.average_booking_value)}</div>
+            <div className="admin-stat-subtitle">Per booking</div>
           </div>
         </div>
       </div>
 
       {/* Filters and Controls */}
-      <div className="dashboard-controls">
-        <div className="search-section">
-          <div className="search-input-container">
+      <div className="admin-dashboard-controls">
+        <div className="admin-search-section">
+          <div className="admin-search-input-container">
             <Search size={20} />
             <input
               type="text"
               placeholder="Search bookings by reference, email, name, or registration..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="search-input"
+              className="admin-search-input"
             />
           </div>
         </div>
 
-        <div className="filter-section">
-          <div className="filter-group">
+        <div className="admin-filter-section">
+          <div className="admin-filter-group">
             <label>Status Filter</label>
             <select 
               value={statusFilter} 
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="filter-select"
+              className="admin-filter-select"
             >
               <option value="all">All Statuses</option>
               <option value="confirmed">Confirmed</option>
@@ -458,12 +458,12 @@ const AdminBookingDetail = () => {
             </select>
           </div>
 
-          <div className="filter-group">
+          <div className="admin-filter-group">
             <label>Sort By</label>
             <select 
               value={sortBy} 
               onChange={(e) => setSortBy(e.target.value)}
-              className="filter-select"
+              className="admin-filter-select"
             >
               <option value="created_at">Created Date</option>
               <option value="dropoff_date">Drop-off Date</option>
@@ -473,10 +473,10 @@ const AdminBookingDetail = () => {
             </select>
           </div>
 
-          <div className="filter-group">
+          <div className="admin-filter-group">
             <label>Order</label>
             <button 
-              className="sort-order-btn"
+              className="admin-sort-order-btn"
               onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
             >
               <ArrowUpDown size={16} />
@@ -485,14 +485,14 @@ const AdminBookingDetail = () => {
           </div>
         </div>
 
-        <div className="results-info">
+        <div className="admin-results-info">
           <p>Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredBookings.length)} of {filteredBookings.length} bookings</p>
         </div>
       </div>
 
       {/* Bookings Table */}
-      <div className="bookings-table-container">
-        <table className="bookings-table">
+      <div className="admin-bookings-table-container">
+        <table className="admin-bookings-table">
           <thead>
             <tr>
               <th>Reference</th>
@@ -509,9 +509,9 @@ const AdminBookingDetail = () => {
           </thead>
           <tbody>
             {paginatedBookings.map((booking) => (
-              <tr key={booking.id} className="booking-row">
+              <tr key={booking.id} className="admin-booking-row">
                 <td>
-                  <div className="reference-cell">
+                  <div className="admin-reference-cell">
                     <strong>{booking.our_reference}</strong>
                     {booking.magr_reference && (
                       <small>MAGR: {booking.magr_reference}</small>
@@ -519,11 +519,11 @@ const AdminBookingDetail = () => {
                   </div>
                 </td>
                 <td>
-                  <div className="customer-cell">
+                  <div className="admin-customer-cell">
                     <strong>{booking.customer_name}</strong>
                     <small>{booking.customer_email}</small>
                     {booking.car_registration_number && (
-                      <div className="vehicle-info">
+                      <div className="admin-vehicle-info">
                         <Car size={12} />
                         {booking.car_registration_number}
                       </div>
@@ -531,19 +531,19 @@ const AdminBookingDetail = () => {
                   </div>
                 </td>
                 <td>
-                  <div className="service-cell">
+                  <div className="admin-service-cell">
                     <strong>{booking.product_name}</strong>
                     <small>Code: {booking.company_code}</small>
                   </div>
                 </td>
                 <td>
-                  <div className="airport-cell">
+                  <div className="admin-airport-cell">
                     <Plane size={16} />
                     <span>{airportNames[booking.airport_code] || booking.airport_code}</span>
                   </div>
                 </td>
                 <td>
-                  <div className="amount-cell">
+                  <div className="admin-amount-cell">
                     <strong>{formatCurrency(booking.booking_amount)}</strong>
                     <small>{booking.currency || 'GBP'}</small>
                   </div>
@@ -559,11 +559,11 @@ const AdminBookingDetail = () => {
                   </span>
                 </td>
                 <td>
-                  <div className="dates-cell">
-                    <div className="date-row">
+                  <div className="admin-dates-cell">
+                    <div className="admin-date-row">
                       <small>Drop: {booking.dropoff_date} {booking.dropoff_time}</small>
                     </div>
-                    <div className="date-row">
+                    <div className="admin-date-row">
                       <small>Pick: {booking.pickup_date} {booking.pickup_time}</small>
                     </div>
                   </div>
@@ -572,9 +572,9 @@ const AdminBookingDetail = () => {
                   <small>{formatDate(booking.created_at)}</small>
                 </td>
                 <td>
-                  <div className="action-buttons">
+                  <div className="admin-action-buttons">
                     <button
-                      className="action-btn view"
+                      className="admin-action-btn admin-view"
                       onClick={() => {
                         setSelectedBooking(booking);
                         setModalType('view');
@@ -586,7 +586,7 @@ const AdminBookingDetail = () => {
                     </button>
                     {booking.status !== 'cancelled' && (
                       <button
-                        className="action-btn cancel"
+                        className="admin-action-btn admin-cancel"
                         onClick={() => {
                           setSelectedBooking(booking);
                           setModalType('cancel');
@@ -598,7 +598,7 @@ const AdminBookingDetail = () => {
                       </button>
                     )}
                     <button
-                      className="action-btn delete"
+                      className="admin-action-btn admin-delete"
                       onClick={() => {
                         setSelectedBooking(booking);
                         setModalType('delete');
@@ -616,7 +616,7 @@ const AdminBookingDetail = () => {
         </table>
 
         {paginatedBookings.length === 0 && (
-          <div className="no-results">
+          <div className="admin-no-results">
             <AlertCircle size={48} />
             <h3>No Bookings Found</h3>
             <p>No bookings match your current filters. Try adjusting your search criteria.</p>
@@ -626,21 +626,21 @@ const AdminBookingDetail = () => {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="pagination">
+        <div className="admin-pagination">
           <button 
-            className="pagination-btn"
+            className="admin-pagination-btn"
             onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
             disabled={currentPage === 1}
           >
             Previous
           </button>
           
-          <div className="pagination-info">
+          <div className="admin-pagination-info">
             <span>Page {currentPage} of {totalPages}</span>
           </div>
           
           <button 
-            className="pagination-btn"
+            className="admin-pagination-btn"
             onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
             disabled={currentPage === totalPages}
           >
@@ -651,44 +651,44 @@ const AdminBookingDetail = () => {
 
       {/* Modal */}
       {showModal && selectedBooking && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+        <div className="admin-modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="admin-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
               <h2>
                 {modalType === 'view' && 'Booking Details'}
                 {modalType === 'cancel' && 'Cancel Booking'}
                 {modalType === 'delete' && 'Delete Booking'}
               </h2>
               <button 
-                className="modal-close-btn"
+                className="admin-modal-close-btn"
                 onClick={() => setShowModal(false)}
               >
                 <XCircle size={20} />
               </button>
             </div>
 
-            <div className="modal-body">
+            <div className="admin-modal-body">
               {modalType === 'view' ? (
-                <div className="booking-details">
+                <div className="admin-booking-details">
                   {/* Booking Information */}
-                  <div className="detail-section">
+                  <div className="admin-detail-section">
                     <h3>Booking Information</h3>
-                    <div className="detail-grid">
-                      <div className="detail-item">
+                    <div className="admin-detail-grid">
+                      <div className="admin-detail-item">
                         <label>Our Reference</label>
                         <span>{selectedBooking.our_reference}</span>
                       </div>
-                      <div className="detail-item">
+                      <div className="admin-detail-item">
                         <label>MAGR Reference</label>
                         <span>{selectedBooking.magr_reference || 'N/A'}</span>
                       </div>
-                      <div className="detail-item">
+                      <div className="admin-detail-item">
                         <label>Status</label>
                         <span className={getStatusBadge(selectedBooking.status)}>
                           {selectedBooking.status}
                         </span>
                       </div>
-                      <div className="detail-item">
+                      <div className="admin-detail-item">
                         <label>Created</label>
                         <span>{formatDate(selectedBooking.created_at)}</span>
                       </div>
@@ -696,18 +696,18 @@ const AdminBookingDetail = () => {
                   </div>
 
                   {/* Customer Information */}
-                  <div className="detail-section">
+                  <div className="admin-detail-section">
                     <h3>Customer Information</h3>
-                    <div className="detail-grid">
-                      <div className="detail-item">
+                    <div className="admin-detail-grid">
+                      <div className="admin-detail-item">
                         <label>Name</label>
                         <span>{selectedBooking.customer_name}</span>
                       </div>
-                      <div className="detail-item">
+                      <div className="admin-detail-item">
                         <label>Email</label>
                         <span>{selectedBooking.customer_email}</span>
                       </div>
-                      <div className="detail-item">
+                      <div className="admin-detail-item">
                         <label>User Account</label>
                         <span>{selectedBooking.user_email || 'N/A'}</span>
                       </div>
@@ -715,18 +715,18 @@ const AdminBookingDetail = () => {
                   </div>
 
                   {/* Service Information */}
-                  <div className="detail-section">
+                  <div className="admin-detail-section">
                     <h3>Service Information</h3>
-                    <div className="detail-grid">
-                      <div className="detail-item">
+                    <div className="admin-detail-grid">
+                      <div className="admin-detail-item">
                         <label>Service</label>
                         <span>{selectedBooking.product_name}</span>
                       </div>
-                      <div className="detail-item">
+                      <div className="admin-detail-item">
                         <label>Airport</label>
                         <span>{airportNames[selectedBooking.airport_code] || selectedBooking.airport_code}</span>
                       </div>
-                      <div className="detail-item">
+                      <div className="admin-detail-item">
                         <label>Company Code</label>
                         <span>{selectedBooking.company_code}</span>
                       </div>
@@ -734,14 +734,14 @@ const AdminBookingDetail = () => {
                   </div>
 
                   {/* Travel Information */}
-                  <div className="detail-section">
+                  <div className="admin-detail-section">
                     <h3>Travel Information</h3>
-                    <div className="detail-grid">
-                      <div className="detail-item">
+                    <div className="admin-detail-grid">
+                      <div className="admin-detail-item">
                         <label>Drop-off</label>
                         <span>{selectedBooking.dropoff_date} at {selectedBooking.dropoff_time}</span>
                       </div>
-                      <div className="detail-item">
+                      <div className="admin-detail-item">
                         <label>Pick-up</label>
                         <span>{selectedBooking.pickup_date} at {selectedBooking.pickup_time}</span>
                       </div>
@@ -749,14 +749,14 @@ const AdminBookingDetail = () => {
                   </div>
 
                   {/* Vehicle Information */}
-                  <div className="detail-section">
+                  <div className="admin-detail-section">
                     <h3>Vehicle Information</h3>
-                    <div className="detail-grid">
-                      <div className="detail-item">
+                    <div className="admin-detail-grid">
+                      <div className="admin-detail-item">
                         <label>Registration</label>
                         <span>{selectedBooking.car_registration_number || 'N/A'}</span>
                       </div>
-                      <div className="detail-item">
+                      <div className="admin-detail-item">
                         <label>Make & Model</label>
                         <span>{selectedBooking.car_make} {selectedBooking.car_model}</span>
                       </div>
@@ -764,35 +764,35 @@ const AdminBookingDetail = () => {
                   </div>
 
                   {/* Payment Information */}
-                  <div className="detail-section">
+                  <div className="admin-detail-section">
                     <h3>Payment Information</h3>
-                    <div className="detail-grid">
-                      <div className="detail-item">
+                    <div className="admin-detail-grid">
+                      <div className="admin-detail-item">
                         <label>Amount</label>
                         <span>{formatCurrency(selectedBooking.booking_amount)}</span>
                       </div>
-                      <div className="detail-item">
+                      <div className="admin-detail-item">
                         <label>Payment Method</label>
                         <span>{selectedBooking.payment_method || 'N/A'}</span>
                       </div>
-                      <div className="detail-item">
+                      <div className="admin-detail-item">
                         <label>Payment Status</label>
                         <span className={getPaymentStatusBadge(selectedBooking.payment_status)}>
                           {selectedBooking.payment_status || 'N/A'}
                         </span>
                       </div>
                       {selectedBooking.stripe_payment_intent_id && (
-                        <div className="detail-item">
+                        <div className="admin-detail-item">
                           <label>Stripe Payment ID</label>
-                          <span className="payment-id">{selectedBooking.stripe_payment_intent_id}</span>
+                          <span className="admin-payment-id">{selectedBooking.stripe_payment_intent_id}</span>
                         </div>
                       )}
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="action-form">
-                  <div className="warning-message">
+                <div className="admin-action-form">
+                  <div className="admin-warning-message">
                     <AlertCircle size={24} />
                     <div>
                       <h4>
@@ -807,27 +807,27 @@ const AdminBookingDetail = () => {
                     </div>
                   </div>
 
-                  <div className="form-group">
+                  <div className="admin-form-group">
                     <label>Reason (Optional)</label>
                     <textarea
                       value={actionReason}
                       onChange={(e) => setActionReason(e.target.value)}
                       placeholder={`Enter reason for ${modalType === 'cancel' ? 'cancellation' : 'deletion'}...`}
                       rows={3}
-                      className="reason-textarea"
+                      className="admin-reason-textarea"
                     />
                   </div>
 
-                  <div className="modal-actions">
+                  <div className="admin-modal-actions">
                     <button 
-                      className="btn-secondary"
+                      className="admin-btn-secondary"
                       onClick={() => setShowModal(false)}
                       disabled={processingAction}
                     >
                       Cancel
                     </button>
                     <button 
-                      className={`btn-primary ${modalType === 'delete' ? 'btn-danger' : 'btn-warning'}`}
+                      className={`admin-btn-primary ${modalType === 'delete' ? 'admin-btn-danger' : 'admin-btn-warning'}`}
                       onClick={() => {
                         if (modalType === 'cancel') {
                           cancelBooking(selectedBooking.id, actionReason);
@@ -839,7 +839,7 @@ const AdminBookingDetail = () => {
                     >
                       {processingAction ? (
                         <>
-                          <RefreshCw className="spinning" size={16} />
+                          <RefreshCw className="admin-spinning" size={16} />
                           Processing...
                         </>
                       ) : (
