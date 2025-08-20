@@ -424,6 +424,282 @@ router.get('/terminals/:airport_code',
   }
 );
 
+// ===== BOOKING RETRIEVAL ROUTES (NEW - ADDED AS REQUESTED) =====
+
+// Get all bookings (for admin view) - WITHOUT AUTHENTICATION
+router.get('/bookings', async (req, res) => {
+  try {
+    console.log('📋 Getting all bookings (admin view)');
+    
+    if (!Booking) {
+      return res.status(500).json({
+        success: false,
+        message: 'Booking model not available'
+      });
+    }
+    
+    const bookings = await Booking.find({})
+      .sort({ created_at: -1 }) // Most recent first
+      .limit(100); // Limit for performance
+    
+    console.log('✅ Found bookings:', bookings.length);
+    
+    res.json({
+      success: true,
+      data: bookings.map(booking => ({
+        id: booking._id,
+        our_reference: booking.our_reference,
+        magr_reference: booking.magr_reference,
+        status: booking.status,
+        user_email: booking.user_email,
+        customer_email: booking.customer_details?.customer_email,
+        customer_name: `${booking.customer_details?.title || ''} ${booking.customer_details?.first_name || ''} ${booking.customer_details?.last_name || ''}`.trim(),
+        airport_code: booking.airport_code,
+        company_code: booking.company_code,
+        product_name: booking.product_name,
+        booking_amount: booking.booking_amount,
+        currency: booking.currency,
+        // Payment info
+        payment_method: booking.payment_details?.payment_method,
+        payment_status: booking.payment_details?.payment_status,
+        stripe_payment_intent_id: booking.payment_details?.stripe_payment_intent_id,
+        // Travel dates
+        dropoff_date: booking.travel_details?.dropoff_date,
+        dropoff_time: booking.travel_details?.dropoff_time,
+        pickup_date: booking.travel_details?.pickup_date,
+        pickup_time: booking.travel_details?.pickup_time,
+        // Vehicle info
+        car_registration_number: booking.vehicle_details?.car_registration_number,
+        car_make: booking.vehicle_details?.car_make,
+        car_model: booking.vehicle_details?.car_model,
+        // Metadata
+        created_at: booking.created_at,
+        updated_at: booking.updated_at
+      })),
+      count: bookings.length,
+      message: 'All bookings retrieved successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching all bookings:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve bookings',
+      error: error.message
+    });
+  }
+});
+
+// Get booking statistics - WITHOUT AUTHENTICATION
+router.get('/booking-stats', async (req, res) => {
+  try {
+    console.log('📊 Getting booking statistics');
+    
+    if (!Booking) {
+      return res.json({
+        success: true,
+        stats: {
+          total_bookings: 0,
+          confirmed_bookings: 0,
+          cancelled_bookings: 0,
+          total_revenue: 0
+        },
+        message: 'Booking model not available'
+      });
+    }
+    
+    const totalBookings = await Booking.countDocuments({});
+    const confirmedBookings = await Booking.countDocuments({ status: 'confirmed' });
+    const cancelledBookings = await Booking.countDocuments({ status: 'cancelled' });
+    
+    // Calculate total revenue from confirmed bookings
+    const revenueResult = await Booking.aggregate([
+      { $match: { status: 'confirmed' } },
+      { $group: { _id: null, total: { $sum: '$booking_amount' } } }
+    ]);
+    
+    const totalRevenue = revenueResult.length > 0 ? revenueResult[0].total : 0;
+    
+    console.log('✅ Booking statistics calculated');
+    
+    res.json({
+      success: true,
+      stats: {
+        total_bookings: totalBookings,
+        confirmed_bookings: confirmedBookings,
+        cancelled_bookings: cancelledBookings,
+        pending_bookings: totalBookings - confirmedBookings - cancelledBookings,
+        total_revenue: parseFloat(totalRevenue.toFixed(2)),
+        average_booking_value: confirmedBookings > 0 ? parseFloat((totalRevenue / confirmedBookings).toFixed(2)) : 0
+      },
+      message: 'Booking statistics retrieved successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting booking statistics:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get booking statistics',
+      error: error.message
+    });
+  }
+});
+
+// Admin: Cancel any booking by ID - WITHOUT AUTHENTICATION
+router.post('/admin/bookings/:id/cancel', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    console.log('🔨 Admin cancellation request for booking ID:', id);
+
+    if (!Booking) {
+      return res.status(500).json({
+        success: false,
+        message: 'Booking model not available'
+      });
+    }
+
+    const booking = await Booking.findById(id);
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found'
+      });
+    }
+
+    if (booking.status === 'cancelled') {
+      return res.status(400).json({
+        success: false,
+        message: 'Booking is already cancelled'
+      });
+    }
+
+    // Cancel with MAGR API if possible
+    let magrCancelResult = null;
+    if (MagrApiService && booking.magr_reference) {
+      try {
+        magrCancelResult = await MagrApiService.cancelBooking(booking.magr_reference);
+        console.log('✅ MAGR cancellation result:', magrCancelResult);
+      } catch (magrError) {
+        console.error('⚠️ MAGR cancellation failed:', magrError.message);
+        // Continue with local cancellation
+      }
+    }
+
+    // Process refund if payment was made via Stripe
+    let refundResult = null;
+    if (booking.payment_details?.stripe_payment_intent_id && StripeService) {
+      try {
+        refundResult = await StripeService.createRefund(
+          booking.payment_details.stripe_payment_intent_id,
+          null, // Full refund
+          reason || 'admin_cancellation'
+        );
+        console.log('💰 Admin refund processed:', refundResult.refund_id);
+      } catch (refundError) {
+        console.error('❌ Admin refund failed:', refundError.message);
+        // Continue with cancellation even if refund fails
+      }
+    }
+
+    // Update booking status
+    booking.status = 'cancelled';
+    booking.cancelled_at = new Date();
+    booking.notes = `${booking.notes || ''}\nAdmin cancelled: ${reason || 'No reason provided'}`;
+    
+    if (refundResult) {
+      booking.payment_details.refund_amount = refundResult.amount;
+      booking.payment_details.refund_date = new Date();
+      booking.payment_details.payment_status = 'refunded';
+    }
+
+    await booking.save();
+
+    res.json({
+      success: true,
+      message: 'Booking cancelled successfully by admin',
+      booking_id: booking._id,
+      our_reference: booking.our_reference,
+      magr_reference: booking.magr_reference,
+      refund: refundResult ? {
+        refund_id: refundResult.refund_id,
+        amount: refundResult.amount,
+        status: refundResult.status,
+        reason: refundResult.reason
+      } : null,
+      magr_cancellation: magrCancelResult,
+      booking_status: 'cancelled'
+    });
+
+  } catch (error) {
+    console.error('❌ Admin booking cancellation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to cancel booking',
+      error: error.message
+    });
+  }
+});
+
+// Admin: Delete any booking by ID - WITHOUT AUTHENTICATION
+router.delete('/admin/bookings/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    console.log('🗑️ Admin delete request for booking ID:', id);
+
+    if (!Booking) {
+      return res.status(500).json({
+        success: false,
+        message: 'Booking model not available'
+      });
+    }
+
+    const booking = await Booking.findById(id);
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found'
+      });
+    }
+
+    // Store booking info before deletion
+    const bookingInfo = {
+      id: booking._id,
+      our_reference: booking.our_reference,
+      magr_reference: booking.magr_reference,
+      customer_email: booking.customer_details?.customer_email,
+      booking_amount: booking.booking_amount,
+      status: booking.status
+    };
+
+    // Delete the booking
+    await Booking.findByIdAndDelete(id);
+
+    console.log('✅ Booking deleted by admin:', bookingInfo.our_reference);
+
+    res.json({
+      success: true,
+      message: 'Booking deleted successfully by admin',
+      deleted_booking: bookingInfo,
+      reason: reason || 'Admin deletion',
+      deleted_at: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Admin booking deletion error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete booking',
+      error: error.message
+    });
+  }
+});
+
 // ===== PROTECTED ROUTES (AUTHENTICATION REQUIRED) =====
 
 // Authentication middleware
@@ -522,6 +798,41 @@ const authenticateToken = async (req, res, next) => {
     });
   }
 };
+
+// Get user's booking count - WITH AUTHENTICATION
+router.get('/my-bookings-count', authenticateToken, async (req, res) => {
+  try {
+    console.log('📊 Getting booking count for user:', req.user.email);
+    
+    if (!Booking) {
+      return res.json({
+        success: true,
+        count: 0,
+        message: 'Booking model not available'
+      });
+    }
+    
+    const count = await Booking.countDocuments({ user_email: req.user.email });
+    
+    console.log('✅ User booking count:', count);
+    
+    res.json({
+      success: true,
+      count: count,
+      user_email: req.user.email,
+      message: `Found ${count} bookings for user`
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting booking count:', error);
+    res.status(500).json({
+      success: false,
+      count: 0,
+      message: 'Failed to get booking count',
+      error: error.message
+    });
+  }
+});
 
 // ===== STRIPE PAYMENT ROUTES =====
 
@@ -1148,7 +1459,7 @@ const updateBookingFromWebhook = async (event, webhookResult) => {
   }
 };
 
-// ===== BOOKING MANAGEMENT ROUTES - ENHANCED =====
+// ===== USER BOOKING MANAGEMENT ROUTES - ENHANCED =====
 
 // Get user's bookings with enhanced payment information
 if (Booking) {
@@ -1365,7 +1676,74 @@ if (Booking) {
     }
   });
 
-  // NEW: Manual refund endpoint for admin/support use
+  // User: Delete their own booking
+  router.delete('/my-bookings/:reference', authenticateToken, async (req, res) => {
+    try {
+      const { reference } = req.params;
+      const { reason } = req.body;
+
+      console.log('🗑️ User delete request for booking:', reference, 'by user:', req.user.email);
+
+      const booking = await Booking.findOne({
+        $or: [
+          { our_reference: reference },
+          { magr_reference: reference }
+        ],
+        user_email: req.user.email // Only allow users to delete their own bookings
+      });
+
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found or not accessible'
+        });
+      }
+
+      // Store booking info before deletion
+      const bookingInfo = {
+        id: booking._id,
+        our_reference: booking.our_reference,
+        magr_reference: booking.magr_reference,
+        customer_email: booking.customer_details?.customer_email,
+        booking_amount: booking.booking_amount,
+        status: booking.status,
+        user_email: booking.user_email
+      };
+
+      // Only allow deletion of cancelled bookings to prevent data loss
+      if (booking.status !== 'cancelled') {
+        return res.status(400).json({
+          success: false,
+          message: 'Only cancelled bookings can be deleted. Please cancel the booking first.',
+          current_status: booking.status,
+          booking_reference: booking.our_reference
+        });
+      }
+
+      // Delete the booking
+      await Booking.findByIdAndDelete(booking._id);
+
+      console.log('✅ Booking deleted by user:', bookingInfo.our_reference);
+
+      res.json({
+        success: true,
+        message: 'Booking deleted successfully',
+        deleted_booking: bookingInfo,
+        reason: reason || 'User deletion',
+        deleted_at: new Date().toISOString()
+      });
+
+    } catch (error) {
+      console.error('❌ User booking deletion error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to delete booking',
+        error: error.message
+      });
+    }
+  });
+
+  // NEW: Manual refund endpoint for user bookings
   router.post('/bookings/:reference/refund', authenticateToken, async (req, res) => {
     try {
       const { reference } = req.params;
