@@ -705,11 +705,15 @@ router.delete('/admin/bookings/:id', async (req, res) => {
 // Authentication middleware
 const authenticateToken = async (req, res, next) => {
   try {
-    let token = req.body.token || req.body.auth_token;
+    let token;
     
     const authHeader = req.headers['authorization'];
-    if (!token && authHeader && authHeader.split(' ')[1]) {
+    if (authHeader && authHeader.startsWith('Bearer ')) {
       token = authHeader.split(' ')[1];
+    }
+    
+    if (!token) {
+      token = req.body.token || req.body.auth_token;
     }
 
     console.log('🔍 Authentication check:', {
@@ -798,7 +802,6 @@ const authenticateToken = async (req, res, next) => {
     });
   }
 };
-
 // Get user's booking count - WITH AUTHENTICATION
 router.get('/my-bookings-count', authenticateToken, async (req, res) => {
   try {
