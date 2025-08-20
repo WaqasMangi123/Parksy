@@ -1,286 +1,430 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, MapPin, Car, CreditCard, Edit3, Trash2, X, Eye, Phone, Mail, User, Hash, Plane, Clock4, RefreshCw, AlertCircle, CheckCircle, XCircle, DollarSign } from 'lucide-react';
+import { 
+  Calendar, User, Car, CreditCard, MapPin, Clock, Phone, Mail, 
+  Plane, AlertCircle, CheckCircle, XCircle, RefreshCw, Trash2,
+  Eye, Download, Filter, Search, Star, Shield, Navigation,
+  ArrowLeft, Home, LogOut, Bell, Settings, Plus, Edit
+} from 'lucide-react';
+import './userbooking.css';
 
-const MyBookings = () => {
-  const [bookings, setBookings] = useState([]);
+const UserBooking = () => {
+  // API Configuration
+  const API_BASE_URL = "https://parksy-backend.onrender.com";
+
+  // State Management
+  const [userBookings, setUserBookings] = useState([]);
+  const [filteredBookings, setFilteredBookings] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
-  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('created_at');
+  const [showModal, setShowModal] = useState(false);
+  const [modalType, setModalType] = useState('view'); // 'view', 'cancel', 'delete'
   const [cancelReason, setCancelReason] = useState('');
-  const [actionLoading, setActionLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [processingAction, setProcessingAction] = useState(false);
+  const [authStatus, setAuthStatus] = useState({ isLoggedIn: false, user: null });
 
-  // Backend URL configuration
-  const API_BASE_URL = 'https://parksy-backend.onrender.com';
+  // Airport mapping for better display
+  const airportNames = {
+    'LHR': 'London Heathrow',
+    'LGW': 'London Gatwick', 
+    'STN': 'London Stansted',
+    'LTN': 'London Luton',
+    'MAN': 'Manchester',
+    'BHX': 'Birmingham',
+    'EDI': 'Edinburgh',
+    'GLA': 'Glasgow'
+  };
 
-  // Fetch user bookings
-  useEffect(() => {
-    fetchBookings();
-  }, []);
-
-  const fetchBookings = async () => {
+  // Authentication functions (same as in your home.jsx)
+  const getAuthToken = () => {
     try {
-      setLoading(true);
-      setError('');
+      const localStorageKeys = [
+        'token', 'authToken', 'jwt', 'access_token', 
+        'auth_token', 'userToken', 'accessToken',
+        'parksy_token', 'user_token'
+      ];
       
-      // Get token from localStorage
-      const token = localStorage.getItem('token');
+      for (const key of localStorageKeys) {
+        const token = localStorage.getItem(key);
+        if (token && token !== 'null' && token !== 'undefined') {
+          return token;
+        }
+      }
+
+      const sessionStorageKeys = [
+        'token', 'authToken', 'jwt', 'access_token',
+        'auth_token', 'userToken', 'accessToken'
+      ];
       
+      for (const key of sessionStorageKeys) {
+        const token = sessionStorage.getItem(key);
+        if (token && token !== 'null' && token !== 'undefined') {
+          return token;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('❌ Error accessing browser storage:', error);
+      return null;
+    }
+  };
+
+  const getUserInfoFromToken = () => {
+    const token = getAuthToken();
+    if (!token) return null;
+    
+    try {
+      let payload;
+      
+      if (token.includes('.')) {
+        const base64Url = token.split('.')[1];
+        if (!base64Url) throw new Error('Invalid JWT format');
+        
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+        
+        payload = JSON.parse(jsonPayload);
+      } else {
+        payload = JSON.parse(atob(token));
+      }
+      
+      return payload;
+    } catch (error) {
+      console.error('❌ Error decoding token:', error.message);
+      return null;
+    }
+  };
+
+  // Check authentication status
+  useEffect(() => {
+    const checkAuth = () => {
+      const token = getAuthToken();
+      const userInfo = getUserInfoFromToken();
+      
+      setAuthStatus({
+        isLoggedIn: !!token,
+        user: userInfo
+      });
+
       if (!token) {
         setError('Please log in to view your bookings');
         setLoading(false);
-        return;
+      }
+    };
+
+    checkAuth();
+  }, []);
+
+  // Fetch user's bookings
+  const fetchUserBookings = async () => {
+    if (!authStatus.isLoggedIn) return;
+
+    try {
+      setLoading(true);
+      const authToken = getAuthToken();
+      
+      if (!authToken) {
+        throw new Error('Authentication required');
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/my-bookings`, {
+      const response = await fetch(`${API_BASE_URL}/api/parking/my-bookings`, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Authorization': `Bearer ${authToken}`,
         }
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.message || `HTTP error! status: ${response.status}`);
+        if (response.status === 401) {
+          throw new Error('Your session has expired. Please log in again.');
+        }
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
+      const data = await response.json();
+      
       if (data.success) {
-        setBookings(data.data || []);
+        setUserBookings(data.data);
+        setFilteredBookings(data.data);
+        console.log('✅ User bookings loaded:', data.count);
       } else {
-        throw new Error(data.message || 'Failed to load bookings');
+        throw new Error(data.message || 'Failed to fetch bookings');
       }
-    } catch (err) {
-      console.error('Error fetching bookings:', err);
-      setError(err.message || 'Failed to load your bookings. Please try again.');
+    } catch (error) {
+      console.error('❌ Error fetching user bookings:', error);
+      setError(`Failed to load your bookings: ${error.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  // Fetch detailed booking information
-  const fetchBookingDetails = async (reference) => {
-    try {
-      const token = localStorage.getItem('token');
-      
-      if (!token) {
-        alert('Please log in to view booking details');
-        return;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/api/bookings/${reference}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        }
-      });
-
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.message || `HTTP error! status: ${response.status}`);
-      }
-
-      if (data.success) {
-        setSelectedBooking(data.data);
-        setShowDetailsModal(true);
-      } else {
-        throw new Error(data.message || 'Failed to load booking details');
-      }
-    } catch (err) {
-      console.error('Error fetching booking details:', err);
-      alert('Failed to load booking details: ' + err.message);
-    }
-  };
-
-  // Refresh bookings
-  const refreshBookings = async () => {
-    setRefreshing(true);
-    await fetchBookings();
-    setRefreshing(false);
-  };
-
   // Cancel booking
-  const handleCancelBooking = async () => {
-    if (!selectedBooking || !cancelReason.trim()) {
-      alert('Please provide a cancellation reason');
-      return;
-    }
-
+  const cancelBooking = async (bookingReference, reason) => {
     try {
-      setActionLoading(true);
-      const token = localStorage.getItem('token');
-      
-      if (!token) {
-        alert('Please log in to cancel booking');
-        return;
+      setProcessingAction(true);
+      const authToken = getAuthToken();
+
+      if (!authToken) {
+        throw new Error('Authentication required');
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/bookings/${selectedBooking.our_reference}/cancel`, {
+      const response = await fetch(`${API_BASE_URL}/api/parking/bookings/${bookingReference}/cancel`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Authorization': `Bearer ${authToken}`,
         },
-        body: JSON.stringify({ reason: cancelReason })
+        body: JSON.stringify({ reason: reason || 'User cancellation' })
       });
 
-      const data = await response.json();
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Cancellation failed');
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        // Update local state
+        setUserBookings(prevBookings => 
+          prevBookings.map(booking => 
+            booking.our_reference === bookingReference 
+              ? { ...booking, status: 'cancelled' }
+              : booking
+          )
+        );
+        
+        // Refresh data
+        await fetchUserBookings();
+        
+        setShowModal(false);
+        setSelectedBooking(null);
+        setCancelReason('');
+        
+        alert('Your booking has been cancelled successfully! Any refund will be processed within 3-5 business days.');
+      } else {
+        throw new Error(result.message || 'Cancellation failed');
+      }
+    } catch (error) {
+      console.error('❌ Error cancelling booking:', error);
+      alert(`Failed to cancel booking: ${error.message}`);
+    } finally {
+      setProcessingAction(false);
+    }
+  };
+
+  // Delete booking (only cancelled ones)
+  const deleteBooking = async (bookingReference, reason) => {
+    try {
+      setProcessingAction(true);
+      const authToken = getAuthToken();
+
+      if (!authToken) {
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/parking/my-bookings/${bookingReference}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ reason: reason || 'User deletion' })
+      });
 
       if (!response.ok) {
-        throw new Error(data.message || `HTTP error! status: ${response.status}`);
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Deletion failed');
       }
 
-      if (data.success) {
-        alert('Booking cancelled successfully' + (data.refund ? `. Refund of £${data.refund.amount} has been processed.` : ''));
-        setShowCancelModal(false);
+      const result = await response.json();
+      
+      if (result.success) {
+        // Remove from local state
+        setUserBookings(prevBookings => 
+          prevBookings.filter(booking => booking.our_reference !== bookingReference)
+        );
+        
+        // Refresh data
+        await fetchUserBookings();
+        
+        setShowModal(false);
+        setSelectedBooking(null);
         setCancelReason('');
-        setShowDetailsModal(false);
-        await fetchBookings(); // Refresh the list
+        
+        alert('Booking deleted successfully!');
       } else {
-        throw new Error(data.message || 'Cancellation failed');
+        throw new Error(result.message || 'Deletion failed');
       }
-    } catch (err) {
-      console.error('Error cancelling booking:', err);
-      alert('Failed to cancel booking: ' + err.message);
+    } catch (error) {
+      console.error('❌ Error deleting booking:', error);
+      alert(`Failed to delete booking: ${error.message}`);
     } finally {
-      setActionLoading(false);
+      setProcessingAction(false);
     }
   };
 
-  // Format date and time
-  const formatDateTime = (dateString, timeString = null) => {
-    if (!dateString) return { date: 'N/A', time: '' };
-    
-    try {
-      const date = new Date(dateString);
-      if (timeString) {
-        const [hours, minutes] = timeString.split(':');
-        date.setHours(parseInt(hours), parseInt(minutes));
+  // Filter and search bookings
+  useEffect(() => {
+    let filtered = [...userBookings];
+
+    // Search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(booking =>
+        booking.our_reference?.toLowerCase().includes(query) ||
+        booking.magr_reference?.toLowerCase().includes(query) ||
+        booking.product_name?.toLowerCase().includes(query) ||
+        booking.vehicle_registration?.toLowerCase().includes(query) ||
+        booking.airport_code?.toLowerCase().includes(query)
+      );
+    }
+
+    // Status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(booking => booking.status === statusFilter);
+    }
+
+    // Sort by date (most recent first)
+    filtered.sort((a, b) => {
+      if (sortBy === 'created_at') {
+        return new Date(b.created_at) - new Date(a.created_at);
+      } else if (sortBy === 'dropoff_date') {
+        return new Date(b.dropoff_date) - new Date(a.dropoff_date);
+      } else if (sortBy === 'booking_amount') {
+        return (b.booking_amount || 0) - (a.booking_amount || 0);
       }
-      
-      return {
-        date: date.toLocaleDateString('en-GB', {
-          weekday: 'short',
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric'
-        }),
-        time: timeString ? date.toLocaleTimeString('en-GB', {
-          hour: '2-digit',
-          minute: '2-digit'
-        }) : ''
-      };
-    } catch (error) {
-      return { date: dateString, time: timeString || '' };
+      return 0;
+    });
+
+    setFilteredBookings(filtered);
+  }, [userBookings, searchQuery, statusFilter, sortBy]);
+
+  // Load data on component mount
+  useEffect(() => {
+    if (authStatus.isLoggedIn) {
+      fetchUserBookings();
     }
+  }, [authStatus.isLoggedIn]);
+
+  // Format currency
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-GB', {
+      style: 'currency',
+      currency: 'GBP'
+    }).format(amount || 0);
   };
 
-  // Calculate duration
-  const calculateDuration = (startDate, startTime, endDate, endTime) => {
-    try {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      
-      if (startTime) {
-        const [startHours, startMinutes] = startTime.split(':');
-        start.setHours(parseInt(startHours), parseInt(startMinutes));
-      }
-      if (endTime) {
-        const [endHours, endMinutes] = endTime.split(':');
-        end.setHours(parseInt(endHours), parseInt(endMinutes));
-      }
-
-      const diffMs = end - start;
-      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-      const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-
-      if (diffDays > 0) {
-        return `${diffDays}d ${diffHours}h`;
-      } else if (diffHours > 0) {
-        return `${diffHours}h`;
-      } else {
-        return 'Same day';
-      }
-    } catch (error) {
-      return 'N/A';
-    }
+  // Format date
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-GB', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
-  // Get status color and icon
-  const getStatusDisplay = (status) => {
-    switch (status?.toLowerCase()) {
-      case 'confirmed':
-        return { 
-          color: 'bg-green-100 text-green-800 border-green-200', 
-          icon: <CheckCircle size={16} />,
-          text: 'Confirmed' 
-        };
-      case 'cancelled':
-        return { 
-          color: 'bg-red-100 text-red-800 border-red-200', 
-          icon: <XCircle size={16} />,
-          text: 'Cancelled' 
-        };
-      case 'pending':
-        return { 
-          color: 'bg-yellow-100 text-yellow-800 border-yellow-200', 
-          icon: <Clock4 size={16} />,
-          text: 'Pending' 
-        };
-      case 'completed':
-        return { 
-          color: 'bg-blue-100 text-blue-800 border-blue-200', 
-          icon: <CheckCircle size={16} />,
-          text: 'Completed' 
-        };
-      case 'refunded':
-        return { 
-          color: 'bg-purple-100 text-purple-800 border-purple-200', 
-          icon: <DollarSign size={16} />,
-          text: 'Refunded' 
-        };
-      default:
-        return { 
-          color: 'bg-gray-100 text-gray-800 border-gray-200', 
-          icon: <AlertCircle size={16} />,
-          text: status || 'Unknown' 
-        };
-    }
+  // Format date only (no time)
+  const formatDateOnly = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-GB', {
+      weekday: 'short',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
   };
 
-  // Get payment status display
-  const getPaymentStatusDisplay = (status) => {
-    switch (status?.toLowerCase()) {
-      case 'paid':
-        return { color: 'text-green-600', icon: <CheckCircle size={14} />, text: 'Paid' };
-      case 'refunded':
-        return { color: 'text-purple-600', icon: <DollarSign size={14} />, text: 'Refunded' };
-      case 'partially_refunded':
-        return { color: 'text-orange-600', icon: <DollarSign size={14} />, text: 'Partially Refunded' };
-      case 'pending':
-        return { color: 'text-yellow-600', icon: <Clock4 size={14} />, text: 'Pending' };
-      case 'failed':
-        return { color: 'text-red-600', icon: <XCircle size={14} />, text: 'Failed' };
-      default:
-        return { color: 'text-gray-600', icon: <AlertCircle size={14} />, text: status || 'Unknown' };
-    }
+  // Get status badge class
+  const getStatusBadge = (status) => {
+    const statusClasses = {
+      'confirmed': 'status-badge confirmed',
+      'cancelled': 'status-badge cancelled',
+      'pending': 'status-badge pending',
+      'refunded': 'status-badge refunded',
+      'payment_failed': 'status-badge failed'
+    };
+    return statusClasses[status] || 'status-badge unknown';
   };
+
+  // Get payment status badge
+  const getPaymentStatusBadge = (paymentStatus) => {
+    const statusClasses = {
+      'paid': 'payment-badge paid',
+      'refunded': 'payment-badge refunded',
+      'failed': 'payment-badge failed',
+      'pending': 'payment-badge pending',
+      'partially_refunded': 'payment-badge partial'
+    };
+    return statusClasses[paymentStatus] || 'payment-badge unknown';
+  };
+
+  // Navigation functions
+  const goToHome = () => {
+    window.location.href = '/';
+  };
+
+  const goToNewBooking = () => {
+    window.location.href = '/#/parking';
+  };
+
+  // If not logged in
+  if (!authStatus.isLoggedIn) {
+    return (
+      <div className="user-bookings">
+        <div className="auth-required">
+          <div className="auth-message">
+            <AlertCircle size={64} />
+            <h2>Authentication Required</h2>
+            <p>Please log in to view your booking history</p>
+            <button className="login-btn" onClick={() => window.location.href = '/#/login'}>
+              <User size={16} />
+              Go to Login
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 p-6">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center py-20">
-            <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading your bookings...</p>
+      <div className="user-bookings">
+        <div className="loading-container">
+          <RefreshCw className="loading-spinner" size={48} />
+          <h2>Loading Your Bookings...</h2>
+          <p>Fetching your travel history...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="user-bookings">
+        <div className="error-container">
+          <AlertCircle size={48} />
+          <h2>Unable to Load Bookings</h2>
+          <p>{error}</p>
+          <div className="error-actions">
+            <button className="retry-btn" onClick={fetchUserBookings}>
+              <RefreshCw size={16} />
+              Try Again
+            </button>
+            <button className="home-btn" onClick={goToHome}>
+              <Home size={16} />
+              Go Home
+            </button>
           </div>
         </div>
       </div>
@@ -288,380 +432,410 @@ const MyBookings = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">My Bookings</h1>
-              <p className="text-gray-600 mt-2">Manage and view all your parking bookings</p>
+    <div className="user-bookings">
+      {/* Header */}
+      <div className="user-header">
+        <div className="header-content">
+          <div className="header-left">
+            <button className="back-btn" onClick={goToHome}>
+              <ArrowLeft size={20} />
+            </button>
+            <div className="header-title">
+              <h1>My Bookings</h1>
+              <p>Welcome back, {authStatus.user?.email || 'User'}!</p>
             </div>
-            <button
-              onClick={refreshBookings}
-              disabled={refreshing}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+          </div>
+          <div className="header-actions">
+            <button className="new-booking-btn" onClick={goToNewBooking}>
+              <Plus size={16} />
+              New Booking
+            </button>
+            <button className="refresh-btn" onClick={fetchUserBookings} disabled={loading}>
+              <RefreshCw size={16} />
               Refresh
             </button>
           </div>
         </div>
+      </div>
 
-        {/* Error Message */}
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-            <div className="flex items-center gap-2 text-red-800">
-              <AlertCircle size={20} />
-              <p>{error}</p>
-            </div>
-            <button 
-              onClick={fetchBookings}
-              className="mt-2 text-red-600 hover:text-red-800 underline"
-            >
-              Try Again
-            </button>
+      {/* Stats Summary */}
+      <div className="user-stats">
+        <div className="stat-item">
+          <div className="stat-number">{userBookings.length}</div>
+          <div className="stat-label">Total Bookings</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-number">{userBookings.filter(b => b.status === 'confirmed').length}</div>
+          <div className="stat-label">Active</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-number">{userBookings.filter(b => b.status === 'cancelled').length}</div>
+          <div className="stat-label">Cancelled</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-number">
+            {formatCurrency(userBookings.reduce((sum, booking) => sum + (booking.booking_amount || 0), 0))}
           </div>
-        )}
+          <div className="stat-label">Total Spent</div>
+        </div>
+      </div>
 
-        {/* Bookings List */}
-        {bookings.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-sm p-12 text-center">
-            <Car size={48} className="text-gray-300 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">No Bookings Found</h3>
-            <p className="text-gray-600 mb-6">You haven't made any parking bookings yet.</p>
-            <button className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-              Book Parking Now
-            </button>
+      {/* Controls */}
+      <div className="booking-controls">
+        <div className="search-section">
+          <div className="search-input-container">
+            <Search size={20} />
+            <input
+              type="text"
+              placeholder="Search your bookings..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="search-input"
+            />
+          </div>
+        </div>
+
+        <div className="filter-section">
+          <select 
+            value={statusFilter} 
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="filter-select"
+          >
+            <option value="all">All Bookings</option>
+            <option value="confirmed">Active Bookings</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="refunded">Refunded</option>
+          </select>
+
+          <select 
+            value={sortBy} 
+            onChange={(e) => setSortBy(e.target.value)}
+            className="filter-select"
+          >
+            <option value="created_at">Recent First</option>
+            <option value="dropoff_date">By Travel Date</option>
+            <option value="booking_amount">By Amount</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Bookings List */}
+      <div className="bookings-container">
+        {filteredBookings.length === 0 ? (
+          <div className="no-bookings">
+            <div className="no-bookings-icon">
+              <Plane size={64} />
+            </div>
+            <h3>No Bookings Found</h3>
+            <p>
+              {userBookings.length === 0 
+                ? "You haven't made any bookings yet. Start your journey with us!"
+                : "No bookings match your current search criteria."
+              }
+            </p>
+            {userBookings.length === 0 && (
+              <button className="new-booking-btn primary" onClick={goToNewBooking}>
+                <Plus size={16} />
+                Make Your First Booking
+              </button>
+            )}
           </div>
         ) : (
-          <div className="grid gap-6">
-            {bookings.map((booking) => {
-              const statusDisplay = getStatusDisplay(booking.status);
-              const paymentDisplay = getPaymentStatusDisplay(booking.payment_status);
-              const dropoffDateTime = formatDateTime(booking.dropoff_date, booking.dropoff_time);
-              const pickupDateTime = formatDateTime(booking.pickup_date, booking.pickup_time);
-              const duration = calculateDuration(booking.dropoff_date, booking.dropoff_time, booking.pickup_date, booking.pickup_time);
-
-              return (
-                <div key={booking.id} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
-                  <div className="p-6">
-                    {/* Booking Header */}
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="text-lg font-semibold text-gray-900">
-                            {booking.airport_code} - {booking.product_name || 'Airport Parking'}
-                          </h3>
-                          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${statusDisplay.color}`}>
-                            {statusDisplay.icon}
-                            {statusDisplay.text}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-4 text-sm text-gray-600">
-                          <span className="flex items-center gap-1">
-                            <Hash size={14} />
-                            {booking.our_reference}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <User size={14} />
-                            {booking.customer_name}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-gray-900">
-                          £{booking.booking_amount?.toFixed(2) || '0.00'}
-                        </div>
-                        <div className={`flex items-center gap-1 text-sm ${paymentDisplay.color}`}>
-                          {paymentDisplay.icon}
-                          {paymentDisplay.text}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Travel Details */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
-                      <div className="space-y-2">
-                        <h4 className="font-medium text-gray-700 flex items-center gap-2">
-                          <Plane size={16} />
-                          Drop-off
-                        </h4>
-                        <div className="flex items-center gap-2 text-gray-600">
-                          <Calendar size={14} />
-                          <span>{dropoffDateTime.date}</span>
-                        </div>
-                        {dropoffDateTime.time && (
-                          <div className="flex items-center gap-2 text-gray-600">
-                            <Clock size={14} />
-                            <span>{dropoffDateTime.time}</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="space-y-2">
-                        <h4 className="font-medium text-gray-700 flex items-center gap-2">
-                          <Plane size={16} className="rotate-180" />
-                          Pick-up
-                        </h4>
-                        <div className="flex items-center gap-2 text-gray-600">
-                          <Calendar size={14} />
-                          <span>{pickupDateTime.date}</span>
-                        </div>
-                        {pickupDateTime.time && (
-                          <div className="flex items-center gap-2 text-gray-600">
-                            <Clock size={14} />
-                            <span>{pickupDateTime.time}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Vehicle & Duration */}
-                    <div className="flex justify-between items-center mb-4 p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        <Car size={16} className="text-gray-500" />
-                        <span className="text-gray-700">
-                          {booking.vehicle_registration} - {booking.customer_name}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-gray-600">
-                        <Clock4 size={14} />
-                        <span>{duration}</span>
-                      </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex gap-3">
+          <div className="bookings-grid">
+            {filteredBookings.map((booking) => (
+              <div key={booking.id} className="booking-card">
+                <div className="card-header">
+                  <div className="booking-reference">
+                    <strong>#{booking.our_reference}</strong>
+                    <span className={getStatusBadge(booking.status)}>
+                      {booking.status}
+                    </span>
+                  </div>
+                  <div className="booking-actions">
+                    <button
+                      className="action-btn view"
+                      onClick={() => {
+                        setSelectedBooking(booking);
+                        setModalType('view');
+                        setShowModal(true);
+                      }}
+                      title="View Details"
+                    >
+                      <Eye size={14} />
+                    </button>
+                    {booking.can_cancel && booking.status === 'confirmed' && (
                       <button
-                        onClick={() => fetchBookingDetails(booking.our_reference)}
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                        className="action-btn cancel"
+                        onClick={() => {
+                          setSelectedBooking(booking);
+                          setModalType('cancel');
+                          setShowModal(true);
+                        }}
+                        title="Cancel Booking"
                       >
-                        <Eye size={16} />
-                        View Details
+                        <XCircle size={14} />
                       </button>
-                      
-                      {booking.can_cancel && (
-                        <button
-                          onClick={() => {
-                            setSelectedBooking(booking);
-                            setShowCancelModal(true);
-                          }}
-                          className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                        >
-                          <X size={16} />
-                          Cancel
-                        </button>
-                      )}
-                      
-                      {booking.can_edit && (
-                        <button className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors">
-                          <Edit3 size={16} />
-                          Edit
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Booking Details Modal */}
-        {showDetailsModal && selectedBooking && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-              <div className="p-6 border-b border-gray-200">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-2xl font-bold text-gray-900">Booking Details</h2>
-                  <button
-                    onClick={() => setShowDetailsModal(false)}
-                    className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    <X size={24} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="p-6 space-y-6">
-                {/* Booking References */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <h3 className="font-semibold text-gray-700 mb-3">Booking References</h3>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Our Reference:</span>
-                        <span className="font-medium">{selectedBooking.our_reference}</span>
-                      </div>
-                      {selectedBooking.magr_reference && (
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Provider Reference:</span>
-                          <span className="font-medium">{selectedBooking.magr_reference}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Status:</span>
-                        <span className={`font-medium ${getStatusDisplay(selectedBooking.status).color.includes('green') ? 'text-green-600' : 
-                          selectedBooking.status === 'cancelled' ? 'text-red-600' : 'text-yellow-600'}`}>
-                          {selectedBooking.status}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="font-semibold text-gray-700 mb-3">Payment Information</h3>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Amount:</span>
-                        <span className="font-medium">£{selectedBooking.booking_amount?.toFixed(2) || '0.00'}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Payment Method:</span>
-                        <span className="font-medium">{selectedBooking.payment_method || 'N/A'}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Payment Status:</span>
-                        <span className={`font-medium ${getPaymentStatusDisplay(selectedBooking.payment_status).color}`}>
-                          {selectedBooking.payment_status || 'N/A'}
-                        </span>
-                      </div>
-                      {selectedBooking.refund_amount && selectedBooking.refund_amount > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Refunded:</span>
-                          <span className="font-medium text-purple-600">£{selectedBooking.refund_amount.toFixed(2)}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Customer Information */}
-                <div>
-                  <h3 className="font-semibold text-gray-700 mb-3">Customer Information</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="flex items-center gap-2">
-                      <User size={16} className="text-gray-400" />
-                      <span>{selectedBooking.customer_name}</span>
-                    </div>
-                    {selectedBooking.customer_email && (
-                      <div className="flex items-center gap-2">
-                        <Mail size={16} className="text-gray-400" />
-                        <span>{selectedBooking.customer_email}</span>
-                      </div>
+                    )}
+                    {booking.status === 'cancelled' && (
+                      <button
+                        className="action-btn delete"
+                        onClick={() => {
+                          setSelectedBooking(booking);
+                          setModalType('delete');
+                          setShowModal(true);
+                        }}
+                        title="Delete Booking"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     )}
                   </div>
                 </div>
 
-                {/* Travel Information */}
-                <div>
-                  <h3 className="font-semibold text-gray-700 mb-3">Travel Information</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <h4 className="font-medium text-gray-700">Drop-off Details</h4>
-                      <div className="space-y-1 text-sm">
-                        <div>Date: {formatDateTime(selectedBooking.dropoff_date).date}</div>
-                        {selectedBooking.dropoff_time && (
-                          <div>Time: {selectedBooking.dropoff_time}</div>
-                        )}
+                <div className="card-content">
+                  <div className="service-info">
+                    <div className="service-header">
+                      <h3>{booking.product_name || 'Airport Parking'}</h3>
+                      <div className="airport-info">
+                        <Plane size={16} />
+                        <span>{airportNames[booking.airport_code] || booking.airport_code}</span>
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <h4 className="font-medium text-gray-700">Pick-up Details</h4>
-                      <div className="space-y-1 text-sm">
-                        <div>Date: {formatDateTime(selectedBooking.pickup_date).date}</div>
-                        {selectedBooking.pickup_time && (
-                          <div>Time: {selectedBooking.pickup_time}</div>
-                        )}
+                    
+                    <div className="booking-details">
+                      <div className="detail-row">
+                        <Calendar size={14} />
+                        <span>Drop-off: {formatDateOnly(booking.dropoff_date)} at {booking.dropoff_time}</span>
                       </div>
+                      <div className="detail-row">
+                        <Calendar size={14} />
+                        <span>Pick-up: {formatDateOnly(booking.pickup_date)} at {booking.pickup_time}</span>
+                      </div>
+                      {booking.vehicle_registration && (
+                        <div className="detail-row">
+                          <Car size={14} />
+                          <span>{booking.vehicle_registration}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="payment-info">
+                    <div className="amount">
+                      {formatCurrency(booking.booking_amount)}
+                    </div>
+                    <div className="payment-status">
+                      <span className={getPaymentStatusBadge(booking.payment_status)}>
+                        {booking.payment_status || 'N/A'}
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Vehicle Information */}
-                <div>
-                  <h3 className="font-semibold text-gray-700 mb-3">Vehicle Information</h3>
-                  <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
-                    <Car size={20} className="text-gray-500" />
-                    <span className="font-medium">{selectedBooking.vehicle_registration}</span>
+                <div className="card-footer">
+                  <div className="booking-date">
+                    <small>Booked on {formatDate(booking.created_at)}</small>
                   </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex gap-3 pt-4 border-t border-gray-200">
-                  {selectedBooking.can_cancel && (
-                    <button
-                      onClick={() => {
-                        setShowDetailsModal(false);
-                        setShowCancelModal(true);
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                    >
-                      <X size={16} />
-                      Cancel Booking
-                    </button>
-                  )}
-                  
-                  {selectedBooking.can_edit && (
-                    <button className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors">
-                      <Edit3 size={16} />
-                      Edit Booking
-                    </button>
+                  {booking.magr_reference && (
+                    <div className="provider-ref">
+                      <small>Ref: {booking.magr_reference}</small>
+                    </div>
                   )}
                 </div>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* Cancel Modal */}
-        {showCancelModal && selectedBooking && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg max-w-md w-full">
-              <div className="p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Cancel Booking</h3>
-                <p className="text-gray-600 mb-4">
-                  Are you sure you want to cancel booking {selectedBooking.our_reference}?
-                </p>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Cancellation reason:
-                  </label>
-                  <textarea
-                    value={cancelReason}
-                    onChange={(e) => setCancelReason(e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
-                    rows={3}
-                    placeholder="Please provide a reason for cancellation..."
-                    required
-                  />
-                </div>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => {
-                      setShowCancelModal(false);
-                      setCancelReason('');
-                    }}
-                    className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors"
-                    disabled={actionLoading}
-                  >
-                    Keep Booking
-                  </button>
-                  <button
-                    onClick={handleCancelBooking}
-                    disabled={actionLoading || !cancelReason.trim()}
-                    className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {actionLoading ? 'Cancelling...' : 'Cancel Booking'}
-                  </button>
-                </div>
-              </div>
-            </div>
+            ))}
           </div>
         )}
       </div>
+
+      {/* Modal */}
+      {showModal && selectedBooking && (
+        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>
+                {modalType === 'view' && 'Booking Details'}
+                {modalType === 'cancel' && 'Cancel Booking'}
+                {modalType === 'delete' && 'Delete Booking'}
+              </h2>
+              <button 
+                className="modal-close-btn"
+                onClick={() => setShowModal(false)}
+              >
+                <XCircle size={20} />
+              </button>
+            </div>
+
+            <div className="modal-body">
+              {modalType === 'view' ? (
+                <div className="booking-details-modal">
+                  {/* Booking Status */}
+                  <div className="detail-section">
+                    <h3>Booking Status</h3>
+                    <div className="status-display">
+                      <span className={getStatusBadge(selectedBooking.status)}>
+                        {selectedBooking.status}
+                      </span>
+                      <span className={getPaymentStatusBadge(selectedBooking.payment_status)}>
+                        Payment: {selectedBooking.payment_status || 'Unknown'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Service Information */}
+                  <div className="detail-section">
+                    <h3>Service Information</h3>
+                    <div className="detail-grid">
+                      <div className="detail-item">
+                        <label>Service</label>
+                        <span>{selectedBooking.product_name}</span>
+                      </div>
+                      <div className="detail-item">
+                        <label>Airport</label>
+                        <span>{airportNames[selectedBooking.airport_code] || selectedBooking.airport_code}</span>
+                      </div>
+                      <div className="detail-item">
+                        <label>Reference</label>
+                        <span>{selectedBooking.our_reference}</span>
+                      </div>
+                      {selectedBooking.magr_reference && (
+                        <div className="detail-item">
+                          <label>Provider Reference</label>
+                          <span>{selectedBooking.magr_reference}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Travel Information */}
+                  <div className="detail-section">
+                    <h3>Travel Information</h3>
+                    <div className="detail-grid">
+                      <div className="detail-item">
+                        <label>Drop-off</label>
+                        <span>{formatDateOnly(selectedBooking.dropoff_date)} at {selectedBooking.dropoff_time}</span>
+                      </div>
+                      <div className="detail-item">
+                        <label>Pick-up</label>
+                        <span>{formatDateOnly(selectedBooking.pickup_date)} at {selectedBooking.pickup_time}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Vehicle Information */}
+                  {selectedBooking.vehicle_registration && (
+                    <div className="detail-section">
+                      <h3>Vehicle Information</h3>
+                      <div className="detail-grid">
+                        <div className="detail-item">
+                          <label>Registration</label>
+                          <span>{selectedBooking.vehicle_registration}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Payment Information */}
+                  <div className="detail-section">
+                    <h3>Payment Information</h3>
+                    <div className="detail-grid">
+                      <div className="detail-item">
+                        <label>Total Amount</label>
+                        <span className="amount-highlight">{formatCurrency(selectedBooking.booking_amount)}</span>
+                      </div>
+                      <div className="detail-item">
+                        <label>Payment Method</label>
+                        <span>{selectedBooking.payment_method || 'Card Payment'}</span>
+                      </div>
+                      <div className="detail-item">
+                        <label>Currency</label>
+                        <span>{selectedBooking.currency || 'GBP'}</span>
+                      </div>
+                      {selectedBooking.refund_amount > 0 && (
+                        <div className="detail-item">
+                          <label>Refund Amount</label>
+                          <span className="refund-highlight">{formatCurrency(selectedBooking.refund_amount)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Booking Date */}
+                  <div className="detail-section">
+                    <div className="detail-item">
+                      <label>Booking Created</label>
+                      <span>{formatDate(selectedBooking.created_at)}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="action-form">
+                  <div className="warning-message">
+                    <AlertCircle size={24} />
+                    <div>
+                      <h4>
+                        {modalType === 'cancel' ? 'Cancel Your Booking' : 'Delete Booking Record'}
+                      </h4>
+                      <p>
+                        {modalType === 'cancel' 
+                          ? 'Cancelling your booking will process a refund according to the cancellation policy. This action cannot be undone.'
+                          : 'This will permanently remove this booking from your history. Only cancelled bookings can be deleted.'
+                        }
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Reason (Optional)</label>
+                    <textarea
+                      value={cancelReason}
+                      onChange={(e) => setCancelReason(e.target.value)}
+                      placeholder={`Why are you ${modalType === 'cancel' ? 'cancelling' : 'deleting'} this booking?`}
+                      rows={3}
+                      className="reason-textarea"
+                    />
+                  </div>
+
+                  <div className="modal-actions">
+                    <button 
+                      className="btn-secondary"
+                      onClick={() => setShowModal(false)}
+                      disabled={processingAction}
+                    >
+                      Keep Booking
+                    </button>
+                    <button 
+                      className={`btn-primary ${modalType === 'delete' ? 'btn-danger' : 'btn-warning'}`}
+                      onClick={() => {
+                        if (modalType === 'cancel') {
+                          cancelBooking(selectedBooking.our_reference, cancelReason);
+                        } else {
+                          deleteBooking(selectedBooking.our_reference, cancelReason);
+                        }
+                      }}
+                      disabled={processingAction}
+                    >
+                      {processingAction ? (
+                        <>
+                          <RefreshCw className="spinning" size={16} />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          {modalType === 'cancel' ? <XCircle size={16} /> : <Trash2 size={16} />}
+                          {modalType === 'cancel' ? 'Cancel Booking' : 'Delete Record'}
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-export default MyBookings;
+export default UserBooking;
