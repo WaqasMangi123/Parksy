@@ -128,7 +128,7 @@ const Navbar = () => {
                   
                   <ul className={`user-dropdown-menu ${isUserDropdownOpen ? 'open' : ''}`}>
                     <li>
-                      <Link to="/dashboard" className="user-dropdown-link">
+                      <Link to="/home" className="user-dropdown-link">
                         <FaUser className="dropdown-icon" />
                         Dashboard
                       </Link>
@@ -140,7 +140,7 @@ const Navbar = () => {
                       </Link>
                     </li>
                     <li>
-                      <Link to="/bookings" className="user-dropdown-link">
+                      <Link to="/my-bookings" className="user-dropdown-link">
                         <FaUser className="dropdown-icon" />
                         My Bookings
                       </Link>
