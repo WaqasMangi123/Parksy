@@ -205,7 +205,7 @@ const UserBooking = () => {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // ENHANCED Fetch user's bookings with better debugging and error handling
+  // FIXED: Enhanced Fetch user's bookings with comprehensive API endpoint checking
   const fetchUserBookings = async () => {
     if (!authStatus.isLoggedIn) {
       console.log('❌ UserBookings: Cannot fetch bookings - user not logged in');
@@ -214,7 +214,7 @@ const UserBooking = () => {
 
     try {
       setLoading(true);
-      setError(null); // Clear previous errors
+      setError(null);
       
       const authToken = getAuthToken();
       
@@ -224,81 +224,76 @@ const UserBooking = () => {
         isValidJWT: authToken ? (authToken.includes('.') && authToken.split('.').length === 3) : false,
         tokenPreview: authToken ? authToken.substring(0, 30) + '...' : 'none',
         userEmail: authStatus.user?.email,
-        apiUrl: `${API_BASE_URL}/api/parking/my-bookings`
+        userId: authStatus.user?.id || authStatus.user?.user_id
       });
       
       if (!authToken) {
         throw new Error('No authentication token found in storage');
       }
 
-      console.log('🌐 UserBookings: Making API request...');
+      // FIXED: Try multiple possible endpoints for user bookings
+      const possibleEndpoints = [
+        `${API_BASE_URL}/api/parking/my-bookings`,
+        `${API_BASE_URL}/api/parking/bookings`,
+        `${API_BASE_URL}/api/parking/user-bookings`,
+        `${API_BASE_URL}/api/parking/get-bookings`
+      ];
 
-      const response = await fetch(`${API_BASE_URL}/api/parking/my-bookings`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-          // Add additional headers for debugging
-          'X-Requested-With': 'XMLHttpRequest',
-          'Accept': 'application/json'
-        }
-      });
+      let lastError = null;
+      let successfulResponse = null;
 
-      console.log('📡 UserBookings: API Response received:', {
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok,
-        headers: Object.fromEntries(response.headers.entries())
-      });
-
-      if (!response.ok) {
-        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-        let errorDetails = null;
-        
+      // Try each endpoint until we find one that works
+      for (const endpoint of possibleEndpoints) {
         try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorMessage;
-          errorDetails = errorData;
-          console.error('❌ UserBookings: API Error Details:', errorData);
-        } catch (parseError) {
-          console.error('❌ UserBookings: Could not parse error response:', parseError);
-          try {
-            const errorText = await response.text();
-            console.error('❌ UserBookings: Error response text:', errorText);
-            errorMessage = errorText || errorMessage;
-          } catch (textError) {
-            console.error('❌ UserBookings: Could not get error text:', textError);
-          }
-        }
-        
-        // Handle specific error cases
-        if (response.status === 401) {
-          // Clear potentially invalid tokens
-          const keysToRemove = ['token', 'authToken', 'jwt', 'access_token', 'auth_token'];
-          keysToRemove.forEach(key => {
-            localStorage.removeItem(key);
-            sessionStorage.removeItem(key);
+          console.log(`🌐 UserBookings: Trying endpoint: ${endpoint}`);
+
+          const response = await fetch(endpoint, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${authToken}`,
+              'X-Requested-With': 'XMLHttpRequest',
+              'Accept': 'application/json'
+            }
           });
-          
-          setAuthStatus({ isLoggedIn: false, user: null });
-          throw new Error('Your session has expired. Please log in again.');
+
+          console.log(`📡 UserBookings: Response from ${endpoint}:`, {
+            status: response.status,
+            statusText: response.statusText,
+            ok: response.ok
+          });
+
+          if (response.ok) {
+            successfulResponse = { response, endpoint };
+            break;
+          } else if (response.status !== 404) {
+            // If it's not a 404, try to get error details
+            try {
+              const errorData = await response.json();
+              lastError = new Error(errorData.message || `HTTP ${response.status} from ${endpoint}`);
+              console.error(`❌ UserBookings: Error from ${endpoint}:`, errorData);
+            } catch (parseError) {
+              lastError = new Error(`HTTP ${response.status} from ${endpoint}`);
+            }
+          }
+
+        } catch (networkError) {
+          console.error(`❌ UserBookings: Network error for ${endpoint}:`, networkError.message);
+          lastError = networkError;
+          continue; // Try next endpoint
         }
-        
-        if (response.status === 403) {
-          throw new Error('Access denied. Please check your permissions.');
-        }
-        
-        if (response.status === 404) {
-          throw new Error('Bookings API endpoint not found. Please contact support.');
-        }
-        
-        throw new Error(errorMessage);
+      }
+
+      // If no endpoint worked, throw the last error
+      if (!successfulResponse) {
+        throw lastError || new Error('All booking endpoints failed. Please check if the backend has a user bookings endpoint.');
       }
 
       // Parse successful response
-      const data = await response.json();
+      const data = await successfulResponse.response.json();
       
-      console.log('✅ UserBookings: API Response data:', {
+      console.log('✅ UserBookings: Successful API Response:', {
+        endpoint: successfulResponse.endpoint,
         success: data.success,
         dataExists: !!data.data,
         dataType: Array.isArray(data.data) ? 'array' : typeof data.data,
@@ -307,18 +302,24 @@ const UserBooking = () => {
       });
       
       if (data.success && data.data) {
-        // Ensure data.data is an array
         const bookingsArray = Array.isArray(data.data) ? data.data : [];
         
         setUserBookings(bookingsArray);
         setFilteredBookings(bookingsArray);
         setError(null);
         
-        console.log('✅ UserBookings: Bookings loaded successfully:', bookingsArray.length);
+        console.log('✅ UserBookings: Bookings loaded successfully:', bookingsArray.length, 'bookings from', successfulResponse.endpoint);
+      } else if (data.success && !data.data) {
+        // Success but no data means empty bookings
+        console.log('✅ UserBookings: No bookings found for user');
+        setUserBookings([]);
+        setFilteredBookings([]);
+        setError(null);
       } else {
-        console.warn('⚠️ UserBookings: API returned success=false or no data:', data);
-        throw new Error(data.message || 'No booking data received from server');
+        console.warn('⚠️ UserBookings: API returned success=false:', data);
+        throw new Error(data.message || 'Failed to fetch booking data from server');
       }
+
     } catch (error) {
       console.error('❌ UserBookings: Complete error in fetchUserBookings:', {
         name: error.name,
@@ -328,13 +329,21 @@ const UserBooking = () => {
         hasToken: !!getAuthToken()
       });
       
-      setError(`Failed to load bookings: ${error.message}`);
+      // Enhanced error handling
+      let userFriendlyMessage = error.message;
       
-      // If it's an auth error, clear the bookings
-      if (error.message.includes('session') || error.message.includes('token')) {
+      if (error.message.includes('endpoints failed')) {
+        userFriendlyMessage = 'Unable to connect to booking service. The backend may not have user booking endpoints set up yet.';
+      } else if (error.message.includes('session') || error.message.includes('token')) {
+        userFriendlyMessage = 'Your login session has expired. Please log in again.';
         setUserBookings([]);
         setFilteredBookings([]);
+      } else if (error.message.includes('fetch')) {
+        userFriendlyMessage = 'Network connection error. Please check your internet connection.';
       }
+      
+      setError(`Failed to load bookings: ${userFriendlyMessage}`);
+      
     } finally {
       setLoading(false);
     }
