@@ -38,7 +38,7 @@ const UserBooking = () => {
     'GLA': 'Glasgow'
   };
 
-  // Authentication functions (same as in your home.jsx)
+  // ENHANCED Authentication functions with debugging
   const getAuthToken = () => {
     try {
       const localStorageKeys = [
@@ -47,9 +47,17 @@ const UserBooking = () => {
         'parksy_token', 'user_token'
       ];
       
+      // Debug: Log all localStorage items
+      console.log('🔍 Checking localStorage for tokens...');
       for (const key of localStorageKeys) {
         const token = localStorage.getItem(key);
         if (token && token !== 'null' && token !== 'undefined') {
+          console.log(`✅ Found token in localStorage[${key}]:`, {
+            exists: !!token,
+            length: token.length,
+            isJWT: token.includes('.') && token.split('.').length === 3,
+            preview: token.substring(0, 50) + '...'
+          });
           return token;
         }
       }
@@ -59,11 +67,29 @@ const UserBooking = () => {
         'auth_token', 'userToken', 'accessToken'
       ];
       
+      // Debug: Log all sessionStorage items
+      console.log('🔍 Checking sessionStorage for tokens...');
       for (const key of sessionStorageKeys) {
         const token = sessionStorage.getItem(key);
         if (token && token !== 'null' && token !== 'undefined') {
+          console.log(`✅ Found token in sessionStorage[${key}]:`, {
+            exists: !!token,
+            length: token.length,
+            isJWT: token.includes('.') && token.split('.').length === 3,
+            preview: token.substring(0, 50) + '...'
+          });
           return token;
         }
+      }
+
+      console.log('❌ No valid token found in storage');
+      
+      // Debug: Log what's actually in storage
+      console.log('📋 Current localStorage contents:');
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        const value = localStorage.getItem(key);
+        console.log(`  ${key}: ${value ? value.substring(0, 50) + '...' : 'null'}`);
       }
 
       return null;
@@ -75,14 +101,24 @@ const UserBooking = () => {
 
   const getUserInfoFromToken = () => {
     const token = getAuthToken();
-    if (!token) return null;
+    if (!token) {
+      console.log('❌ No token available for decoding');
+      return null;
+    }
     
     try {
       let payload;
       
       if (token.includes('.')) {
-        const base64Url = token.split('.')[1];
-        if (!base64Url) throw new Error('Invalid JWT format');
+        const parts = token.split('.');
+        if (parts.length !== 3) {
+          throw new Error('Invalid JWT format - not 3 parts');
+        }
+        
+        const base64Url = parts[1];
+        if (!base64Url) {
+          throw new Error('Invalid JWT format - no payload');
+        }
         
         const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
         const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
@@ -90,22 +126,44 @@ const UserBooking = () => {
         }).join(''));
         
         payload = JSON.parse(jsonPayload);
+        console.log('✅ JWT token decoded successfully:', {
+          id: payload.id,
+          email: payload.email,
+          role: payload.role,
+          exp: payload.exp ? new Date(payload.exp * 1000) : 'no expiry'
+        });
       } else {
+        // Try to parse as base64 encoded JSON (fallback)
         payload = JSON.parse(atob(token));
+        console.log('✅ Base64 token decoded successfully:', payload);
       }
       
       return payload;
     } catch (error) {
-      console.error('❌ Error decoding token:', error.message);
+      console.error('❌ Error decoding token:', {
+        message: error.message,
+        tokenLength: token ? token.length : 0,
+        tokenStart: token ? token.substring(0, 20) : 'none',
+        hasDotsInToken: token ? token.includes('.') : false
+      });
       return null;
     }
   };
 
-  // Check authentication status
+  // Check authentication status with enhanced debugging
   useEffect(() => {
     const checkAuth = () => {
+      console.log('🔐 Checking authentication status...');
+      
       const token = getAuthToken();
       const userInfo = getUserInfoFromToken();
+      
+      console.log('🔐 Authentication check result:', {
+        hasToken: !!token,
+        hasUserInfo: !!userInfo,
+        tokenLength: token ? token.length : 0,
+        userEmail: userInfo?.email || 'none'
+      });
       
       setAuthStatus({
         isLoggedIn: !!token,
@@ -121,17 +179,35 @@ const UserBooking = () => {
     checkAuth();
   }, []);
 
-  // Fetch user's bookings
+  // ENHANCED Fetch user's bookings with better debugging
   const fetchUserBookings = async () => {
-    if (!authStatus.isLoggedIn) return;
+    if (!authStatus.isLoggedIn) {
+      console.log('❌ Cannot fetch bookings - user not logged in');
+      return;
+    }
 
     try {
       setLoading(true);
       const authToken = getAuthToken();
       
+      // Enhanced token validation
+      console.log('🚀 Starting fetchUserBookings with token debug:', {
+        tokenExists: !!authToken,
+        tokenLength: authToken ? authToken.length : 0,
+        isValidJWT: authToken ? (authToken.includes('.') && authToken.split('.').length === 3) : false,
+        tokenPreview: authToken ? authToken.substring(0, 30) + '...' : 'none'
+      });
+      
       if (!authToken) {
-        throw new Error('Authentication required');
+        throw new Error('No authentication token found');
       }
+
+      // Validate JWT format
+      if (!authToken.includes('.') || authToken.split('.').length !== 3) {
+        throw new Error('Invalid token format - not a proper JWT token');
+      }
+
+      console.log('🌐 Making API request to:', `${API_BASE_URL}/api/parking/my-bookings`);
 
       const response = await fetch(`${API_BASE_URL}/api/parking/my-bookings`, {
         method: 'GET',
@@ -141,24 +217,58 @@ const UserBooking = () => {
         }
       });
 
+      console.log('📡 API Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+
       if (!response.ok) {
+        // Get error details from response
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorMessage;
+          console.error('❌ API Error Details:', errorData);
+        } catch (parseError) {
+          console.error('❌ Could not parse error response:', parseError);
+        }
+        
         if (response.status === 401) {
+          // Clear invalid tokens
+          localStorage.removeItem('token');
+          localStorage.removeItem('authToken');
+          sessionStorage.removeItem('token');
+          sessionStorage.removeItem('authToken');
+          
+          setAuthStatus({ isLoggedIn: false, user: null });
           throw new Error('Your session has expired. Please log in again.');
         }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
       
+      console.log('✅ API Response data:', {
+        success: data.success,
+        dataCount: data.data ? data.data.length : 0,
+        message: data.message
+      });
+      
       if (data.success) {
         setUserBookings(data.data);
         setFilteredBookings(data.data);
-        console.log('✅ User bookings loaded:', data.count);
+        console.log('✅ User bookings loaded successfully:', data.count || data.data.length);
       } else {
         throw new Error(data.message || 'Failed to fetch bookings');
       }
     } catch (error) {
-      console.error('❌ Error fetching user bookings:', error);
+      console.error('❌ Error in fetchUserBookings:', {
+        message: error.message,
+        stack: error.stack?.substring(0, 200)
+      });
       setError(`Failed to load your bookings: ${error.message}`);
     } finally {
       setLoading(false);
@@ -307,8 +417,13 @@ const UserBooking = () => {
     setFilteredBookings(filtered);
   }, [userBookings, searchQuery, statusFilter, sortBy]);
 
-  // Load data on component mount
+  // Load data on component mount with debugging
   useEffect(() => {
+    console.log('🔄 useEffect triggered for data loading:', {
+      isLoggedIn: authStatus.isLoggedIn,
+      userEmail: authStatus.user?.email
+    });
+    
     if (authStatus.isLoggedIn) {
       fetchUserBookings();
     }
@@ -378,6 +493,20 @@ const UserBooking = () => {
     window.location.href = '/#/parking';
   };
 
+  // Debug button to check token manually
+  const debugToken = () => {
+    console.log('🔧 Manual token debug triggered');
+    const token = getAuthToken();
+    const userInfo = getUserInfoFromToken();
+    
+    alert(`Token Debug:
+Token exists: ${!!token}
+Token length: ${token ? token.length : 0}
+Is JWT: ${token ? (token.includes('.') && token.split('.').length === 3) : false}
+User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
+`);
+  };
+
   // If not logged in
   if (!authStatus.isLoggedIn) {
     return (
@@ -390,6 +519,19 @@ const UserBooking = () => {
             <button className="login-btn" onClick={() => window.location.href = '/#/login'}>
               <User size={16} />
               Go to Login
+            </button>
+            {/* Debug button */}
+            <button 
+              onClick={debugToken}
+              style={{
+                marginTop: '10px',
+                padding: '5px 10px',
+                background: '#ccc',
+                border: 'none',
+                borderRadius: '3px'
+              }}
+            >
+              Debug Token
             </button>
           </div>
         </div>
@@ -424,6 +566,18 @@ const UserBooking = () => {
             <button className="home-btn" onClick={goToHome}>
               <Home size={16} />
               Go Home
+            </button>
+            <button 
+              onClick={debugToken}
+              style={{
+                marginLeft: '10px',
+                padding: '8px 16px',
+                background: '#ccc',
+                border: 'none',
+                borderRadius: '3px'
+              }}
+            >
+              Debug Token
             </button>
           </div>
         </div>
