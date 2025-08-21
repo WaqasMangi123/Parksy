@@ -52,6 +52,173 @@ const handleValidationErrors = (req, res, next) => {
   next();
 };
 
+// ===== FIXED AUTHENTICATION MIDDLEWARE =====
+
+const authenticateToken = async (req, res, next) => {
+  try {
+    console.log('🔍 Authentication middleware started');
+    console.log('🔍 Request method:', req.method);
+    console.log('🔍 Request URL:', req.url);
+    
+    // ✅ FIXED: Get token from Authorization header FIRST (standard practice)
+    let token = null;
+    
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+      console.log('🔑 Token extracted from Authorization header:', token.substring(0, 20) + '...');
+    }
+    
+    // Fallback to body (for backward compatibility)
+    if (!token) {
+      token = req.body.token || req.body.auth_token;
+      if (token) {
+        console.log('🔑 Token extracted from request body:', token.substring(0, 20) + '...');
+      }
+    }
+
+    console.log('🔍 Authentication check:', {
+      hasAuthHeader: !!authHeader,
+      tokenFromHeader: !!(authHeader && authHeader.startsWith('Bearer ')),
+      tokenFromBody: !!(req.body.token || req.body.auth_token),
+      tokenFound: !!token,
+      tokenLength: token ? token.length : 0
+    });
+
+    if (!token) {
+      console.log('❌ No token provided');
+      return res.status(401).json({
+        success: false,
+        message: 'Access token required. Please log in to make bookings.',
+        requireAuth: true,
+        error_code: 'NO_TOKEN'
+      });
+    }
+
+    // ✅ FIXED: Better JWT secret validation
+    if (!process.env.JWT_SECRET) {
+      console.error('❌ JWT_SECRET not configured in environment');
+      return res.status(500).json({
+        success: false,
+        message: 'Server authentication configuration error',
+        error_code: 'JWT_SECRET_MISSING'
+      });
+    }
+
+    console.log('🔐 Attempting to verify JWT token...');
+    console.log('🔐 JWT_SECRET exists:', !!process.env.JWT_SECRET);
+    console.log('🔐 Token format check:', token.includes('.') ? 'JWT format' : 'Non-JWT format');
+    
+    let decoded;
+    try {
+      // ✅ FIXED: Better JWT verification with error handling
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+      console.log('✅ Token decoded successfully:', {
+        userId: decoded.id || decoded.user_id || decoded.sub,
+        email: decoded.email,
+        username: decoded.username || decoded.name,
+        exp: decoded.exp ? new Date(decoded.exp * 1000) : 'No expiry',
+        iat: decoded.iat ? new Date(decoded.iat * 1000) : 'No issued time'
+      });
+    } catch (jwtError) {
+      console.error('❌ JWT verification failed:', {
+        name: jwtError.name,
+        message: jwtError.message,
+        tokenStart: token?.substring(0, 20) || 'none',
+        tokenEnd: token?.substring(token.length - 10) || 'none'
+      });
+      
+      if (jwtError.name === 'TokenExpiredError') {
+        return res.status(401).json({
+          success: false,
+          message: 'Your session has expired. Please log in again.',
+          requireAuth: true,
+          expired: true,
+          error_code: 'TOKEN_EXPIRED',
+          expiredAt: jwtError.expiredAt
+        });
+      }
+      
+      if (jwtError.name === 'JsonWebTokenError') {
+        return res.status(403).json({
+          success: false,
+          message: 'Invalid session token. Please log in again.',
+          requireAuth: true,
+          invalid: true,
+          error_code: 'INVALID_TOKEN'
+        });
+      }
+      
+      // For any other JWT error, return a generic error
+      return res.status(403).json({
+        success: false,
+        message: 'Token verification failed. Please log in again.',
+        requireAuth: true,
+        error_code: 'TOKEN_VERIFICATION_ERROR',
+        debug: jwtError.message
+      });
+    }
+
+    // ✅ FIXED: Create user object from token - don't require database lookup
+    console.log('👤 Creating user object from token...');
+    
+    // Create user object from token data (no database required)
+    req.user = {
+      _id: decoded.id || decoded.user_id || decoded.sub || 'token_user_id',
+      email: decoded.email || 'unknown@example.com',
+      name: decoded.name || decoded.username || 'Token User',
+      verified: true, // Assume verified if token is valid
+      role: decoded.role || 'user',
+      // Include original token data for reference
+      tokenData: decoded
+    };
+    
+    console.log('✅ User authenticated successfully:', {
+      id: req.user._id,
+      email: req.user.email,
+      name: req.user.name
+    });
+
+    // ✅ OPTIONAL: Try database lookup if User model is available (but don't fail if it doesn't work)
+    if (User) {
+      try {
+        console.log('👤 Attempting database user lookup...');
+        const dbUser = await User.findById(decoded.id);
+        
+        if (dbUser) {
+          // Use database user if found
+          req.user = dbUser;
+          console.log('✅ Database user found and used:', dbUser.email);
+        } else {
+          console.log('⚠️ Database user not found, using token data');
+        }
+      } catch (dbError) {
+        console.log('⚠️ Database lookup failed, using token data:', dbError.message);
+        // Continue with token-based user - don't fail the authentication
+      }
+    } else {
+      console.log('⚠️ User model not available, using token data only');
+    }
+
+    next();
+    
+  } catch (error) {
+    console.error('❌ Authentication middleware critical error:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack?.substring(0, 500)
+    });
+    
+    return res.status(500).json({
+      success: false,
+      message: 'Authentication system error',
+      error: error.message,
+      error_code: 'AUTH_SYSTEM_ERROR',
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
 // ===== PUBLIC ROUTES (NO AUTHENTICATION REQUIRED) =====
 
 // Health check endpoint - ENHANCED with Stripe health check and test mode detection
@@ -715,234 +882,6 @@ router.delete('/admin/bookings/:id', async (req, res) => {
   }
 });
 
-// ===== FIXED AUTHENTICATION MIDDLEWARE =====
-
-const authenticateToken = async (req, res, next) => {
-  try {
-    console.log('🔍 Authentication middleware started');
-    console.log('🔍 Request method:', req.method);
-    console.log('🔍 Request URL:', req.url);
-    
-    // ✅ FIXED: Get token from Authorization header FIRST (standard practice)
-    let token = null;
-    
-    const authHeader = req.headers['authorization'];
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-      console.log('🔑 Token extracted from Authorization header:', token.substring(0, 20) + '...');
-    }
-    
-    // Fallback to body (for backward compatibility)
-    if (!token) {
-      token = req.body.token || req.body.auth_token;
-      if (token) {
-        console.log('🔑 Token extracted from request body:', token.substring(0, 20) + '...');
-      }
-    }
-
-    console.log('🔍 Authentication check:', {
-      hasAuthHeader: !!authHeader,
-      tokenFromHeader: !!(authHeader && authHeader.startsWith('Bearer ')),
-      tokenFromBody: !!(req.body.token || req.body.auth_token),
-      tokenFound: !!token,
-      tokenLength: token ? token.length : 0,
-      userAgent: req.get('User-Agent')?.substring(0, 50) || 'none'
-    });
-
-    if (!token) {
-      console.log('❌ No token provided');
-      return res.status(401).json({
-        success: false,
-        message: 'Access token required. Please log in to make bookings.',
-        requireAuth: true,
-        error_code: 'NO_TOKEN',
-        debug: {
-          hasAuthHeader: !!authHeader,
-          authHeaderValue: authHeader ? authHeader.substring(0, 20) + '...' : 'none',
-          hasBodyToken: !!(req.body.token || req.body.auth_token)
-        }
-      });
-    }
-
-    // ✅ FIXED: Better JWT secret validation
-    if (!process.env.JWT_SECRET) {
-      console.error('❌ JWT_SECRET not configured in environment');
-      return res.status(500).json({
-        success: false,
-        message: 'Server authentication configuration error',
-        error_code: 'JWT_SECRET_MISSING',
-        debug: {
-          jwtSecretExists: !!process.env.JWT_SECRET,
-          nodeEnv: process.env.NODE_ENV
-        }
-      });
-    }
-
-    console.log('🔐 Attempting to verify JWT token...');
-    console.log('🔐 JWT_SECRET exists:', !!process.env.JWT_SECRET);
-    console.log('🔐 Token format check:', token.includes('.') ? 'JWT format' : 'Non-JWT format');
-    
-    let decoded;
-    try {
-      // ✅ FIXED: Better JWT verification with error handling
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
-      console.log('✅ Token decoded successfully:', {
-        userId: decoded.id || decoded.user_id || decoded.sub,
-        email: decoded.email,
-        username: decoded.username || decoded.name,
-        exp: decoded.exp ? new Date(decoded.exp * 1000) : 'No expiry',
-        iat: decoded.iat ? new Date(decoded.iat * 1000) : 'No issued time'
-      });
-    } catch (jwtError) {
-      console.error('❌ JWT verification failed:', {
-        name: jwtError.name,
-        message: jwtError.message,
-        tokenStart: token?.substring(0, 20) || 'none',
-        tokenEnd: token?.substring(token.length - 10) || 'none',
-        jwtSecretLength: process.env.JWT_SECRET?.length || 0
-      });
-      
-      if (jwtError.name === 'TokenExpiredError') {
-        return res.status(401).json({
-          success: false,
-          message: 'Your session has expired. Please log in again.',
-          requireAuth: true,
-          expired: true,
-          error_code: 'TOKEN_EXPIRED',
-          expiredAt: jwtError.expiredAt
-        });
-      }
-      
-      if (jwtError.name === 'JsonWebTokenError') {
-        return res.status(403).json({
-          success: false,
-          message: 'Invalid session token. Please log in again.',
-          requireAuth: true,
-          invalid: true,
-          error_code: 'INVALID_TOKEN',
-          debug: {
-            jwtError: jwtError.message,
-            tokenLength: token.length,
-            tokenFormat: token.includes('.') ? 'JWT format' : 'Non-JWT format'
-          }
-        });
-      }
-      
-      return res.status(500).json({
-        success: false,
-        message: 'Token verification error',
-        error: jwtError.message,
-        error_code: 'TOKEN_VERIFICATION_ERROR',
-        debug: {
-          errorName: jwtError.name,
-          tokenLength: token.length,
-          jwtSecretExists: !!process.env.JWT_SECRET
-        }
-      });
-    }
-
-    // ✅ FIXED: Better user handling with fallbacks
-    try {
-      // If User model is not available, create a mock user from token
-      if (!User) {
-        console.log('⚠️ User model not available, creating mock user from token');
-        req.user = {
-          _id: decoded.id || decoded.user_id || decoded.sub || 'mock_user_id',
-          email: decoded.email || 'unknown@example.com',
-          name: decoded.name || decoded.username || 'Unknown User',
-          verified: true, // Assume verified if token is valid
-          role: decoded.role || 'user'
-        };
-        
-        console.log('✅ Mock user created:', {
-          id: req.user._id,
-          email: req.user.email,
-          name: req.user.name
-        });
-        return next();
-      }
-
-      // Look up user in database
-      console.log('👤 Looking up user in database...');
-      const user = await User.findById(decoded.id);
-      
-      if (!user) {
-        console.log('❌ User not found for token, creating fallback user');
-        // Create fallback user instead of failing
-        req.user = {
-          _id: decoded.id || decoded.user_id || decoded.sub,
-          email: decoded.email || 'unknown@example.com',
-          name: decoded.name || decoded.username || 'Unknown User',
-          verified: true,
-          role: decoded.role || 'user'
-        };
-        
-        console.log('✅ Fallback user created:', req.user.email);
-        return next();
-      }
-
-      // ✅ FIXED: More lenient verification check
-      if (!user.verified) {
-        console.log('⚠️ User email not verified, but allowing for payment flow');
-        // Don't block for verification - just log it
-        console.log('Note: User verification status:', user.verified);
-      }
-
-      req.user = user;
-      console.log('✅ Database user authenticated successfully:', {
-        id: user._id,
-        email: user.email,
-        verified: user.verified
-      });
-      next();
-      
-    } catch (dbError) {
-      console.error('❌ Database error during user lookup:', {
-        message: dbError.message,
-        name: dbError.name,
-        code: dbError.code
-      });
-      
-      // ✅ FIXED: Always create fallback user instead of failing
-      console.log('⚠️ Database unavailable, creating fallback user');
-      req.user = {
-        _id: decoded.id || decoded.user_id || decoded.sub || 'fallback_user_id',
-        email: decoded.email || 'fallback@example.com',
-        name: decoded.name || decoded.username || 'Fallback User',
-        verified: true,
-        role: decoded.role || 'user'
-      };
-      
-      console.log('✅ Fallback user created due to DB error:', {
-        id: req.user._id,
-        email: req.user.email,
-        dbError: dbError.message
-      });
-      next();
-    }
-    
-  } catch (error) {
-    console.error('❌ Authentication middleware critical error:', {
-      name: error.name,
-      message: error.message,
-      stack: error.stack?.substring(0, 500)
-    });
-    
-    return res.status(500).json({
-      success: false,
-      message: 'Authentication system error',
-      error: error.message,
-      error_code: 'AUTH_SYSTEM_ERROR',
-      debug: {
-        errorName: error.name,
-        hasJwtSecret: !!process.env.JWT_SECRET,
-        nodeEnv: process.env.NODE_ENV,
-        timestamp: new Date().toISOString()
-      }
-    });
-  }
-};
-
 // Get user's booking count - WITH AUTHENTICATION
 router.get('/my-bookings-count', authenticateToken, async (req, res) => {
   try {
@@ -1222,116 +1161,31 @@ router.get('/verify-payment/:payment_intent_id',
     }
   }
 );
-// Get payment and refund details
-router.get('/payment-details/:payment_intent_id', 
-  authenticateToken,
-  async (req, res) => {
-    try {
-      const { payment_intent_id } = req.params;
-      const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
-      
-      console.log('🔍 Getting detailed payment info for:', payment_intent_id);
-
-      const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-      
-      // Get payment details
-      const paymentIntent = await stripe.paymentIntents.retrieve(payment_intent_id);
-      
-      // Get refunds
-      const charges = await stripe.charges.list({
-        payment_intent: payment_intent_id
-      });
-      
-      let totalRefunded = 0;
-      let refunds = [];
-      
-      for (const charge of charges.data) {
-        if (charge.refunds.data.length > 0) {
-          for (const refund of charge.refunds.data) {
-            totalRefunded += refund.amount;
-            refunds.push({
-              id: refund.id,
-              amount: refund.amount / 100,
-              currency: refund.currency,
-              reason: refund.reason,
-              status: refund.status,
-              created: new Date(refund.created * 1000)
-            });
-          }
-        }
-      }
-
-      const paymentDetails = {
-        status: paymentIntent.status,
-        amount: paymentIntent.amount / 100,
-        currency: paymentIntent.currency,
-        metadata: paymentIntent.metadata,
-        is_paid: paymentIntent.status === 'succeeded',
-        created: new Date(paymentIntent.created * 1000),
-        last_payment_error: paymentIntent.last_payment_error
-      };
-
-      res.json({
-        success: true,
-        payment: paymentDetails,
-        refunds: {
-          data: refunds,
-          total_refunded: totalRefunded / 100
-        },
-        summary: {
-          original_amount: paymentDetails.amount,
-          refunded_amount: totalRefunded / 100,
-          net_amount: paymentDetails.amount - (totalRefunded / 100),
-          is_fully_refunded: totalRefunded >= paymentIntent.amount
-        },
-        is_test_mode: isTestMode
-      });
-
-    } catch (error) {
-      console.error('❌ Error getting payment details:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to get payment details',
-        error: error.message
-      });
-    }
-  }
-);
-
-// Booking validation
-const validateCreateBooking = [
-  body('company_code')
-    .notEmpty()
-    .withMessage('Company code is required')
-    .isLength({ min: 1, max: 50 })
-    .withMessage('Invalid company code format'),
-  body('airport_code').isIn(['LHR', 'LGW', 'STN', 'LTN', 'MAN', 'BHX', 'EDI', 'GLA']).withMessage('Invalid airport code'),
-  body('dropoff_date').isISO8601().withMessage('Invalid dropoff date format'),
-  body('dropoff_time').matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Invalid dropoff time format'),
-  body('pickup_date').isISO8601().withMessage('Invalid pickup date format'),
-  body('pickup_time').matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Invalid pickup time format'),
-  body('title').isIn(['Mr', 'Mrs', 'Miss', 'Ms', 'Dr']).withMessage('Invalid title'),
-  body('first_name').trim().isLength({ min: 1, max: 50 }).withMessage('First name must be 1-50 characters'),
-  body('last_name').trim().isLength({ min: 1, max: 50 }).withMessage('Last name must be 1-50 characters'),
-  body('customer_email').isEmail().withMessage('Invalid email address'),
-  body('phone_number').notEmpty().withMessage('Phone number is required'),
-  body('departure_flight_number').optional().isLength({ max: 20 }).withMessage('Flight number too long'),
-  body('arrival_flight_number').optional().isLength({ max: 20 }).withMessage('Flight number too long'),
-  body('departure_terminal').notEmpty().withMessage('Departure terminal is required'),
-  body('arrival_terminal').notEmpty().withMessage('Arrival terminal is required'),
-  body('car_registration_number').trim().isLength({ min: 1, max: 15 }).withMessage('Car registration required'),
-  body('car_make').trim().isLength({ min: 1, max: 30 }).withMessage('Car make required'),
-  body('car_model').trim().isLength({ min: 1, max: 30 }).withMessage('Car model required'),
-  body('car_color').trim().isLength({ min: 1, max: 20 }).withMessage('Car color required'),
-  body('booking_amount').isFloat({ min: 0 }).withMessage('Booking amount must be a positive number'),
-  body('passenger').optional().isInt({ min: 1, max: 10 }).withMessage('Invalid passenger count'),
-  body('payment_intent_id').notEmpty().withMessage('Payment intent ID is required')
-];
 
 // Step 3: Create booking AFTER payment is confirmed
 router.post('/bookings-with-payment', 
   authenticateToken,
-  validateCreateBooking, 
+  [
+    body('company_code').notEmpty().withMessage('Company code is required'),
+    body('airport_code').isIn(['LHR', 'LGW', 'STN', 'LTN', 'MAN', 'BHX', 'EDI', 'GLA']).withMessage('Invalid airport code'),
+    body('dropoff_date').isISO8601().withMessage('Invalid dropoff date format'),
+    body('dropoff_time').matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Invalid dropoff time format'),
+    body('pickup_date').isISO8601().withMessage('Invalid pickup date format'),
+    body('pickup_time').matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Invalid pickup time format'),
+    body('title').isIn(['Mr', 'Mrs', 'Miss', 'Ms', 'Dr']).withMessage('Invalid title'),
+    body('first_name').trim().isLength({ min: 1, max: 50 }).withMessage('First name must be 1-50 characters'),
+    body('last_name').trim().isLength({ min: 1, max: 50 }).withMessage('Last name must be 1-50 characters'),
+    body('customer_email').isEmail().withMessage('Invalid email address'),
+    body('phone_number').notEmpty().withMessage('Phone number is required'),
+    body('departure_terminal').notEmpty().withMessage('Departure terminal is required'),
+    body('arrival_terminal').notEmpty().withMessage('Arrival terminal is required'),
+    body('car_registration_number').trim().isLength({ min: 1, max: 15 }).withMessage('Car registration required'),
+    body('car_make').trim().isLength({ min: 1, max: 30 }).withMessage('Car make required'),
+    body('car_model').trim().isLength({ min: 1, max: 30 }).withMessage('Car model required'),
+    body('car_color').trim().isLength({ min: 1, max: 20 }).withMessage('Car color required'),
+    body('booking_amount').isFloat({ min: 0 }).withMessage('Booking amount must be a positive number'),
+    body('payment_intent_id').notEmpty().withMessage('Payment intent ID is required')
+  ],
   handleValidationErrors, 
   async (req, res) => {
     try {
@@ -1667,29 +1521,6 @@ router.post('/bookings-with-payment',
         error_code: 'BOOKING_CREATION_FAILED'
       });
     }
-  }
-);
-
-// ===== LEGACY BOOKING ROUTE (WITHOUT PAYMENT) - DEPRECATED =====
-
-// Old booking route - now redirects to payment flow
-router.post('/bookings', 
-  authenticateToken,
-  async (req, res) => {
-    const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
-    console.log(`⚠️ Legacy booking endpoint accessed - redirecting to payment flow (${isTestMode ? 'TEST' : 'LIVE'} mode)`);
-    
-    res.status(400).json({
-      success: false,
-      message: `This booking endpoint is deprecated. Please use the payment flow. (${isTestMode ? 'TEST' : 'LIVE'} mode)`,
-      redirect_to: '/create-payment-intent',
-      required_steps: [
-        '1. Create payment intent with /create-payment-intent',
-        '2. Process payment on frontend with Stripe Elements',
-        '3. Create booking with /bookings-with-payment'
-      ],
-      is_test_mode: isTestMode
-    });
   }
 );
 
