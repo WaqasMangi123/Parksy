@@ -120,21 +120,31 @@ const ProfessionalParksyDashboard = () => {
 
   // ✅ IMPROVED getAuthToken function with enhanced token detection
   const getAuthToken = () => {
-    try {
-      // Check all possible localStorage keys
-      const localStorageKeys = [
-        'token', 'authToken', 'jwt', 'access_token', 
-        'auth_token', 'userToken', 'accessToken',
-        'parksy_token', 'user_token', 'bearer_token'
-      ];
-      
-      for (const key of localStorageKeys) {
-        const token = localStorage.getItem(key);
-        if (token && token !== 'null' && token !== 'undefined' && token.length > 10) {
-          console.log(`🔑 Found token in localStorage.${key}, length:`, token.length);
-          return token;
-        }
-      }
+ try {
+   // Check all possible localStorage keys
+   const localStorageKeys = [
+     'token', 'authToken', 'jwt', 'access_token', 
+     'auth_token', 'userToken', 'accessToken',
+     'parksy_token', 'user_token', 'bearer_token'
+   ];
+   
+   for (const key of localStorageKeys) {
+     const token = localStorage.getItem(key);
+     if (token && token !== 'null' && token !== 'undefined' && token.length > 10) {
+       console.log(`🔑 Found token in localStorage.${key}, length:`, token.length);
+       
+       // Handle JSON token format
+       if (token.startsWith('{')) {
+         const parsed = JSON.parse(token);
+         if (parsed.id && parsed.email) {
+           const userData = { id: parsed.id, email: parsed.email, exp: Math.floor(Date.now()/1000) + 86400 };
+           const mockJWT = btoa(JSON.stringify({typ:'JWT'})) + '.' + btoa(JSON.stringify(userData)) + '.demo';
+           return mockJWT;
+         }
+       }
+       return token;
+     }
+   }
 
       // Check sessionStorage
       const sessionStorageKeys = [
