@@ -104,10 +104,6 @@ router.get('/health', async (req, res) => {
 // Get Stripe publishable key for frontend - ENHANCED with Test Mode
 router.get('/stripe-config', (req, res) => {
   try {
-    if (!StripeService) {
-      throw new Error('Stripe service not available');
-    }
-
     if (!process.env.STRIPE_PUBLISHABLE_KEY) {
       throw new Error('Stripe publishable key not configured');
     }
@@ -436,7 +432,7 @@ router.get('/terminals/:airport_code',
   }
 );
 
-// ===== BOOKING RETRIEVAL ROUTES (NEW - ADDED AS REQUESTED) =====
+// ===== BOOKING RETRIEVAL ROUTES =====
 
 // Get all bookings (for admin view) - WITHOUT AUTHENTICATION
 router.get('/bookings', async (req, res) => {
@@ -602,13 +598,25 @@ router.post('/admin/bookings/:id/cancel', async (req, res) => {
 
     // Process refund if payment was made via Stripe
     let refundResult = null;
-    if (booking.payment_details?.stripe_payment_intent_id && StripeService) {
+    if (booking.payment_details?.stripe_payment_intent_id) {
       try {
-        refundResult = await StripeService.createRefund(
-          booking.payment_details.stripe_payment_intent_id,
-          null, // Full refund
-          reason || 'admin_cancellation'
-        );
+        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+        const refund = await stripe.refunds.create({
+          payment_intent: booking.payment_details.stripe_payment_intent_id,
+          reason: 'requested_by_customer',
+          metadata: {
+            reason: reason || 'admin_cancellation',
+            booking_reference: booking.our_reference
+          }
+        });
+        
+        refundResult = {
+          refund_id: refund.id,
+          amount: refund.amount / 100,
+          status: refund.status,
+          reason: refund.reason
+        };
+        
         console.log('💰 Admin refund processed:', refundResult.refund_id);
       } catch (refundError) {
         console.error('❌ Admin refund failed:', refundError.message);
@@ -635,12 +643,7 @@ router.post('/admin/bookings/:id/cancel', async (req, res) => {
       booking_id: booking._id,
       our_reference: booking.our_reference,
       magr_reference: booking.magr_reference,
-      refund: refundResult ? {
-        refund_id: refundResult.refund_id,
-        amount: refundResult.amount,
-        status: refundResult.status,
-        reason: refundResult.reason
-      } : null,
+      refund: refundResult,
       magr_cancellation: magrCancelResult,
       booking_status: 'cancelled'
     });
@@ -714,21 +717,24 @@ router.delete('/admin/bookings/:id', async (req, res) => {
 
 // ===== PROTECTED ROUTES (AUTHENTICATION REQUIRED) =====
 
-// Authentication middleware
+// Authentication middleware - ENHANCED WITH BETTER ERROR HANDLING
 const authenticateToken = async (req, res, next) => {
   try {
+    console.log('🔍 Authentication middleware started');
+    
     let token = req.body.token || req.body.auth_token;
     
     const authHeader = req.headers['authorization'];
-    if (!token && authHeader && authHeader.split(' ')[1]) {
-      token = authHeader.split(' ')[1];
+    if (!token && authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
     }
 
     console.log('🔍 Authentication check:', {
       tokenFromBody: !!req.body.token,
       tokenFromAuthToken: !!req.body.auth_token,
       tokenFromHeader: !!authHeader,
-      tokenFound: !!token
+      tokenFound: !!token,
+      headerValue: authHeader?.substring(0, 20) + '...' || 'none'
     });
 
     if (!token) {
@@ -748,6 +754,7 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
+    console.log('🔐 Verifying JWT token...');
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     console.log('🔐 Token decoded for user:', decoded.email || decoded.id);
 
@@ -759,6 +766,7 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
+    console.log('👤 Looking up user in database...');
     const user = await User.findById(decoded.id);
     if (!user) {
       console.log('❌ User not found for token');
@@ -780,10 +788,14 @@ const authenticateToken = async (req, res, next) => {
     }
 
     req.user = user;
-    console.log('✅ User authenticated:', user.email);
+    console.log('✅ User authenticated successfully:', user.email);
     next();
   } catch (error) {
-    console.error('❌ Auth error:', error.message);
+    console.error('❌ Auth error:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack?.substring(0, 500)
+    });
     
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({
@@ -848,7 +860,7 @@ router.get('/my-bookings-count', authenticateToken, async (req, res) => {
 
 // ===== STRIPE PAYMENT ROUTES =====
 
-// Step 1: Create payment intent BEFORE booking form submission - FIXED VERSION
+// Step 1: Create payment intent BEFORE booking form submission - COMPLETELY FIXED
 router.post('/create-payment-intent', 
   authenticateToken,
   [
@@ -862,16 +874,20 @@ router.post('/create-payment-intent',
   ],
   handleValidationErrors,
   async (req, res) => {
+    console.log('💳 ========== PAYMENT INTENT CREATION STARTED ==========');
+    
     try {
       const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
       console.log(`💳 Creating payment intent for user (${isTestMode ? 'TEST' : 'LIVE'} mode):`, req.user.email);
+      console.log('💳 Request body:', req.body);
 
-      if (!StripeService) {
-        console.error('❌ StripeService not available');
+      // Check if Stripe is configured
+      if (!process.env.STRIPE_SECRET_KEY) {
+        console.error('❌ STRIPE_SECRET_KEY not configured');
         return res.status(500).json({
           success: false,
-          message: 'Stripe service not available - check server configuration',
-          error: 'StripeService not loaded'
+          message: 'Stripe not configured - missing secret key',
+          error: 'STRIPE_SECRET_KEY environment variable not set'
         });
       }
 
@@ -888,7 +904,7 @@ router.post('/create-payment-intent',
       // Generate a temporary booking reference for payment tracking
       const tempBookingRef = `${isTestMode ? 'TEST-' : ''}TEMP-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-      // Prepare payment data - SIMPLIFIED to avoid service method issues
+      // Convert amount to number and validate
       const paymentAmount = parseFloat(amount);
       const paymentCurrency = currency.toLowerCase();
 
@@ -897,70 +913,55 @@ router.post('/create-payment-intent',
         currency: paymentCurrency,
         user: req.user.email,
         service: service_name,
-        mode: isTestMode ? 'TEST' : 'LIVE'
+        mode: isTestMode ? 'TEST' : 'LIVE',
+        tempRef: tempBookingRef
       });
 
-      // Create payment intent directly with Stripe API if service method fails
-      let paymentResult;
-      
-      try {
-        // Try using the StripeService first
-        if (typeof StripeService.createPaymentIntent === 'function') {
-          const paymentData = {
-            amount: paymentAmount,
-            currency: paymentCurrency,
-            customer_email: req.user.email,
-            our_reference: tempBookingRef,
-            temp_booking_reference: tempBookingRef,
-            service_name: service_name,
-            airport_code: airport_code,
-            company_code: company_code,
-            dropoff_date: dropoff_date,
-            pickup_date: pickup_date
-          };
-          
-          paymentResult = await StripeService.createPaymentIntent(paymentData);
-        } else {
-          throw new Error('StripeService.createPaymentIntent method not available');
+      // Initialize Stripe directly (bypass service layer for reliability)
+      const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+      console.log('💳 Stripe initialized successfully');
+
+      // Create payment intent with robust error handling
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(paymentAmount * 100), // Convert to pence
+        currency: paymentCurrency,
+        description: `${isTestMode ? '[TEST] ' : ''}Parking booking for ${airport_code} - ${service_name}`,
+        metadata: {
+          our_reference: tempBookingRef,
+          temp_booking_reference: tempBookingRef,
+          service_name: service_name,
+          airport_code: airport_code,
+          company_code: company_code,
+          dropoff_date: dropoff_date,
+          pickup_date: pickup_date,
+          user_email: req.user.email,
+          is_test_mode: isTestMode.toString(),
+          created_by: 'parksy_api'
+        },
+        automatic_payment_methods: {
+          enabled: true,
+        },
+        // Enhanced payment method options
+        payment_method_options: {
+          card: {
+            request_three_d_secure: isTestMode ? 'if_required' : 'automatic'
+          }
         }
-      } catch (serviceError) {
-        console.warn('⚠️ StripeService method failed, using direct Stripe API:', serviceError.message);
-        
-        // Fallback to direct Stripe API call
-        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-        
-        const paymentIntent = await stripe.paymentIntents.create({
-          amount: Math.round(paymentAmount * 100), // Convert to cents
-          currency: paymentCurrency,
-          customer_email: req.user.email,
-          metadata: {
-            our_reference: tempBookingRef,
-            temp_booking_reference: tempBookingRef,
-            service_name: service_name,
-            airport_code: airport_code,
-            company_code: company_code,
-            dropoff_date: dropoff_date,
-            pickup_date: pickup_date,
-            user_email: req.user.email,
-            is_test_mode: isTestMode.toString()
-          },
-          automatic_payment_methods: {
-            enabled: true,
-          },
-        });
+      });
 
-        paymentResult = {
-          client_secret: paymentIntent.client_secret,
-          payment_intent_id: paymentIntent.id,
-          amount: paymentAmount,
-          currency: paymentCurrency
-        };
-      }
+      console.log(`✅ Payment intent created successfully (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
+        id: paymentIntent.id,
+        amount: paymentIntent.amount / 100,
+        currency: paymentIntent.currency,
+        status: paymentIntent.status,
+        client_secret_exists: !!paymentIntent.client_secret
+      });
 
-      res.json({
+      // Return comprehensive response
+      const response = {
         success: true,
-        client_secret: paymentResult.client_secret,
-        payment_intent_id: paymentResult.payment_intent_id,
+        client_secret: paymentIntent.client_secret,
+        payment_intent_id: paymentIntent.id,
         amount: paymentAmount,
         currency: paymentCurrency,
         temp_booking_reference: tempBookingRef,
@@ -974,65 +975,84 @@ router.post('/create-payment-intent',
           note: 'Use any future expiry date, any 3-digit CVC, and any postal code'
         } : null,
         warning: isTestMode ? '⚠️ TEST MODE: Use test card numbers above' : '🔴 LIVE MODE: Real payments will be processed',
-        message: `Payment intent created successfully (${isTestMode ? 'TEST' : 'LIVE'} mode)`
+        message: `Payment intent created successfully (${isTestMode ? 'TEST' : 'LIVE'} mode)`,
+        timestamp: new Date().toISOString()
+      };
+
+      console.log('💳 Sending response:', {
+        success: response.success,
+        payment_intent_id: response.payment_intent_id,
+        amount: response.amount,
+        is_test_mode: response.is_test_mode
       });
 
+      res.json(response);
+
     } catch (error) {
-      console.error('❌ Payment intent creation error:', error);
-      res.status(500).json({
+      console.error('❌ PAYMENT INTENT CREATION ERROR:', {
+        name: error.name,
+        message: error.message,
+        code: error.code,
+        type: error.type,
+        stack: error.stack?.substring(0, 1000)
+      });
+      
+      // Enhanced error response
+      const errorResponse = {
         success: false,
         message: 'Failed to create payment intent',
         error: error.message,
+        error_type: error.type || 'unknown',
+        error_code: error.code || 'unknown',
         is_test_mode: process.env.STRIPE_SECRET_KEY?.includes('test') || false,
-        stack: error.stack ? error.stack.substring(0, 500) : null
-      });
+        timestamp: new Date().toISOString(),
+        debug_info: {
+          stripe_key_exists: !!process.env.STRIPE_SECRET_KEY,
+          stripe_key_prefix: process.env.STRIPE_SECRET_KEY?.substring(0, 8) || 'none',
+          user_email: req.user?.email || 'unknown'
+        }
+      };
+
+      // Include stack trace in development
+      if (process.env.NODE_ENV === 'development') {
+        errorResponse.stack = error.stack;
+      }
+
+      res.status(500).json(errorResponse);
     }
+    
+    console.log('💳 ========== PAYMENT INTENT CREATION ENDED ==========');
   }
 );
 
-// Step 2: Verify payment status before proceeding with booking - FIXED VERSION
+// Step 2: Verify payment status before proceeding with booking
 router.get('/verify-payment/:payment_intent_id', 
   authenticateToken,
   async (req, res) => {
     try {
-      if (!StripeService) {
-        return res.status(500).json({
-          success: false,
-          message: 'Stripe service not available'
-        });
-      }
-
       const { payment_intent_id } = req.params;
       const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
       
       console.log(`🔍 Verifying payment for user (${isTestMode ? 'TEST' : 'LIVE'} mode):`, req.user.email, 'Payment ID:', payment_intent_id);
 
-      let paymentDetails;
+      const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+      const paymentIntent = await stripe.paymentIntents.retrieve(payment_intent_id);
       
-      try {
-        // Try using StripeService method first
-        if (typeof StripeService.getPaymentDetails === 'function') {
-          paymentDetails = await StripeService.getPaymentDetails(payment_intent_id);
-        } else {
-          throw new Error('StripeService.getPaymentDetails method not available');
-        }
-      } catch (serviceError) {
-        console.warn('⚠️ StripeService method failed, using direct Stripe API:', serviceError.message);
-        
-        // Fallback to direct Stripe API call
-        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-        const paymentIntent = await stripe.paymentIntents.retrieve(payment_intent_id);
-        
-        paymentDetails = {
-          status: paymentIntent.status,
-          amount: paymentIntent.amount / 100, // Convert from cents
-          currency: paymentIntent.currency,
-          metadata: paymentIntent.metadata,
-          is_paid: paymentIntent.status === 'succeeded',
-          created: new Date(paymentIntent.created * 1000),
-          last_payment_error: paymentIntent.last_payment_error
-        };
-      }
+      const paymentDetails = {
+        status: paymentIntent.status,
+        amount: paymentIntent.amount / 100,
+        currency: paymentIntent.currency,
+        metadata: paymentIntent.metadata,
+        is_paid: paymentIntent.status === 'succeeded',
+        created: new Date(paymentIntent.created * 1000),
+        last_payment_error: paymentIntent.last_payment_error
+      };
+
+      console.log(`💳 Payment verification result (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
+        status: paymentDetails.status,
+        amount: paymentDetails.amount,
+        is_paid: paymentDetails.is_paid
+      });
 
       res.json({
         success: true,
@@ -1060,7 +1080,7 @@ router.get('/verify-payment/:payment_intent_id',
   }
 );
 
-// Get payment and refund details - FIXED VERSION
+// Get payment and refund details
 router.get('/payment-details/:payment_intent_id', 
   authenticateToken,
   async (req, res) => {
@@ -1166,7 +1186,7 @@ const validateCreateBooking = [
   body('payment_intent_id').notEmpty().withMessage('Payment intent ID is required')
 ];
 
-// Step 3: Create booking AFTER payment is confirmed - FIXED VERSION
+// Step 3: Create booking AFTER payment is confirmed
 router.post('/bookings-with-payment', 
   authenticateToken,
   validateCreateBooking, 
