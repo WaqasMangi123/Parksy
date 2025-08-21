@@ -9,7 +9,7 @@ import "./home.css";
 
 const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoicGFya3N5dWsiLCJhIjoiY21kODNsaG0yMGw3bzJscXN1bmlkbHk4ZiJ9.DaA0-wfNgf-1PIhJyHXCxg';
 
-// Load Stripe
+// Enhanced Stripe loader with better error handling
 const loadStripe = async () => {
   if (window.Stripe) return window.Stripe;
 
@@ -17,10 +17,15 @@ const loadStripe = async () => {
     const script = document.createElement('script');
     script.src = 'https://js.stripe.com/v3/';
     script.onload = () => {
-      resolve(window.Stripe);
+      if (window.Stripe) {
+        console.log('✅ Stripe.js loaded successfully');
+        resolve(window.Stripe);
+      } else {
+        reject(new Error('Stripe.js failed to load properly'));
+      }
     };
     script.onerror = () => {
-      reject(new Error('Failed to load Stripe'));
+      reject(new Error('Failed to load Stripe.js script'));
     };
     document.head.appendChild(script);
   });
@@ -30,23 +35,23 @@ const ProfessionalParksyDashboard = () => {
   // API Configuration - Fixed to deployed backend only
   const API_BASE_URL = "https://parksy-backend.onrender.com";
   
-  // Stripe Configuration - ENHANCED WITH TEST MODE DETECTION
+  // Enhanced Stripe Configuration with better test mode handling
   const [stripe, setStripe] = useState(null);
   const [stripePublishableKey, setStripePublishableKey] = useState(null);
-  const [stripeConfig, setStripeConfig] = useState(null); // NEW: Full Stripe config including test mode info
-  const [isStripeTestMode, setIsStripeTestMode] = useState(false); // NEW: Test mode flag
-  const [testCardInfo, setTestCardInfo] = useState(null); // NEW: Test card information
+  const [stripeConfig, setStripeConfig] = useState(null);
+  const [isStripeTestMode, setIsStripeTestMode] = useState(false);
+  const [testCardInfo, setTestCardInfo] = useState(null);
   const [paymentIntentId, setPaymentIntentId] = useState(null);
   const [paymentStatus, setPaymentStatus] = useState(null);
   const [processingPayment, setProcessingPayment] = useState(false);
-  const [paymentStep, setPaymentStep] = useState(1); // 1: Form, 2: Payment, 3: Booking
+  const [paymentStep, setPaymentStep] = useState(1);
 
-  // Stripe Elements - ENHANCED STATE VARIABLES
+  // Enhanced Stripe Elements state
   const [elements, setElements] = useState(null);
   const [cardElement, setCardElement] = useState(null);
   const [cardError, setCardError] = useState(null);
   const [cardComplete, setCardComplete] = useState(false);
-  const [showTestCards, setShowTestCards] = useState(false); // NEW: Toggle for test cards info
+  const [showTestCards, setShowTestCards] = useState(false);
 
   // Map references
   const mapRef = useRef(null);
@@ -83,15 +88,16 @@ const ProfessionalParksyDashboard = () => {
   const [showAirplaneAnimation, setShowAirplaneAnimation] = useState(true);
   const [authStatus, setAuthStatus] = useState({ isLoggedIn: false, user: null });
 
- // Search Parameters - FIXED: Must be at least 48+ hours in advance for MAGR API
-const [searchParams, setSearchParams] = useState({
-  airport_code: "LHR",
-  dropoff_date: new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0], // Day after tomorrow (48+ hours)
-  dropoff_time: "09:00",
-  pickup_date: new Date(Date.now() + 9 * 86400000).toISOString().split('T')[0], // 9 days later
-  pickup_time: "18:00"
-});
-  // Booking Details
+  // Search Parameters - Fixed: Must be at least 48+ hours in advance
+  const [searchParams, setSearchParams] = useState({
+    airport_code: "LHR",
+    dropoff_date: new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0], // Day after tomorrow
+    dropoff_time: "09:00",
+    pickup_date: new Date(Date.now() + 9 * 86400000).toISOString().split('T')[0], // 9 days later
+    pickup_time: "18:00"
+  });
+
+  // Enhanced Booking Details
   const [bookingDetails, setBookingDetails] = useState({
     title: "Mr",
     first_name: "",
@@ -110,7 +116,7 @@ const [searchParams, setSearchParams] = useState({
     paymentgateway: "Stripe"
   });
 
-  // ========== PRODUCTION AUTHENTICATION FUNCTIONS ==========
+  // ========== ENHANCED AUTHENTICATION FUNCTIONS ==========
 
   // Comprehensive token detection for production environment
   const getAuthToken = () => {
@@ -154,7 +160,7 @@ const [searchParams, setSearchParams] = useState({
         }
       }
 
-      console.log('❌ No authentication token found in any storage location');
+      console.log('❌ No authentication token found');
       return null;
     } catch (error) {
       console.error('❌ Error accessing browser storage:', error);
@@ -162,7 +168,6 @@ const [searchParams, setSearchParams] = useState({
     }
   };
 
-  // Check if user is logged in
   const isUserLoggedIn = () => {
     const token = getAuthToken();
     const isLoggedIn = !!token;
@@ -170,7 +175,6 @@ const [searchParams, setSearchParams] = useState({
     return isLoggedIn;
   };
 
-  // Decode JWT token safely for user information
   const getUserInfoFromToken = () => {
     const token = getAuthToken();
     if (!token) {
@@ -179,7 +183,6 @@ const [searchParams, setSearchParams] = useState({
     }
     
     try {
-      // Handle both JWT and simple JSON tokens
       let payload;
       
       if (token.includes('.')) {
@@ -212,7 +215,6 @@ const [searchParams, setSearchParams] = useState({
       return payload;
     } catch (error) {
       console.error('❌ Error decoding token:', error.message);
-      console.log('🔍 Token format check - first 50 chars:', token.substring(0, 50));
       return null;
     }
   };
@@ -239,7 +241,6 @@ const [searchParams, setSearchParams] = useState({
       });
     };
 
-    // Check auth immediately and also when storage changes
     checkAuth();
     
     // Listen for storage changes (login/logout in other tabs)
@@ -254,51 +255,76 @@ const [searchParams, setSearchParams] = useState({
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // ========== ENHANCED STRIPE INITIALIZATION WITH TEST MODE DETECTION ==========
+  // ========== ENHANCED STRIPE INITIALIZATION ==========
 
   useEffect(() => {
     const initializeStripe = async () => {
       try {
-        console.log('🔄 Initializing Stripe with test mode detection...');
+        console.log('🔄 Initializing Stripe with enhanced error handling...');
         
-        // Get enhanced Stripe config from backend
-        const response = await fetch(`${API_BASE_URL}/api/parking/stripe-config`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && data.publishable_key) {
-            console.log('✅ Got enhanced Stripe config:', {
-              hasPublishableKey: !!data.publishable_key,
-              isTestMode: data.is_test_mode,
-              stripeMode: data.stripe_mode,
-              hasTestCardInfo: !!data.test_card_info
-            });
-
-            // Store all Stripe configuration
-            setStripeConfig(data);
-            setStripePublishableKey(data.publishable_key);
-            setIsStripeTestMode(data.is_test_mode || false);
-            setTestCardInfo(data.test_card_info);
-            
-            // Load Stripe with the key
-            const stripeInstance = await loadStripe();
-            const stripeClient = stripeInstance(data.publishable_key);
-            setStripe(stripeClient);
-            
-            console.log(`✅ Stripe initialized successfully in ${data.is_test_mode ? 'TEST' : 'LIVE'} mode`);
-            
-            if (data.is_test_mode) {
-              console.log('🧪 TEST MODE ACTIVE - Test cards available:', data.test_card_info);
-            } else {
-              console.log('🔴 LIVE MODE - Real payments will be processed');
-            }
-          } else {
-            throw new Error('Failed to get Stripe config');
+        // Step 1: Get Stripe config from backend
+        const response = await fetch(`${API_BASE_URL}/api/parking/stripe-config`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
           }
-        } else {
-          throw new Error('Failed to fetch Stripe config');
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: Failed to fetch Stripe config`);
         }
+
+        const configData = await response.json();
+        
+        if (!configData.success || !configData.publishable_key) {
+          throw new Error('Invalid Stripe configuration received from backend');
+        }
+        
+        console.log('✅ Got Stripe config:', {
+          hasPublishableKey: !!configData.publishable_key,
+          isTestMode: configData.is_test_mode,
+          stripeMode: configData.stripe_mode,
+          hasTestCardInfo: !!configData.test_card_info
+        });
+
+        // Store configuration
+        setStripeConfig(configData);
+        setStripePublishableKey(configData.publishable_key);
+        setIsStripeTestMode(configData.is_test_mode || false);
+        setTestCardInfo(configData.test_card_info);
+        
+        // Step 2: Load Stripe.js
+        console.log('🔄 Loading Stripe.js...');
+        const stripeInstance = await loadStripe();
+        
+        if (!stripeInstance) {
+          throw new Error('Failed to load Stripe.js');
+        }
+
+        // Step 3: Initialize Stripe client
+        console.log('🔄 Initializing Stripe client...');
+        const stripeClient = stripeInstance(configData.publishable_key);
+        
+        if (!stripeClient) {
+          throw new Error('Failed to initialize Stripe client');
+        }
+
+        setStripe(stripeClient);
+        
+        console.log(`✅ Stripe initialized successfully in ${configData.is_test_mode ? 'TEST' : 'LIVE'} mode`);
+        
+        if (configData.is_test_mode) {
+          console.log('🧪 TEST MODE ACTIVE - Test cards available:', configData.test_card_info);
+        } else {
+          console.log('🔴 LIVE MODE - Real payments will be processed');
+        }
+        
       } catch (error) {
-        console.error('❌ Stripe initialization error:', error);
+        console.error('❌ Stripe initialization error:', {
+          message: error.message,
+          name: error.name,
+          stack: error.stack
+        });
         setApiError(`Stripe setup error: ${error.message}`);
       }
     };
@@ -310,47 +336,51 @@ const [searchParams, setSearchParams] = useState({
 
   // ========== ENHANCED STRIPE ELEMENTS INITIALIZATION ==========
 
-  // Initialize Stripe Elements when Stripe is ready
   useEffect(() => {
     const initializeStripeElements = async () => {
       if (stripe && !elements) {
         console.log('🔄 Creating Stripe Elements...');
         
-        const elementsInstance = stripe.elements({
-          appearance: {
-            theme: 'stripe',
-            variables: {
-              colorPrimary: isStripeTestMode ? '#f59e0b' : '#635BFF', // Different colors for test mode
-              colorBackground: '#ffffff',
-              colorText: '#1f2937',
-              colorDanger: '#df1b41',
-              fontFamily: 'system-ui, sans-serif',
-              spacingUnit: '4px',
-              borderRadius: '8px',
-            },
-          },
-        });
-        
-        const cardElementInstance = elementsInstance.create('card', {
-          style: {
-            base: {
-              fontSize: '16px',
-              color: '#1f2937',
-              '::placeholder': {
-                color: isStripeTestMode ? '#92400e' : '#9ca3af', // Different placeholder color for test mode
+        try {
+          const elementsInstance = stripe.elements({
+            appearance: {
+              theme: 'stripe',
+              variables: {
+                colorPrimary: isStripeTestMode ? '#f59e0b' : '#635BFF',
+                colorBackground: '#ffffff',
+                colorText: '#1f2937',
+                colorDanger: '#df1b41',
+                fontFamily: 'system-ui, sans-serif',
+                spacingUnit: '4px',
+                borderRadius: '8px',
               },
             },
-            invalid: {
-              color: '#df1b41',
-              iconColor: '#df1b41',
+          });
+          
+          const cardElementInstance = elementsInstance.create('card', {
+            style: {
+              base: {
+                fontSize: '16px',
+                color: '#1f2937',
+                '::placeholder': {
+                  color: isStripeTestMode ? '#92400e' : '#9ca3af',
+                },
+              },
+              invalid: {
+                color: '#df1b41',
+                iconColor: '#df1b41',
+              },
             },
-          },
-        });
+          });
 
-        setElements(elementsInstance);
-        setCardElement(cardElementInstance);
-        
-        console.log(`✅ Stripe Elements created in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode`);
+          setElements(elementsInstance);
+          setCardElement(cardElementInstance);
+          
+          console.log(`✅ Stripe Elements created in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode`);
+        } catch (error) {
+          console.error('❌ Stripe Elements creation error:', error);
+          setApiError(`Stripe Elements error: ${error.message}`);
+        }
       }
     };
 
@@ -359,19 +389,24 @@ const [searchParams, setSearchParams] = useState({
     }
   }, [stripe, elements, isStripeTestMode]);
 
-  // Mount card element when modal opens
+  // Enhanced card element mounting
   useEffect(() => {
     if (cardElement && selectedSpot && bookingStep === 1) {
       const cardContainer = document.getElementById('card-element');
       if (cardContainer && !cardContainer.hasChildNodes()) {
-        cardElement.mount('#card-element');
-        
-        cardElement.on('change', (event) => {
-          setCardError(event.error ? event.error.message : null);
-          setCardComplete(event.complete);
-        });
-        
-        console.log('✅ Card element mounted');
+        try {
+          cardElement.mount('#card-element');
+          
+          cardElement.on('change', (event) => {
+            setCardError(event.error ? event.error.message : null);
+            setCardComplete(event.complete);
+          });
+          
+          console.log('✅ Card element mounted successfully');
+        } catch (error) {
+          console.error('❌ Card element mounting error:', error);
+          setCardError('Failed to load payment form. Please refresh and try again.');
+        }
       }
     }
 
@@ -389,23 +424,21 @@ const [searchParams, setSearchParams] = useState({
     };
   }, [cardElement, selectedSpot, bookingStep]);
 
-  // ========== NEW TEST CARD FUNCTIONS ==========
+  // ========== TEST CARD FUNCTIONS ==========
 
-  // Fill test card data automatically
   const fillTestCard = (cardType) => {
     if (!isStripeTestMode || !testCardInfo) {
       console.log('❌ Test cards only available in test mode');
       return;
     }
 
-    // Since we can't programmatically fill Stripe Elements, we'll show the user how to do it
     const testCard = testCardInfo[cardType];
     if (testCard) {
       alert(`Test Card - ${cardType.toUpperCase()}:\n\nCard Number: ${testCard}\nExpiry: Any future date (e.g., 12/25)\nCVC: Any 3 digits (e.g., 123)\nZip: Any 5 digits (e.g., 12345)`);
     }
   };
 
-  // ========== API FUNCTIONS ==========
+  // ========== ENHANCED API FUNCTIONS ==========
 
   const testBackendConnection = async () => {
     setConnectionStatus('testing');
@@ -413,51 +446,23 @@ const [searchParams, setSearchParams] = useState({
     try {
       console.log(`🔍 Testing backend connection to: ${API_BASE_URL}`);
       
-      // First try the test-magr endpoint since we know it works
-      let response;
-      
-      try {
-        console.log('Testing MAGR connection...');
-        response = await fetch(`${API_BASE_URL}/api/parking/test-magr`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          console.log('✅ MAGR API test successful:', data);
-          setConnectionStatus('connected');
-          return true;
+      const response = await fetch(`${API_BASE_URL}/api/parking/health`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
         }
-      } catch (err) {
-        console.log('MAGR test failed, trying health endpoint...');
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Backend connected:', data);
+        setConnectionStatus('connected');
+        return true;
+      } else {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
-      // Fallback to health endpoint
-      try {
-        response = await fetch(`${API_BASE_URL}/api/parking/health`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          console.log('✅ Backend connected via health endpoint:', data);
-          setConnectionStatus('connected');
-          return true;
-        }
-      } catch (err) {
-        console.log('Health endpoint also failed');
-      }
-      
-      throw new Error(`Unable to connect to backend server`);
-      
     } catch (error) {
-      console.error(`❌ Connection failed for ${API_BASE_URL}:`, error.message);
+      console.error(`❌ Connection failed:`, error.message);
       setConnectionStatus('failed');
       setApiError(`Backend server error: ${error.message}`);
       return false;
@@ -494,11 +499,7 @@ const [searchParams, setSearchParams] = useState({
   };
 
   const fetchParkingProducts = useCallback(async () => {
-    console.log('🔍 fetchParkingProducts called with:', {
-      connectionStatus,
-      searchParams,
-      API_BASE_URL
-    });
+    console.log('🔍 fetchParkingProducts called');
 
     if (connectionStatus !== 'connected') {
       console.log('❌ Backend not connected, skipping search');
@@ -512,7 +513,6 @@ const [searchParams, setSearchParams] = useState({
     try {
       console.log('🔍 Fetching parking products with params:', searchParams);
       
-      // Make direct fetch call for better error handling
       const response = await fetch(`${API_BASE_URL}/api/parking/search-parking`, {
         method: 'POST',
         headers: {
@@ -560,8 +560,7 @@ const [searchParams, setSearchParams] = useState({
     } catch (error) {
       console.error('❌ Error fetching products:', {
         message: error.message,
-        name: error.name,
-        stack: error.stack
+        name: error.name
       });
       setApiError(`Search failed: ${error.message}`);
       setParkingProducts([]);
@@ -586,6 +585,8 @@ const [searchParams, setSearchParams] = useState({
       }
 
       const authToken = getAuthToken();
+      
+      // Enhanced payment data with better error handling
       const paymentData = {
         amount: parseFloat(selectedSpot.price || selectedSpot.formatted_price),
         currency: 'gbp',
@@ -594,11 +595,11 @@ const [searchParams, setSearchParams] = useState({
         company_code: selectedSpot.company_code || selectedSpot.product_code,
         dropoff_date: searchParams.dropoff_date,
         pickup_date: searchParams.pickup_date,
-        token: authToken,
-        auth_token: authToken
+        product_name: selectedSpot.name,
+        parking_type: selectedSpot.parking_type
       };
 
-      console.log(`🚀 Creating payment intent with data (${isStripeTestMode ? 'TEST' : 'LIVE'} mode):`, {
+      console.log(`🚀 Creating payment intent with data:`, {
         amount: paymentData.amount,
         service: paymentData.service_name,
         user: authStatus.user?.email,
@@ -611,12 +612,27 @@ const [searchParams, setSearchParams] = useState({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`,
         },
-        body: JSON.stringify(paymentData)
+        body: JSON.stringify({
+          ...paymentData,
+          token: authToken,
+          auth_token: authToken
+        })
       });
 
+      console.log('💳 Payment Intent Response Status:', response.status, response.statusText);
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `Payment intent creation failed: ${response.status}`);
+        let errorMessage;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || `HTTP ${response.status}`;
+          console.error('❌ Payment Intent Error Details:', errorData);
+        } catch (parseError) {
+          const errorText = await response.text();
+          errorMessage = errorText || `HTTP ${response.status}`;
+          console.error('❌ Payment Intent Error Text:', errorText);
+        }
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
@@ -624,7 +640,7 @@ const [searchParams, setSearchParams] = useState({
       if (result.success) {
         setPaymentIntentId(result.payment_intent_id);
         setPaymentStatus('payment_intent_created');
-        console.log(`✅ Payment intent created (${result.is_test_mode ? 'TEST' : 'LIVE'} mode):`, result.payment_intent_id);
+        console.log(`✅ Payment intent created:`, result.payment_intent_id);
         return result;
       } else {
         throw new Error(result.message || 'Failed to create payment intent');
@@ -635,17 +651,15 @@ const [searchParams, setSearchParams] = useState({
     }
   };
 
-  // ENHANCED: processStripePayment function with test mode awareness
   const processStripePayment = async (clientSecret) => {
     try {
       if (!stripe || !elements || !cardElement) {
         throw new Error('Stripe Elements not ready');
       }
 
-      console.log(`💳 Processing Stripe payment with Elements in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode...`);
+      console.log(`💳 Processing payment in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode...`);
       setProcessingPayment(true);
 
-      // Use Stripe Elements for payment confirmation
       const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
         payment_method: {
           card: cardElement,
@@ -658,12 +672,12 @@ const [searchParams, setSearchParams] = useState({
       });
 
       if (error) {
-        console.error(`❌ Stripe payment error (${isStripeTestMode ? 'TEST' : 'LIVE'} mode):`, error);
+        console.error(`❌ Stripe payment error:`, error);
         throw new Error(`Payment failed: ${error.message}`);
       }
 
       if (paymentIntent.status === 'succeeded') {
-        console.log(`✅ Payment successful in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode:`, paymentIntent.id);
+        console.log(`✅ Payment successful:`, paymentIntent.id);
         setPaymentStatus('payment_succeeded');
         return paymentIntent;
       } else {
@@ -679,7 +693,7 @@ const [searchParams, setSearchParams] = useState({
 
   const verifyPayment = async (paymentIntentId) => {
     try {
-      console.log(`🔍 Verifying payment in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode:`, paymentIntentId);
+      console.log(`🔍 Verifying payment:`, paymentIntentId);
 
       const authToken = getAuthToken();
       const response = await fetch(`${API_BASE_URL}/api/parking/verify-payment/${paymentIntentId}`, {
@@ -691,12 +705,19 @@ const [searchParams, setSearchParams] = useState({
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Payment verification failed');
+        let errorMessage;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || `HTTP ${response.status}`;
+        } catch (parseError) {
+          const errorText = await response.text();
+          errorMessage = errorText || `HTTP ${response.status}`;
+        }
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
-      console.log(`✅ Payment verification result (${result.is_test_mode ? 'TEST' : 'LIVE'} mode):`, result);
+      console.log(`✅ Payment verification result:`, result);
       
       return result.is_paid;
     } catch (error) {
@@ -707,7 +728,7 @@ const [searchParams, setSearchParams] = useState({
 
   const createBookingWithPayment = async (paymentIntentId) => {
     try {
-      console.log(`🎫 Creating booking with payment in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode:`, paymentIntentId);
+      console.log(`🎫 Creating booking with payment:`, paymentIntentId);
 
       if (!authStatus.isLoggedIn) {
         throw new Error('User must be logged in');
@@ -716,7 +737,7 @@ const [searchParams, setSearchParams] = useState({
       const authToken = getAuthToken();
       const userInfo = getUserInfoFromToken();
 
-      // Prepare comprehensive booking data with payment intent
+      // Enhanced booking data
       const bookingData = {
         // Authentication
         token: authToken,
@@ -768,7 +789,7 @@ const [searchParams, setSearchParams] = useState({
         special_features: selectedSpot.features_array || []
       };
 
-      console.log(`🚀 Submitting paid booking with data (${isStripeTestMode ? 'TEST' : 'LIVE'} mode):`, {
+      console.log(`🚀 Submitting booking with payment:`, {
         payment_intent_id: paymentIntentId,
         user: userInfo?.email,
         service: bookingData.product_name,
@@ -793,17 +814,17 @@ const [searchParams, setSearchParams] = useState({
         try {
           const errorData = await response.json();
           errorMessage = errorData.message || `HTTP ${response.status}`;
-          console.log('❌ Booking API Error Details:', errorData);
+          console.error('❌ Booking API Error Details:', errorData);
         } catch (parseError) {
           const errorText = await response.text();
           errorMessage = errorText || `HTTP ${response.status}`;
-          console.log('❌ Booking API Error Text:', errorText);
+          console.error('❌ Booking API Error Text:', errorText);
         }
         throw new Error(`Booking failed: ${errorMessage}`);
       }
 
       const result = await response.json();
-      console.log(`✅ Booking with payment successful (${result.data?.is_test_mode ? 'TEST' : 'LIVE'} mode):`, result);
+      console.log(`✅ Booking with payment successful:`, result);
 
       return result;
     } catch (error) {
@@ -815,11 +836,7 @@ const [searchParams, setSearchParams] = useState({
   // ========== EVENT HANDLERS ==========
 
   const handleSearch = () => {
-    console.log('🔍 Search button clicked with:', {
-      connectionStatus,
-      searchParams,
-      timestamp: new Date().toISOString()
-    });
+    console.log('🔍 Search button clicked');
 
     if (connectionStatus !== 'connected') {
       console.log('❌ Search blocked - backend not connected');
@@ -840,15 +857,15 @@ const [searchParams, setSearchParams] = useState({
     setBookingDetails(prev => ({ ...prev, [name]: value }));
   };
 
-  // ENHANCED STRIPE PAYMENT FLOW - STEP 1: FORM SUBMISSION WITH TEST MODE AWARENESS
+  // Enhanced booking submission with comprehensive error handling
   const handleBookingSubmit = async (e) => {
     e.preventDefault();
     
-    console.log(`🎫 Starting Stripe payment flow in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode...`);
+    console.log(`🎫 Starting payment flow in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode...`);
     
-    // Check if user is logged in FIRST
+    // Pre-flight checks
     if (!isUserLoggedIn()) {
-      console.log('❌ User not logged in - blocking booking');
+      console.log('❌ User not logged in');
       setBookingStatus({
         success: false,
         message: 'Please log in to make a booking. You must sign in to book parking spaces through our system.'
@@ -878,25 +895,25 @@ const [searchParams, setSearchParams] = useState({
 
     setIsLoading(true);
     setBookingStatus(null);
-    setPaymentStep(2); // Move to payment step
+    setPaymentStep(2);
 
     try {
-      // Step 1: Create payment intent
+      console.log('🔄 Step 1: Creating payment intent...');
       const paymentIntentResult = await createPaymentIntent();
       
-      // Step 2: Process payment with Stripe Elements
+      console.log('🔄 Step 2: Processing payment with Stripe...');
       const paymentIntent = await processStripePayment(paymentIntentResult.client_secret);
       
-      // Step 3: Verify payment
+      console.log('🔄 Step 3: Verifying payment...');
       const isPaymentVerified = await verifyPayment(paymentIntent.id);
       
       if (!isPaymentVerified) {
         throw new Error('Payment verification failed');
       }
 
-      setPaymentStep(3); // Move to booking step
+      setPaymentStep(3);
 
-      // Step 4: Create booking with payment
+      console.log('🔄 Step 4: Creating booking with payment...');
       const bookingResult = await createBookingWithPayment(paymentIntent.id);
       
       if (bookingResult.success) {
@@ -918,16 +935,15 @@ const [searchParams, setSearchParams] = useState({
             commission: bookingResult.data.commission
           }
         });
-        setBookingStep(2); // Show success
+        setBookingStep(2);
       } else {
         throw new Error(bookingResult.message || 'Booking creation failed after payment');
       }
 
     } catch (error) {
-      console.error(`❌ Stripe payment flow error in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode:`, {
+      console.error(`❌ Payment flow error:`, {
         message: error.message,
         name: error.name,
-        timestamp: new Date().toISOString(),
         step: paymentStep
       });
       
@@ -945,12 +961,12 @@ const [searchParams, setSearchParams] = useState({
     }
   };
 
-  // Navigation function for EV Charging
+  // Navigation function
   const navigateToEvCharging = () => {
     window.location.href = '/#/evcharging';
   };
 
-  // Get user location with enhanced accuracy
+  // Get user location
   const getUserLocation = useCallback(async () => {
     if (!navigator.geolocation) {
       setCurrentLocation("London, UK");
@@ -1012,13 +1028,11 @@ const [searchParams, setSearchParams] = useState({
   // Initialize Mapbox
   const initializeMapbox = useCallback(() => {
     if (typeof window !== 'undefined' && !window.mapboxgl) {
-      // Load Mapbox CSS
       const link = document.createElement('link');
       link.href = 'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css';
       link.rel = 'stylesheet';
       document.head.appendChild(link);
 
-      // Load Mapbox JS
       const script = document.createElement('script');
       script.src = 'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js';
       script.onload = () => {
@@ -1053,12 +1067,10 @@ const [searchParams, setSearchParams] = useState({
         attributionControl: false
       });
 
-      // Add navigation controls
       map.addControl(new window.mapboxgl.NavigationControl({
         visualizePitch: true
       }), 'top-right');
 
-      // Add geolocate control
       const geolocate = new window.mapboxgl.GeolocateControl({
         positionOptions: {
           enableHighAccuracy: true
@@ -1069,7 +1081,6 @@ const [searchParams, setSearchParams] = useState({
       map.addControl(geolocate, 'top-right');
 
       map.on('load', () => {
-        // Add 3D buildings
         map.addLayer({
           'id': '3d-buildings',
           'source': 'composite',
@@ -1097,7 +1108,6 @@ const [searchParams, setSearchParams] = useState({
           }
         });
 
-        // Add user location marker if available
         if (userLocation) {
           const userMarkerEl = document.createElement('div');
           userMarkerEl.className = 'user-location-marker';
@@ -1111,7 +1121,6 @@ const [searchParams, setSearchParams] = useState({
             .addTo(map);
         }
 
-        // Add parking spot markers
         filteredProducts.forEach(spot => {
           const markerEl = document.createElement('div');
           markerEl.className = 'parking-spot-marker';
@@ -1128,7 +1137,6 @@ const [searchParams, setSearchParams] = useState({
             <div class="marker-arrow"></div>
           `;
 
-          // Create popup content
           const popupContent = document.createElement('div');
           popupContent.className = 'map-popup-content';
           popupContent.innerHTML = `
@@ -1202,7 +1210,6 @@ const [searchParams, setSearchParams] = useState({
     initializeMapbox();
     loadAirports();
     
-    // Hide airplane animation after 3 seconds
     const timer = setTimeout(() => {
       setShowAirplaneAnimation(false);
     }, 3000);
@@ -1232,7 +1239,7 @@ const [searchParams, setSearchParams] = useState({
     };
   }, []);
 
-  // ========== ENHANCED STRIPE ELEMENTS STYLES WITH TEST MODE ==========
+  // Enhanced Stripe Elements styles
   const stripeElementsStyles = `
     .card-element-container {
       background: white;
@@ -1490,11 +1497,11 @@ const [searchParams, setSearchParams] = useState({
         </div>
       </header>
 
-      {/* Status Banners */}
+      {/* Enhanced Status Banners */}
       {connectionStatus === 'failed' && (
         <div className="api-status-banner error">
           <AlertCircle size={16} />
-          <span>❌ BACKEND SERVER CONNECTION FAILED - Check if Render backend is running</span>
+          <span>❌ BACKEND SERVER CONNECTION FAILED - Check if backend is running</span>
         </div>
       )}
       
@@ -1512,7 +1519,7 @@ const [searchParams, setSearchParams] = useState({
         </div>
       )}
 
-      {/* Enhanced Stripe Status Banner with Test Mode */}
+      {/* Enhanced Stripe Status Banner */}
       {!stripe && connectionStatus === 'connected' && (
         <div className="api-status-banner warning" style={{backgroundColor: '#f59e0b', color: '#000'}}>
           <Lock size={16} />
@@ -1856,7 +1863,7 @@ const [searchParams, setSearchParams] = useState({
         )}
       </main>
 
-      {/* Enhanced Stripe Payment & Booking Modal with Test Mode */}
+      {/* Enhanced Stripe Payment & Booking Modal */}
       {selectedSpot && (
         <div className="premium-modal-overlay" onClick={() => {
           setSelectedSpot(null);
@@ -1888,7 +1895,7 @@ const [searchParams, setSearchParams] = useState({
             <div className="modal-content">
               {bookingStep === 1 ? (
                 <div className="booking-step-premium">
-                  {/* Enhanced Authentication & Stripe Warnings with Test Mode */}
+                  {/* Enhanced Authentication & Stripe Warnings */}
                   {!authStatus.isLoggedIn && (
                     <div className="auth-warning">
                       <AlertCircle size={20} />
@@ -2221,7 +2228,7 @@ const [searchParams, setSearchParams] = useState({
                       </div>
                     </div>
 
-                    {/* Enhanced Stripe Elements Card Payment Section with Test Mode */}
+                    {/* Enhanced Stripe Elements Card Payment Section */}
                     <div className="form-section-premium">
                       <h4>{isStripeTestMode ? '🧪 Test Payment Details' : '💳 Secure Payment Details'}</h4>
                       <p>{isStripeTestMode ? 
@@ -2334,7 +2341,7 @@ const [searchParams, setSearchParams] = useState({
                       </div>
                     </div>
 
-                    {/* Enhanced Pricing Summary with Test Mode */}
+                    {/* Enhanced Pricing Summary */}
                     <div className="pricing-summary-premium">
                       <div className="pricing-header">
                         <h4>{isStripeTestMode ? 'Test Payment Summary' : 'Payment Summary'}</h4>
@@ -2370,7 +2377,7 @@ const [searchParams, setSearchParams] = useState({
                       </div>
                     </div>
 
-                    {/* Enhanced Submit Button for Test Mode */}
+                    {/* Enhanced Submit Button */}
                     <button
                       type="submit"
                       className="premium-confirm-btn stripe-enhanced"
