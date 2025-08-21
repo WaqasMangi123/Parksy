@@ -1164,8 +1164,21 @@ router.get('/verify-payment/:payment_intent_id',
         });
       }
 
-      const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-      const paymentIntent = await stripe.paymentIntents.retrieve(payment_intent_id);
+      // ✅ THE ONLY FIX YOU NEED: Add try-catch around Stripe API call
+      let paymentIntent;
+      try {
+        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+        paymentIntent = await stripe.paymentIntents.retrieve(payment_intent_id);
+      } catch (stripeError) {
+        console.error('❌ Stripe API error:', stripeError.message);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to retrieve payment from Stripe',
+          error: stripeError.message,
+          error_code: 'STRIPE_RETRIEVE_ERROR',
+          is_test_mode: isTestMode
+        });
+      }
       
       const paymentDetails = {
         status: paymentIntent.status,
@@ -1209,7 +1222,6 @@ router.get('/verify-payment/:payment_intent_id',
     }
   }
 );
-
 // Get payment and refund details
 router.get('/payment-details/:payment_intent_id', 
   authenticateToken,
