@@ -3,7 +3,7 @@ import {
   MapPin, Zap, Grid3X3, Map, Search, Clock, Star, ChevronRight, 
   X, Loader2, Plane, Calendar, Users, Car, Shield, Wifi, Camera, 
   CheckCircle, AlertCircle, Navigation, Home, Settings, Bell,
-  Phone, Mail, CreditCard, Globe, Award, Lock
+  Phone, Mail, CreditCard, Globe, Award, Lock, Info
 } from "lucide-react";
 import "./home.css";
 
@@ -30,19 +30,23 @@ const ProfessionalParksyDashboard = () => {
   // API Configuration - Fixed to deployed backend only
   const API_BASE_URL = "https://parksy-backend.onrender.com";
   
-  // Stripe Configuration
+  // Stripe Configuration - ENHANCED WITH TEST MODE DETECTION
   const [stripe, setStripe] = useState(null);
   const [stripePublishableKey, setStripePublishableKey] = useState(null);
+  const [stripeConfig, setStripeConfig] = useState(null); // NEW: Full Stripe config including test mode info
+  const [isStripeTestMode, setIsStripeTestMode] = useState(false); // NEW: Test mode flag
+  const [testCardInfo, setTestCardInfo] = useState(null); // NEW: Test card information
   const [paymentIntentId, setPaymentIntentId] = useState(null);
   const [paymentStatus, setPaymentStatus] = useState(null);
   const [processingPayment, setProcessingPayment] = useState(false);
   const [paymentStep, setPaymentStep] = useState(1); // 1: Form, 2: Payment, 3: Booking
 
-  // Stripe Elements - NEW STATE VARIABLES
+  // Stripe Elements - ENHANCED STATE VARIABLES
   const [elements, setElements] = useState(null);
   const [cardElement, setCardElement] = useState(null);
   const [cardError, setCardError] = useState(null);
   const [cardComplete, setCardComplete] = useState(false);
+  const [showTestCards, setShowTestCards] = useState(false); // NEW: Toggle for test cards info
 
   // Map references
   const mapRef = useRef(null);
@@ -250,27 +254,43 @@ const [searchParams, setSearchParams] = useState({
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // ========== STRIPE INITIALIZATION ==========
+  // ========== ENHANCED STRIPE INITIALIZATION WITH TEST MODE DETECTION ==========
 
   useEffect(() => {
     const initializeStripe = async () => {
       try {
-        console.log('🔄 Initializing Stripe...');
+        console.log('🔄 Initializing Stripe with test mode detection...');
         
-        // Get Stripe publishable key from backend
+        // Get enhanced Stripe config from backend
         const response = await fetch(`${API_BASE_URL}/api/parking/stripe-config`);
         if (response.ok) {
           const data = await response.json();
           if (data.success && data.publishable_key) {
-            console.log('✅ Got Stripe publishable key');
+            console.log('✅ Got enhanced Stripe config:', {
+              hasPublishableKey: !!data.publishable_key,
+              isTestMode: data.is_test_mode,
+              stripeMode: data.stripe_mode,
+              hasTestCardInfo: !!data.test_card_info
+            });
+
+            // Store all Stripe configuration
+            setStripeConfig(data);
             setStripePublishableKey(data.publishable_key);
+            setIsStripeTestMode(data.is_test_mode || false);
+            setTestCardInfo(data.test_card_info);
             
             // Load Stripe with the key
             const stripeInstance = await loadStripe();
             const stripeClient = stripeInstance(data.publishable_key);
             setStripe(stripeClient);
             
-            console.log('✅ Stripe initialized successfully');
+            console.log(`✅ Stripe initialized successfully in ${data.is_test_mode ? 'TEST' : 'LIVE'} mode`);
+            
+            if (data.is_test_mode) {
+              console.log('🧪 TEST MODE ACTIVE - Test cards available:', data.test_card_info);
+            } else {
+              console.log('🔴 LIVE MODE - Real payments will be processed');
+            }
           } else {
             throw new Error('Failed to get Stripe config');
           }
@@ -288,7 +308,7 @@ const [searchParams, setSearchParams] = useState({
     }
   }, [connectionStatus, API_BASE_URL]);
 
-  // ========== STRIPE ELEMENTS INITIALIZATION ==========
+  // ========== ENHANCED STRIPE ELEMENTS INITIALIZATION ==========
 
   // Initialize Stripe Elements when Stripe is ready
   useEffect(() => {
@@ -300,7 +320,7 @@ const [searchParams, setSearchParams] = useState({
           appearance: {
             theme: 'stripe',
             variables: {
-              colorPrimary: '#635BFF',
+              colorPrimary: isStripeTestMode ? '#f59e0b' : '#635BFF', // Different colors for test mode
               colorBackground: '#ffffff',
               colorText: '#1f2937',
               colorDanger: '#df1b41',
@@ -317,7 +337,7 @@ const [searchParams, setSearchParams] = useState({
               fontSize: '16px',
               color: '#1f2937',
               '::placeholder': {
-                color: '#9ca3af',
+                color: isStripeTestMode ? '#92400e' : '#9ca3af', // Different placeholder color for test mode
               },
             },
             invalid: {
@@ -330,14 +350,14 @@ const [searchParams, setSearchParams] = useState({
         setElements(elementsInstance);
         setCardElement(cardElementInstance);
         
-        console.log('✅ Stripe Elements created');
+        console.log(`✅ Stripe Elements created in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode`);
       }
     };
 
     if (stripe) {
       initializeStripeElements();
     }
-  }, [stripe, elements]);
+  }, [stripe, elements, isStripeTestMode]);
 
   // Mount card element when modal opens
   useEffect(() => {
@@ -368,6 +388,22 @@ const [searchParams, setSearchParams] = useState({
       }
     };
   }, [cardElement, selectedSpot, bookingStep]);
+
+  // ========== NEW TEST CARD FUNCTIONS ==========
+
+  // Fill test card data automatically
+  const fillTestCard = (cardType) => {
+    if (!isStripeTestMode || !testCardInfo) {
+      console.log('❌ Test cards only available in test mode');
+      return;
+    }
+
+    // Since we can't programmatically fill Stripe Elements, we'll show the user how to do it
+    const testCard = testCardInfo[cardType];
+    if (testCard) {
+      alert(`Test Card - ${cardType.toUpperCase()}:\n\nCard Number: ${testCard}\nExpiry: Any future date (e.g., 12/25)\nCVC: Any 3 digits (e.g., 123)\nZip: Any 5 digits (e.g., 12345)`);
+    }
+  };
 
   // ========== API FUNCTIONS ==========
 
@@ -535,11 +571,11 @@ const [searchParams, setSearchParams] = useState({
     }
   }, [searchParams, connectionStatus, API_BASE_URL]);
 
-  // ========== STRIPE PAYMENT FUNCTIONS ==========
+  // ========== ENHANCED STRIPE PAYMENT FUNCTIONS ==========
 
   const createPaymentIntent = async () => {
     try {
-      console.log('💳 Creating payment intent...');
+      console.log(`💳 Creating payment intent in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode...`);
       
       if (!selectedSpot) {
         throw new Error('No parking spot selected');
@@ -562,10 +598,11 @@ const [searchParams, setSearchParams] = useState({
         auth_token: authToken
       };
 
-      console.log('🚀 Creating payment intent with data:', {
+      console.log(`🚀 Creating payment intent with data (${isStripeTestMode ? 'TEST' : 'LIVE'} mode):`, {
         amount: paymentData.amount,
         service: paymentData.service_name,
-        user: authStatus.user?.email
+        user: authStatus.user?.email,
+        isTestMode: isStripeTestMode
       });
 
       const response = await fetch(`${API_BASE_URL}/api/parking/create-payment-intent`, {
@@ -587,7 +624,7 @@ const [searchParams, setSearchParams] = useState({
       if (result.success) {
         setPaymentIntentId(result.payment_intent_id);
         setPaymentStatus('payment_intent_created');
-        console.log('✅ Payment intent created:', result.payment_intent_id);
+        console.log(`✅ Payment intent created (${result.is_test_mode ? 'TEST' : 'LIVE'} mode):`, result.payment_intent_id);
         return result;
       } else {
         throw new Error(result.message || 'Failed to create payment intent');
@@ -598,20 +635,20 @@ const [searchParams, setSearchParams] = useState({
     }
   };
 
-  // FIXED: processStripePayment function with Stripe Elements
+  // ENHANCED: processStripePayment function with test mode awareness
   const processStripePayment = async (clientSecret) => {
     try {
       if (!stripe || !elements || !cardElement) {
         throw new Error('Stripe Elements not ready');
       }
 
-      console.log('💳 Processing Stripe payment with Elements...');
+      console.log(`💳 Processing Stripe payment with Elements in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode...`);
       setProcessingPayment(true);
 
-      // Use Stripe Elements instead of hardcoded card details
+      // Use Stripe Elements for payment confirmation
       const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
         payment_method: {
-          card: cardElement, // ✅ Use the card element
+          card: cardElement,
           billing_details: {
             name: `${bookingDetails.first_name} ${bookingDetails.last_name}`,
             email: bookingDetails.customer_email,
@@ -621,12 +658,12 @@ const [searchParams, setSearchParams] = useState({
       });
 
       if (error) {
-        console.error('❌ Stripe payment error:', error);
+        console.error(`❌ Stripe payment error (${isStripeTestMode ? 'TEST' : 'LIVE'} mode):`, error);
         throw new Error(`Payment failed: ${error.message}`);
       }
 
       if (paymentIntent.status === 'succeeded') {
-        console.log('✅ Payment successful:', paymentIntent.id);
+        console.log(`✅ Payment successful in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode:`, paymentIntent.id);
         setPaymentStatus('payment_succeeded');
         return paymentIntent;
       } else {
@@ -642,7 +679,7 @@ const [searchParams, setSearchParams] = useState({
 
   const verifyPayment = async (paymentIntentId) => {
     try {
-      console.log('🔍 Verifying payment:', paymentIntentId);
+      console.log(`🔍 Verifying payment in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode:`, paymentIntentId);
 
       const authToken = getAuthToken();
       const response = await fetch(`${API_BASE_URL}/api/parking/verify-payment/${paymentIntentId}`, {
@@ -659,7 +696,7 @@ const [searchParams, setSearchParams] = useState({
       }
 
       const result = await response.json();
-      console.log('✅ Payment verification result:', result);
+      console.log(`✅ Payment verification result (${result.is_test_mode ? 'TEST' : 'LIVE'} mode):`, result);
       
       return result.is_paid;
     } catch (error) {
@@ -670,7 +707,7 @@ const [searchParams, setSearchParams] = useState({
 
   const createBookingWithPayment = async (paymentIntentId) => {
     try {
-      console.log('🎫 Creating booking with payment:', paymentIntentId);
+      console.log(`🎫 Creating booking with payment in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode:`, paymentIntentId);
 
       if (!authStatus.isLoggedIn) {
         throw new Error('User must be logged in');
@@ -731,12 +768,13 @@ const [searchParams, setSearchParams] = useState({
         special_features: selectedSpot.features_array || []
       };
 
-      console.log('🚀 Submitting paid booking with data:', {
+      console.log(`🚀 Submitting paid booking with data (${isStripeTestMode ? 'TEST' : 'LIVE'} mode):`, {
         payment_intent_id: paymentIntentId,
         user: userInfo?.email,
         service: bookingData.product_name,
         airport: bookingData.airport_code,
-        amount: bookingData.booking_amount
+        amount: bookingData.booking_amount,
+        isTestMode: isStripeTestMode
       });
 
       const response = await fetch(`${API_BASE_URL}/api/parking/bookings-with-payment`, {
@@ -765,7 +803,7 @@ const [searchParams, setSearchParams] = useState({
       }
 
       const result = await response.json();
-      console.log('✅ Booking with payment successful:', result);
+      console.log(`✅ Booking with payment successful (${result.data?.is_test_mode ? 'TEST' : 'LIVE'} mode):`, result);
 
       return result;
     } catch (error) {
@@ -802,11 +840,11 @@ const [searchParams, setSearchParams] = useState({
     setBookingDetails(prev => ({ ...prev, [name]: value }));
   };
 
-  // STRIPE PAYMENT FLOW - STEP 1: FORM SUBMISSION
+  // ENHANCED STRIPE PAYMENT FLOW - STEP 1: FORM SUBMISSION WITH TEST MODE AWARENESS
   const handleBookingSubmit = async (e) => {
     e.preventDefault();
     
-    console.log('🎫 Starting Stripe payment flow...');
+    console.log(`🎫 Starting Stripe payment flow in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode...`);
     
     // Check if user is logged in FIRST
     if (!isUserLoggedIn()) {
@@ -864,13 +902,14 @@ const [searchParams, setSearchParams] = useState({
       if (bookingResult.success) {
         setBookingStatus({
           success: true,
-          message: 'Payment processed and booking confirmed successfully!',
+          message: `Payment processed and booking confirmed successfully! (${isStripeTestMode ? 'TEST' : 'LIVE'} mode)`,
           reference: bookingResult.data.our_reference,
           magrReference: bookingResult.data.magr_reference,
           bookingId: bookingResult.data.booking_id || bookingResult.data.database_id,
           paymentIntentId: paymentIntent.id,
           paymentAmount: bookingResult.data.payment_amount,
           paymentCurrency: bookingResult.data.payment_currency,
+          isTestMode: bookingResult.data.is_test_mode || isStripeTestMode,
           details: {
             user: bookingResult.data.user_email,
             service: bookingResult.data.service,
@@ -885,7 +924,7 @@ const [searchParams, setSearchParams] = useState({
       }
 
     } catch (error) {
-      console.error('❌ Stripe payment flow error:', {
+      console.error(`❌ Stripe payment flow error in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode:`, {
         message: error.message,
         name: error.name,
         timestamp: new Date().toISOString(),
@@ -894,8 +933,9 @@ const [searchParams, setSearchParams] = useState({
       
       setBookingStatus({
         success: false,
-        message: error.message || 'Failed to process payment and create booking. Please try again.',
-        paymentStep: paymentStep
+        message: `${error.message || 'Failed to process payment and create booking. Please try again.'} (${isStripeTestMode ? 'TEST' : 'LIVE'} mode)`,
+        paymentStep: paymentStep,
+        isTestMode: isStripeTestMode
       });
       setBookingStep(2);
     } finally {
@@ -1192,24 +1232,37 @@ const [searchParams, setSearchParams] = useState({
     };
   }, []);
 
-  // ========== STRIPE ELEMENTS STYLES ==========
+  // ========== ENHANCED STRIPE ELEMENTS STYLES WITH TEST MODE ==========
   const stripeElementsStyles = `
     .card-element-container {
       background: white;
       padding: 16px;
-      border: 2px solid #e5e7eb;
+      border: 2px solid ${isStripeTestMode ? '#f59e0b' : '#e5e7eb'};
       border-radius: 8px;
       margin: 16px 0;
       transition: border-color 0.3s ease;
+      position: relative;
     }
     
     .card-element-container:focus-within {
-      border-color: #635BFF;
-      box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.1);
+      border-color: ${isStripeTestMode ? '#f59e0b' : '#635BFF'};
+      box-shadow: 0 0 0 3px ${isStripeTestMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(99, 91, 255, 0.1)'};
     }
     
     .card-element-container.error {
       border-color: #df1b41;
+    }
+    
+    .test-mode-indicator {
+      position: absolute;
+      top: -8px;
+      right: 12px;
+      background: #f59e0b;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
     }
     
     .card-error {
@@ -1228,6 +1281,31 @@ const [searchParams, setSearchParams] = useState({
       display: flex;
       align-items: center;
       gap: 4px;
+    }
+    
+    .test-cards-section {
+      background: #fef3c7;
+      border: 1px solid #f59e0b;
+      border-radius: 8px;
+      padding: 16px;
+      margin: 16px 0;
+    }
+    
+    .test-card-button {
+      background: #f59e0b;
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      margin: 4px 4px 4px 0;
+      transition: all 0.2s ease;
+    }
+    
+    .test-card-button:hover {
+      background: #d97706;
+      transform: translateY(-1px);
     }
   `;
 
@@ -1343,7 +1421,7 @@ const [searchParams, setSearchParams] = useState({
               setSelectedSpot(product);
             }}
           >
-            <span className="btn-text">💳 Book with Stripe</span>
+            <span className="btn-text">{isStripeTestMode ? '🧪 Book with Test Stripe' : '💳 Book with Stripe'}</span>
             <ChevronRight size={18} className="btn-icon" />
           </button>
         </div>
@@ -1353,7 +1431,7 @@ const [searchParams, setSearchParams] = useState({
 
   return (
     <div className="premium-parking-dashboard">
-      {/* Add Stripe Elements Styles */}
+      {/* Add Enhanced Stripe Elements Styles */}
       <style>{stripeElementsStyles}</style>
 
       {/* Airplane Animation */}
@@ -1397,8 +1475,8 @@ const [searchParams, setSearchParams] = useState({
             </div>
             <div className="stat-divider"></div>
             <div className="stat-item">
-              <span className="stat-number">{stripe ? '💳' : '❌'}</span>
-              <span className="stat-label">{stripe ? 'Stripe Ready' : 'Stripe Loading'}</span>
+              <span className="stat-number">{stripe ? (isStripeTestMode ? '🧪' : '💳') : '❌'}</span>
+              <span className="stat-label">{stripe ? (isStripeTestMode ? 'Stripe TEST' : 'Stripe LIVE') : 'Stripe Loading'}</span>
             </div>
             <div className="stat-divider"></div>
             <div className="stat-item">
@@ -1434,7 +1512,7 @@ const [searchParams, setSearchParams] = useState({
         </div>
       )}
 
-      {/* Stripe Status Banner */}
+      {/* Enhanced Stripe Status Banner with Test Mode */}
       {!stripe && connectionStatus === 'connected' && (
         <div className="api-status-banner warning" style={{backgroundColor: '#f59e0b', color: '#000'}}>
           <Lock size={16} />
@@ -1443,9 +1521,54 @@ const [searchParams, setSearchParams] = useState({
       )}
 
       {stripe && (
-        <div className="api-status-banner success">
+        <div className="api-status-banner success" style={{
+          backgroundColor: isStripeTestMode ? '#f59e0b' : '#10b981',
+          color: isStripeTestMode ? '#000' : '#fff'
+        }}>
           <CreditCard size={16} />
-          <span>💳 Stripe payments ready - Secure payment processing available</span>
+          <span>{isStripeTestMode ? 
+            `🧪 Stripe TEST MODE ready - Use test card numbers for payments` : 
+            `💳 Stripe LIVE MODE ready - Real payments will be processed`}</span>
+          {isStripeTestMode && (
+            <button
+              onClick={() => setShowTestCards(!showTestCards)}
+              style={{
+                marginLeft: '10px',
+                background: '#fff',
+                color: '#f59e0b',
+                border: 'none',
+                padding: '4px 8px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                cursor: 'pointer'
+              }}
+            >
+              {showTestCards ? 'Hide Test Cards' : 'Show Test Cards'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Test Cards Information Banner */}
+      {isStripeTestMode && showTestCards && testCardInfo && (
+        <div className="api-status-banner" style={{
+          backgroundColor: '#fef3c7',
+          color: '#92400e',
+          border: '1px solid #f59e0b',
+          flexDirection: 'column',
+          alignItems: 'flex-start'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+            <Info size={16} />
+            <strong>🧪 TEST MODE - Available Test Cards:</strong>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '8px', width: '100%' }}>
+            <div><strong>Visa Success:</strong> {testCardInfo.visa_success}</div>
+            <div><strong>Visa Declined:</strong> {testCardInfo.visa_declined}</div>
+            <div><strong>Mastercard:</strong> {testCardInfo.mastercard}</div>
+            <div><strong>Visa Debit:</strong> {testCardInfo.visa_debit}</div>
+          </div>
+          <small style={{ marginTop: '8px' }}>{testCardInfo.note}</small>
         </div>
       )}
 
@@ -1733,7 +1856,7 @@ const [searchParams, setSearchParams] = useState({
         )}
       </main>
 
-      {/* Enhanced Stripe Payment & Booking Modal with Elements */}
+      {/* Enhanced Stripe Payment & Booking Modal with Test Mode */}
       {selectedSpot && (
         <div className="premium-modal-overlay" onClick={() => {
           setSelectedSpot(null);
@@ -1765,7 +1888,7 @@ const [searchParams, setSearchParams] = useState({
             <div className="modal-content">
               {bookingStep === 1 ? (
                 <div className="booking-step-premium">
-                  {/* Authentication & Stripe Warnings */}
+                  {/* Enhanced Authentication & Stripe Warnings with Test Mode */}
                   {!authStatus.isLoggedIn && (
                     <div className="auth-warning">
                       <AlertCircle size={20} />
@@ -1782,11 +1905,30 @@ const [searchParams, setSearchParams] = useState({
                     </div>
                   )}
 
+                  {/* Enhanced Test Mode Warning */}
+                  {isStripeTestMode && stripe && (
+                    <div className="stripe-test-mode-warning" style={{
+                      backgroundColor: '#fef3c7',
+                      color: '#92400e',
+                      border: '2px solid #f59e0b',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      marginBottom: '16px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                        <Info size={20} />
+                        <strong>🧪 TEST MODE ACTIVE - No Real Charges</strong>
+                      </div>
+                      <p>This is a test environment. No real payments will be processed.</p>
+                      <small>Use the test card numbers provided below for testing payments.</small>
+                    </div>
+                  )}
+
                   {/* Payment Processing Status */}
                   {(processingPayment || paymentStep > 1) && (
                     <div className="payment-status-banner" style={{
-                      backgroundColor: paymentStep === 3 ? '#10b981' : '#3b82f6',
-                      color: 'white',
+                      backgroundColor: paymentStep === 3 ? '#10b981' : (isStripeTestMode ? '#f59e0b' : '#3b82f6'),
+                      color: isStripeTestMode && paymentStep !== 3 ? '#000' : 'white',
                       padding: '12px',
                       borderRadius: '8px',
                       marginBottom: '16px',
@@ -1798,14 +1940,14 @@ const [searchParams, setSearchParams] = useState({
                         <>
                           <Loader2 size={16} className="animate-spin" />
                           <span>
-                            {paymentStep === 2 ? '💳 Processing Payment...' : 
+                            {paymentStep === 2 ? (isStripeTestMode ? '🧪 Processing Test Payment...' : '💳 Processing Payment...') : 
                              paymentStep === 3 ? '🎫 Creating Booking...' : '🔄 Processing...'}
                           </span>
                         </>
                       ) : (
                         <>
                           <CreditCard size={16} />
-                          <span>💳 Ready for Stripe Payment</span>
+                          <span>{isStripeTestMode ? '🧪 Ready for Test Payment' : '💳 Ready for Stripe Payment'}</span>
                         </>
                       )}
                     </div>
@@ -1819,6 +1961,21 @@ const [searchParams, setSearchParams] = useState({
                         alt="Service"
                       />
                       <div className="live-data-badge">🔴 LIVE</div>
+                      {isStripeTestMode && (
+                        <div className="test-mode-badge" style={{
+                          position: 'absolute',
+                          top: '8px',
+                          right: '8px',
+                          background: '#f59e0b',
+                          color: 'white',
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: '600'
+                        }}>
+                          TEST
+                        </div>
+                      )}
                     </div>
                     <div className="header-content">
                       <h2 className="service-title">{selectedSpot.name}</h2>
@@ -1828,15 +1985,22 @@ const [searchParams, setSearchParams] = useState({
                           <span className="badge cancelable">Cancelable</span>
                         )}
                         <span className="badge live">🔴 Real-Time Pricing</span>
-                        <span className="badge stripe">💳 Stripe Secure</span>
+                        <span className="badge stripe" style={{
+                          backgroundColor: isStripeTestMode ? '#f59e0b' : '#635BFF'
+                        }}>
+                          {isStripeTestMode ? '🧪 Stripe TEST' : '💳 Stripe Secure'}
+                        </span>
                       </div>
                     </div>
                   </div>
 
                   {/* Service Overview */}
                   <div className="service-overview-premium">
-                    <h4>Secure Payment & Booking</h4>
-                    <p>Complete your booking with secure Stripe payment processing</p>
+                    <h4>{isStripeTestMode ? 'Test Payment & Booking' : 'Secure Payment & Booking'}</h4>
+                    <p>{isStripeTestMode ? 
+                        'Complete your test booking with Stripe test mode - no real charges will be made' :
+                        'Complete your booking with secure Stripe payment processing'
+                    }</p>
                     
                     <div className="service-highlights">
                       <div className="highlight-item">
@@ -1853,7 +2017,7 @@ const [searchParams, setSearchParams] = useState({
                       </div>
                       <div className="highlight-item">
                         <CreditCard size={16} />
-                        <span>💳 Stripe Secure Payment</span>
+                        <span>{isStripeTestMode ? '🧪 Stripe Test Mode' : '💳 Stripe Secure Payment'}</span>
                       </div>
                     </div>
                   </div>
@@ -2057,10 +2221,13 @@ const [searchParams, setSearchParams] = useState({
                       </div>
                     </div>
 
-                    {/* NEW: Stripe Elements Card Payment Section */}
+                    {/* Enhanced Stripe Elements Card Payment Section with Test Mode */}
                     <div className="form-section-premium">
-                      <h4>💳 Secure Payment Details</h4>
-                      <p>Enter your card information below. All payments are processed securely by Stripe.</p>
+                      <h4>{isStripeTestMode ? '🧪 Test Payment Details' : '💳 Secure Payment Details'}</h4>
+                      <p>{isStripeTestMode ? 
+                          'Enter test card information below. This is TEST MODE - no real payments will be charged.' :
+                          'Enter your card information below. All payments are processed securely by Stripe.'
+                      }</p>
                       
                       <div className="payment-methods-info" style={{
                         display: 'flex',
@@ -2068,16 +2235,67 @@ const [searchParams, setSearchParams] = useState({
                         gap: '12px',
                         marginBottom: '16px',
                         padding: '12px',
-                        backgroundColor: '#f8fafc',
+                        backgroundColor: isStripeTestMode ? '#fef3c7' : '#f8fafc',
                         borderRadius: '8px'
                       }}>
-                        <CreditCard size={20} style={{ color: '#635BFF' }} />
+                        <CreditCard size={20} style={{ color: isStripeTestMode ? '#f59e0b' : '#635BFF' }} />
                         <span style={{ fontSize: '14px', color: '#64748b' }}>
-                          We accept Visa, Mastercard, American Express, and more
+                          {isStripeTestMode ? 
+                            'TEST MODE: Use test card numbers provided below' :
+                            'We accept Visa, Mastercard, American Express, and more'
+                          }
                         </span>
                       </div>
 
+                      {/* Test Cards Quick Fill Buttons */}
+                      {isStripeTestMode && testCardInfo && (
+                        <div className="test-cards-section">
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                            <Info size={16} />
+                            <strong>Quick Test Cards (Click to see details):</strong>
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                            <button
+                              type="button"
+                              className="test-card-button"
+                              onClick={() => fillTestCard('visa_success')}
+                            >
+                              ✅ Visa Success
+                            </button>
+                            <button
+                              type="button"
+                              className="test-card-button"
+                              onClick={() => fillTestCard('visa_declined')}
+                            >
+                              ❌ Visa Declined
+                            </button>
+                            <button
+                              type="button"
+                              className="test-card-button"
+                              onClick={() => fillTestCard('mastercard')}
+                            >
+                              💳 Mastercard
+                            </button>
+                            <button
+                              type="button"
+                              className="test-card-button"
+                              onClick={() => fillTestCard('visa_debit')}
+                            >
+                              💰 Visa Debit
+                            </button>
+                          </div>
+                          <small style={{ display: 'block', marginTop: '8px', color: '#92400e' }}>
+                            {testCardInfo.note}
+                          </small>
+                        </div>
+                      )}
+
                       <div className={`card-element-container ${cardError ? 'error' : ''}`}>
+                        {isStripeTestMode && (
+                          <div className="test-mode-indicator">
+                            TEST MODE
+                          </div>
+                        )}
                         <div id="card-element">
                           {/* Stripe Elements will mount here */}
                         </div>
@@ -2103,26 +2321,31 @@ const [searchParams, setSearchParams] = useState({
                         gap: '8px',
                         marginTop: '12px',
                         padding: '8px',
-                        backgroundColor: '#f0fdf4',
+                        backgroundColor: isStripeTestMode ? '#fef3c7' : '#f0fdf4',
                         borderRadius: '6px',
                         fontSize: '13px',
-                        color: '#059669'
+                        color: isStripeTestMode ? '#92400e' : '#059669'
                       }}>
                         <Lock size={14} />
-                        <span>Your payment information is encrypted and secure</span>
+                        <span>{isStripeTestMode ? 
+                          'TEST MODE: No real charges will be made' :
+                          'Your payment information is encrypted and secure'
+                        }</span>
                       </div>
                     </div>
 
-                    {/* Pricing Summary with Stripe */}
+                    {/* Enhanced Pricing Summary with Test Mode */}
                     <div className="pricing-summary-premium">
                       <div className="pricing-header">
-                        <h4>Payment Summary</h4>
+                        <h4>{isStripeTestMode ? 'Test Payment Summary' : 'Payment Summary'}</h4>
                         <div className="payment-badges">
                           <span className="price-updated">
                             🔴 Live pricing updated: {selectedSpot.last_updated}
                           </span>
-                          <span className="stripe-badge">
-                            💳 Secured by Stripe
+                          <span className="stripe-badge" style={{
+                            backgroundColor: isStripeTestMode ? '#f59e0b' : '#635BFF'
+                          }}>
+                            {isStripeTestMode ? '🧪 TEST MODE' : '💳 Secured by Stripe'}
                           </span>
                         </div>
                       </div>
@@ -2141,20 +2364,21 @@ const [searchParams, setSearchParams] = useState({
                           <span>£{selectedSpot.commission_amount}</span>
                         </div>
                         <div className="pricing-total">
-                          <span>Total Amount (Live Price)</span>
+                          <span>{isStripeTestMode ? 'Test Amount (No Real Charge)' : 'Total Amount (Live Price)'}</span>
                           <span>£{selectedSpot.formatted_price}</span>
                         </div>
                       </div>
                     </div>
 
-                    {/* Submit Button - Enhanced for Stripe Elements */}
+                    {/* Enhanced Submit Button for Test Mode */}
                     <button
                       type="submit"
                       className="premium-confirm-btn stripe-enhanced"
                       disabled={isLoading || !authStatus.isLoggedIn || !stripe || processingPayment || !cardComplete}
                       style={{
                         background: (!authStatus.isLoggedIn || !stripe || !cardComplete) ? '#94a3b8' : 
-                                   processingPayment ? '#3b82f6' : 
+                                   processingPayment ? (isStripeTestMode ? '#f59e0b' : '#3b82f6') : 
+                                   isStripeTestMode ? 'linear-gradient(135deg, #f59e0b, #d97706)' :
                                    'linear-gradient(135deg, #635BFF, #4F46E5)',
                         opacity: (!authStatus.isLoggedIn || !stripe || processingPayment || !cardComplete) ? 0.7 : 1
                       }}
@@ -2178,7 +2402,7 @@ const [searchParams, setSearchParams] = useState({
                         <>
                           <Loader2 size={20} className="btn-spinner" />
                           <span>
-                            {paymentStep === 2 ? '💳 Processing Payment...' : 
+                            {paymentStep === 2 ? (isStripeTestMode ? '🧪 Processing Test Payment...' : '💳 Processing Payment...') : 
                              paymentStep === 3 ? '🎫 Creating Booking...' : 
                              '🔄 Processing...'}
                           </span>
@@ -2186,16 +2410,29 @@ const [searchParams, setSearchParams] = useState({
                       ) : (
                         <>
                           <CreditCard size={20} />
-                          <span>💳 Pay £{selectedSpot.formatted_price} Securely</span>
+                          <span>{isStripeTestMode ? 
+                            `🧪 Test Pay £${selectedSpot.formatted_price}` : 
+                            `💳 Pay £${selectedSpot.formatted_price} Securely`
+                          }</span>
                         </>
                       )}
                     </button>
 
                     <div className="stripe-disclaimer">
                       <small>
-                        By clicking "Pay Securely", you agree to our Terms of Service and 
-                        authorize Stripe to process your payment securely. 
-                        This will create a payment intent and process your booking immediately.
+                        {isStripeTestMode ? (
+                          <>
+                            By clicking "Test Pay", you agree to our Terms of Service. 
+                            This is TEST MODE - no real payments will be processed. 
+                            This will create a test payment intent and process your booking in test mode.
+                          </>
+                        ) : (
+                          <>
+                            By clicking "Pay Securely", you agree to our Terms of Service and 
+                            authorize Stripe to process your payment securely. 
+                            This will create a payment intent and process your booking immediately.
+                          </>
+                        )}
                       </small>
                     </div>
                   </form>
@@ -2211,15 +2448,39 @@ const [searchParams, setSearchParams] = useState({
                         </div>
                       </div>
                       
-                      <h2>💳 Payment Successful & Booking Confirmed!</h2>
+                      <h2>{isStripeTestMode || bookingStatus.isTestMode ? 
+                          '🧪 Test Payment Successful & Booking Confirmed!' : 
+                          '💳 Payment Successful & Booking Confirmed!'
+                      }</h2>
                       
-                      <p>Your payment has been processed securely by Stripe and your parking space has been reserved</p>
+                      <p>{isStripeTestMode || bookingStatus.isTestMode ?
+                          'Your test payment has been processed by Stripe (TEST MODE) and your parking space has been reserved' :
+                          'Your payment has been processed securely by Stripe and your parking space has been reserved'
+                      }</p>
+                      
+                      {/* Test Mode Banner in Success */}
+                      {(isStripeTestMode || bookingStatus.isTestMode) && (
+                        <div style={{
+                          background: '#fef3c7',
+                          color: '#92400e',
+                          padding: '12px',
+                          borderRadius: '8px',
+                          marginBottom: '16px',
+                          border: '2px solid #f59e0b'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Info size={16} />
+                            <strong>🧪 TEST MODE SUCCESS - No Real Charge Made</strong>
+                          </div>
+                          <small>This was a test transaction. No actual payment has been processed.</small>
+                        </div>
+                      )}
                       
                       <div className="booking-details-premium stripe-enhanced">
                         <div className="payment-confirmation">
                           <div className="payment-header">
                             <CreditCard size={20} />
-                            <span>Payment Confirmation</span>
+                            <span>{(isStripeTestMode || bookingStatus.isTestMode) ? 'Test Payment Confirmation' : 'Payment Confirmation'}</span>
                           </div>
                           <div className="payment-details">
                             <div className="detail-row">
@@ -2227,13 +2488,23 @@ const [searchParams, setSearchParams] = useState({
                               <strong>{bookingStatus.paymentIntentId}</strong>
                             </div>
                             <div className="detail-row">
-                              <span>Amount Paid</span>
+                              <span>Amount {(isStripeTestMode || bookingStatus.isTestMode) ? '(Test)' : 'Paid'}</span>
                               <strong>£{bookingStatus.paymentAmount} {bookingStatus.paymentCurrency?.toUpperCase()}</strong>
                             </div>
                             <div className="detail-row">
                               <span>Payment Status</span>
-                              <span className="status-badge success">✅ Paid</span>
+                              <span className="status-badge success">
+                                {(isStripeTestMode || bookingStatus.isTestMode) ? '🧪 Test Success' : '✅ Paid'}
+                              </span>
                             </div>
+                            {(isStripeTestMode || bookingStatus.isTestMode) && (
+                              <div className="detail-row">
+                                <span>Mode</span>
+                                <span className="status-badge" style={{backgroundColor: '#f59e0b', color: 'white'}}>
+                                  TEST MODE
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -2298,7 +2569,10 @@ const [searchParams, setSearchParams] = useState({
                       <div className="stripe-success-footer">
                         <div className="stripe-info">
                           <Lock size={14} />
-                          <span>Your payment was processed securely by Stripe</span>
+                          <span>{(isStripeTestMode || bookingStatus.isTestMode) ? 
+                            'Your test payment was processed by Stripe (TEST MODE)' :
+                            'Your payment was processed securely by Stripe'
+                          }</span>
                         </div>
                         <div className="receipt-info">
                           <Mail size={14} />
@@ -2312,7 +2586,10 @@ const [searchParams, setSearchParams] = useState({
                         <AlertCircle size={64} />
                         <div className="error-pulse"></div>
                       </div>
-                      <h2>💳 Payment or Booking Failed</h2>
+                      <h2>{(isStripeTestMode || bookingStatus?.isTestMode) ? 
+                          '🧪 Test Payment or Booking Failed' : 
+                          '💳 Payment or Booking Failed'
+                      }</h2>
                       <p>{bookingStatus?.message || "Unable to complete your payment or booking"}</p>
                       
                       {bookingStatus?.paymentStep && (
@@ -2339,7 +2616,10 @@ const [searchParams, setSearchParams] = useState({
                           }}
                         >
                           <CreditCard size={18} />
-                          <span>Try Payment Again</span>
+                          <span>{(isStripeTestMode || bookingStatus?.isTestMode) ? 
+                            'Try Test Payment Again' : 
+                            'Try Payment Again'
+                          }</span>
                         </button>
                       </div>
 
