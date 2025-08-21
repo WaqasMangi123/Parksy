@@ -118,20 +118,20 @@ const ProfessionalParksyDashboard = () => {
 
   // ========== ENHANCED AUTHENTICATION FUNCTIONS ==========
 
-  // Comprehensive token detection for production environment
+  // ✅ IMPROVED getAuthToken function with enhanced token detection
   const getAuthToken = () => {
     try {
       // Check all possible localStorage keys
       const localStorageKeys = [
         'token', 'authToken', 'jwt', 'access_token', 
         'auth_token', 'userToken', 'accessToken',
-        'parksy_token', 'user_token'
+        'parksy_token', 'user_token', 'bearer_token'
       ];
       
       for (const key of localStorageKeys) {
         const token = localStorage.getItem(key);
-        if (token && token !== 'null' && token !== 'undefined') {
-          console.log(`🔑 Found token in localStorage.${key}`);
+        if (token && token !== 'null' && token !== 'undefined' && token.length > 10) {
+          console.log(`🔑 Found token in localStorage.${key}, length:`, token.length);
           return token;
         }
       }
@@ -144,8 +144,8 @@ const ProfessionalParksyDashboard = () => {
       
       for (const key of sessionStorageKeys) {
         const token = sessionStorage.getItem(key);
-        if (token && token !== 'null' && token !== 'undefined') {
-          console.log(`🔑 Found token in sessionStorage.${key}`);
+        if (token && token !== 'null' && token !== 'undefined' && token.length > 10) {
+          console.log(`🔑 Found token in sessionStorage.${key}, length:`, token.length);
           return token;
         }
       }
@@ -154,13 +154,13 @@ const ProfessionalParksyDashboard = () => {
       const cookies = document.cookie.split(';');
       for (const cookie of cookies) {
         const [name, value] = cookie.trim().split('=');
-        if (['token', 'authToken', 'jwt', 'access_token'].includes(name) && value) {
-          console.log(`🔑 Found token in cookie.${name}`);
+        if (['token', 'authToken', 'jwt', 'access_token'].includes(name) && value && value.length > 10) {
+          console.log(`🔑 Found token in cookie.${name}, length:`, value.length);
           return decodeURIComponent(value);
         }
       }
 
-      console.log('❌ No authentication token found');
+      console.log('❌ No valid authentication token found in any storage');
       return null;
     } catch (error) {
       console.error('❌ Error accessing browser storage:', error);
@@ -218,6 +218,45 @@ const ProfessionalParksyDashboard = () => {
       return null;
     }
   };
+
+  // ✅ ADD debugging function to help troubleshoot
+  const debugAuthenticationIssues = () => {
+    console.log('🔍 DEBUGGING AUTHENTICATION ISSUES:');
+    console.log('1. Token Storage Check:');
+    
+    // Check localStorage
+    const localKeys = ['token', 'authToken', 'jwt', 'access_token'];
+    localKeys.forEach(key => {
+      const value = localStorage.getItem(key);
+      console.log(`   localStorage.${key}:`, value ? `${value.substring(0, 20)}... (${value.length} chars)` : 'null');
+    });
+    
+    // Check sessionStorage
+    localKeys.forEach(key => {
+      const value = sessionStorage.getItem(key);
+      console.log(`   sessionStorage.${key}:`, value ? `${value.substring(0, 20)}... (${value.length} chars)` : 'null');
+    });
+    
+    // Check auth status
+    const token = getAuthToken();
+    console.log('2. Auth Status:', {
+      hasToken: !!token,
+      tokenLength: token?.length || 0,
+      isLoggedIn: isUserLoggedIn(),
+      userInfo: getUserInfoFromToken()
+    });
+    
+    // Check API connectivity
+    console.log('3. API Connectivity:');
+    console.log(`   Backend URL: ${API_BASE_URL}`);
+    console.log(`   Connection Status: ${connectionStatus}`);
+    console.log(`   Stripe Status: ${stripe ? 'Ready' : 'Not Ready'}`);
+  };
+
+  // Call this function when you need to debug authentication issues
+  if (typeof window !== 'undefined') {
+    window.debugAuth = debugAuthenticationIssues;
+  }
 
   // Check authentication status on component mount
   useEffect(() => {
@@ -570,8 +609,9 @@ const ProfessionalParksyDashboard = () => {
     }
   }, [searchParams, connectionStatus, API_BASE_URL]);
 
-  // ========== ENHANCED STRIPE PAYMENT FUNCTIONS ==========
+  // ========== ENHANCED STRIPE PAYMENT FUNCTIONS (WITH FIXES) ==========
 
+  // ✅ FIXED createPaymentIntent - NO TOKEN IN BODY
   const createPaymentIntent = async () => {
     try {
       console.log(`💳 Creating payment intent in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode...`);
@@ -586,6 +626,10 @@ const ProfessionalParksyDashboard = () => {
 
       const authToken = getAuthToken();
       
+      if (!authToken) {
+        throw new Error('Authentication token not found. Please log in again.');
+      }
+
       // Enhanced payment data with better error handling
       const paymentData = {
         amount: parseFloat(selectedSpot.price || selectedSpot.formatted_price),
@@ -599,7 +643,7 @@ const ProfessionalParksyDashboard = () => {
         parking_type: selectedSpot.parking_type
       };
 
-      console.log(`🚀 Creating payment intent with data:`, {
+      console.log('🚀 Creating payment intent with data:', {
         amount: paymentData.amount,
         service: paymentData.service_name,
         user: authStatus.user?.email,
@@ -610,13 +654,9 @@ const ProfessionalParksyDashboard = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
+          'Authorization': `Bearer ${authToken}`, // ✅ ONLY in headers
         },
-        body: JSON.stringify({
-          ...paymentData,
-          token: authToken,
-          auth_token: authToken
-        })
+        body: JSON.stringify(paymentData) // ✅ NO token in body
       });
 
       console.log('💳 Payment Intent Response Status:', response.status, response.statusText);
@@ -640,7 +680,7 @@ const ProfessionalParksyDashboard = () => {
       if (result.success) {
         setPaymentIntentId(result.payment_intent_id);
         setPaymentStatus('payment_intent_created');
-        console.log(`✅ Payment intent created:`, result.payment_intent_id);
+        console.log('✅ Payment intent created:', result.payment_intent_id);
         return result;
       } else {
         throw new Error(result.message || 'Failed to create payment intent');
@@ -726,6 +766,7 @@ const ProfessionalParksyDashboard = () => {
     }
   };
 
+  // ✅ FIXED createBookingWithPayment - NO TOKEN IN BODY
   const createBookingWithPayment = async (paymentIntentId) => {
     try {
       console.log(`🎫 Creating booking with payment:`, paymentIntentId);
@@ -735,15 +776,17 @@ const ProfessionalParksyDashboard = () => {
       }
 
       const authToken = getAuthToken();
+      
+      if (!authToken) {
+        throw new Error('Authentication token not found. Please log in again.');
+      }
+
       const userInfo = getUserInfoFromToken();
 
-      // Enhanced booking data
+      console.log('🔑 Using auth token for booking:', authToken.substring(0, 20) + '...');
+
+      // ✅ FIXED: Clean booking data - NO TOKEN IN BODY
       const bookingData = {
-        // Authentication
-        token: authToken,
-        auth_token: authToken,
-        
-        // Payment
         payment_intent_id: paymentIntentId,
         
         // Service details
@@ -789,46 +832,44 @@ const ProfessionalParksyDashboard = () => {
         special_features: selectedSpot.features_array || []
       };
 
-      console.log(`🚀 Submitting booking with payment:`, {
+      console.log('🚀 Submitting booking:', {
         payment_intent_id: paymentIntentId,
-        user: userInfo?.email,
         service: bookingData.product_name,
         airport: bookingData.airport_code,
-        amount: bookingData.booking_amount,
-        isTestMode: isStripeTestMode
+        amount: bookingData.booking_amount
       });
 
       const response = await fetch(`${API_BASE_URL}/api/parking/bookings-with-payment`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
+          'Authorization': `Bearer ${authToken}`, // ✅ ONLY in headers
         },
-        body: JSON.stringify(bookingData)
+        body: JSON.stringify(bookingData) // ✅ NO token in body
       });
 
-      console.log('📋 Booking API Response Status:', response.status, response.statusText);
+      console.log('📋 Booking response status:', response.status);
 
       if (!response.ok) {
         let errorMessage;
         try {
           const errorData = await response.json();
           errorMessage = errorData.message || `HTTP ${response.status}`;
-          console.error('❌ Booking API Error Details:', errorData);
+          console.error('❌ Booking error details:', errorData);
         } catch (parseError) {
           const errorText = await response.text();
           errorMessage = errorText || `HTTP ${response.status}`;
-          console.error('❌ Booking API Error Text:', errorText);
+          console.error('❌ Booking error text:', errorText);
         }
         throw new Error(`Booking failed: ${errorMessage}`);
       }
 
       const result = await response.json();
-      console.log(`✅ Booking with payment successful:`, result);
+      console.log('✅ Booking successful:', result);
 
       return result;
     } catch (error) {
-      console.error('❌ Booking with payment error:', error);
+      console.error('❌ Booking error:', error);
       throw error;
     }
   };
