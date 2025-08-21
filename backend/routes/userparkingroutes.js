@@ -944,7 +944,7 @@ router.post('/create-payment-intent',
         // Enhanced payment method options
         payment_method_options: {
           card: {
-            request_three_d_secure: isTestMode ? 'if_required' : 'automatic'
+            request_three_d_secure: 'automatic'
           }
         }
       });
