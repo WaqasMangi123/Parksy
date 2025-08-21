@@ -112,13 +112,11 @@ router.get('/stripe-config', (req, res) => {
       throw new Error('Stripe publishable key not configured');
     }
 
-    // Use the enhanced getPublicConfig method
-    const config = StripeService.getPublicConfig();
     const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
 
     res.json({
       success: true,
-      ...config,
+      publishable_key: process.env.STRIPE_PUBLISHABLE_KEY,
       stripe_mode: isTestMode ? 'test' : 'live',
       is_test_mode: isTestMode,
       test_card_info: isTestMode ? {
@@ -850,7 +848,7 @@ router.get('/my-bookings-count', authenticateToken, async (req, res) => {
 
 // ===== STRIPE PAYMENT ROUTES =====
 
-// Step 1: Create payment intent BEFORE booking form submission - ENHANCED WITH TEST MODE
+// Step 1: Create payment intent BEFORE booking form submission - FIXED VERSION
 router.post('/create-payment-intent', 
   authenticateToken,
   [
@@ -869,7 +867,12 @@ router.post('/create-payment-intent',
       console.log(`💳 Creating payment intent for user (${isTestMode ? 'TEST' : 'LIVE'} mode):`, req.user.email);
 
       if (!StripeService) {
-        throw new Error('Stripe service not available');
+        console.error('❌ StripeService not available');
+        return res.status(500).json({
+          success: false,
+          message: 'Stripe service not available - check server configuration',
+          error: 'StripeService not loaded'
+        });
       }
 
       const { 
@@ -885,37 +888,81 @@ router.post('/create-payment-intent',
       // Generate a temporary booking reference for payment tracking
       const tempBookingRef = `${isTestMode ? 'TEST-' : ''}TEMP-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-      // Prepare enhanced payment data for the updated service
-      const paymentData = {
-        amount: parseFloat(amount),
-        currency: currency,
-        customer_email: req.user.email,
-        our_reference: tempBookingRef,
-        temp_booking_reference: tempBookingRef,
-        service_name: service_name,
-        airport_code: airport_code,
-        company_code: company_code,
-        dropoff_date: dropoff_date,
-        pickup_date: pickup_date
-      };
+      // Prepare payment data - SIMPLIFIED to avoid service method issues
+      const paymentAmount = parseFloat(amount);
+      const paymentCurrency = currency.toLowerCase();
 
       console.log(`🚀 Creating Stripe payment intent (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
-        amount: paymentData.amount,
-        currency: paymentData.currency,
+        amount: paymentAmount,
+        currency: paymentCurrency,
         user: req.user.email,
         service: service_name,
         mode: isTestMode ? 'TEST' : 'LIVE'
       });
 
-      // Create Stripe payment intent using enhanced service
-      const paymentResult = await StripeService.createPaymentIntent(paymentData);
+      // Create payment intent directly with Stripe API if service method fails
+      let paymentResult;
+      
+      try {
+        // Try using the StripeService first
+        if (typeof StripeService.createPaymentIntent === 'function') {
+          const paymentData = {
+            amount: paymentAmount,
+            currency: paymentCurrency,
+            customer_email: req.user.email,
+            our_reference: tempBookingRef,
+            temp_booking_reference: tempBookingRef,
+            service_name: service_name,
+            airport_code: airport_code,
+            company_code: company_code,
+            dropoff_date: dropoff_date,
+            pickup_date: pickup_date
+          };
+          
+          paymentResult = await StripeService.createPaymentIntent(paymentData);
+        } else {
+          throw new Error('StripeService.createPaymentIntent method not available');
+        }
+      } catch (serviceError) {
+        console.warn('⚠️ StripeService method failed, using direct Stripe API:', serviceError.message);
+        
+        // Fallback to direct Stripe API call
+        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+        
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: Math.round(paymentAmount * 100), // Convert to cents
+          currency: paymentCurrency,
+          customer_email: req.user.email,
+          metadata: {
+            our_reference: tempBookingRef,
+            temp_booking_reference: tempBookingRef,
+            service_name: service_name,
+            airport_code: airport_code,
+            company_code: company_code,
+            dropoff_date: dropoff_date,
+            pickup_date: pickup_date,
+            user_email: req.user.email,
+            is_test_mode: isTestMode.toString()
+          },
+          automatic_payment_methods: {
+            enabled: true,
+          },
+        });
+
+        paymentResult = {
+          client_secret: paymentIntent.client_secret,
+          payment_intent_id: paymentIntent.id,
+          amount: paymentAmount,
+          currency: paymentCurrency
+        };
+      }
 
       res.json({
         success: true,
         client_secret: paymentResult.client_secret,
         payment_intent_id: paymentResult.payment_intent_id,
-        amount: paymentData.amount,
-        currency: paymentData.currency,
+        amount: paymentAmount,
+        currency: paymentCurrency,
         temp_booking_reference: tempBookingRef,
         stripe_publishable_key: process.env.STRIPE_PUBLISHABLE_KEY,
         is_test_mode: isTestMode,
@@ -936,19 +983,23 @@ router.post('/create-payment-intent',
         success: false,
         message: 'Failed to create payment intent',
         error: error.message,
-        is_test_mode: process.env.STRIPE_SECRET_KEY?.includes('test') || false
+        is_test_mode: process.env.STRIPE_SECRET_KEY?.includes('test') || false,
+        stack: error.stack ? error.stack.substring(0, 500) : null
       });
     }
   }
 );
 
-// Step 2: Verify payment status before proceeding with booking - ENHANCED WITH TEST MODE
+// Step 2: Verify payment status before proceeding with booking - FIXED VERSION
 router.get('/verify-payment/:payment_intent_id', 
   authenticateToken,
   async (req, res) => {
     try {
       if (!StripeService) {
-        throw new Error('Stripe service not available');
+        return res.status(500).json({
+          success: false,
+          message: 'Stripe service not available'
+        });
       }
 
       const { payment_intent_id } = req.params;
@@ -956,8 +1007,32 @@ router.get('/verify-payment/:payment_intent_id',
       
       console.log(`🔍 Verifying payment for user (${isTestMode ? 'TEST' : 'LIVE'} mode):`, req.user.email, 'Payment ID:', payment_intent_id);
 
-      // Use enhanced getPaymentDetails method
-      const paymentDetails = await StripeService.getPaymentDetails(payment_intent_id);
+      let paymentDetails;
+      
+      try {
+        // Try using StripeService method first
+        if (typeof StripeService.getPaymentDetails === 'function') {
+          paymentDetails = await StripeService.getPaymentDetails(payment_intent_id);
+        } else {
+          throw new Error('StripeService.getPaymentDetails method not available');
+        }
+      } catch (serviceError) {
+        console.warn('⚠️ StripeService method failed, using direct Stripe API:', serviceError.message);
+        
+        // Fallback to direct Stripe API call
+        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+        const paymentIntent = await stripe.paymentIntents.retrieve(payment_intent_id);
+        
+        paymentDetails = {
+          status: paymentIntent.status,
+          amount: paymentIntent.amount / 100, // Convert from cents
+          currency: paymentIntent.currency,
+          metadata: paymentIntent.metadata,
+          is_paid: paymentIntent.status === 'succeeded',
+          created: new Date(paymentIntent.created * 1000),
+          last_payment_error: paymentIntent.last_payment_error
+        };
+      }
 
       res.json({
         success: true,
@@ -985,35 +1060,69 @@ router.get('/verify-payment/:payment_intent_id',
   }
 );
 
-// ENHANCED: Get payment and refund details
+// Get payment and refund details - FIXED VERSION
 router.get('/payment-details/:payment_intent_id', 
   authenticateToken,
   async (req, res) => {
     try {
-      if (!StripeService) {
-        throw new Error('Stripe service not available');
-      }
-
       const { payment_intent_id } = req.params;
+      const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
       
       console.log('🔍 Getting detailed payment info for:', payment_intent_id);
 
-      // Get payment details
-      const paymentDetails = await StripeService.getPaymentDetails(payment_intent_id);
+      const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
       
-      // Get refund information if any
-      const refunds = await StripeService.getRefunds(payment_intent_id);
+      // Get payment details
+      const paymentIntent = await stripe.paymentIntents.retrieve(payment_intent_id);
+      
+      // Get refunds
+      const charges = await stripe.charges.list({
+        payment_intent: payment_intent_id
+      });
+      
+      let totalRefunded = 0;
+      let refunds = [];
+      
+      for (const charge of charges.data) {
+        if (charge.refunds.data.length > 0) {
+          for (const refund of charge.refunds.data) {
+            totalRefunded += refund.amount;
+            refunds.push({
+              id: refund.id,
+              amount: refund.amount / 100,
+              currency: refund.currency,
+              reason: refund.reason,
+              status: refund.status,
+              created: new Date(refund.created * 1000)
+            });
+          }
+        }
+      }
+
+      const paymentDetails = {
+        status: paymentIntent.status,
+        amount: paymentIntent.amount / 100,
+        currency: paymentIntent.currency,
+        metadata: paymentIntent.metadata,
+        is_paid: paymentIntent.status === 'succeeded',
+        created: new Date(paymentIntent.created * 1000),
+        last_payment_error: paymentIntent.last_payment_error
+      };
 
       res.json({
         success: true,
         payment: paymentDetails,
-        refunds: refunds,
+        refunds: {
+          data: refunds,
+          total_refunded: totalRefunded / 100
+        },
         summary: {
           original_amount: paymentDetails.amount,
-          refunded_amount: refunds.total_refunded,
-          net_amount: paymentDetails.amount - refunds.total_refunded,
-          is_fully_refunded: refunds.total_refunded >= paymentDetails.amount
-        }
+          refunded_amount: totalRefunded / 100,
+          net_amount: paymentDetails.amount - (totalRefunded / 100),
+          is_fully_refunded: totalRefunded >= paymentIntent.amount
+        },
+        is_test_mode: isTestMode
       });
 
     } catch (error) {
@@ -1057,7 +1166,7 @@ const validateCreateBooking = [
   body('payment_intent_id').notEmpty().withMessage('Payment intent ID is required')
 ];
 
-// Step 3: Create booking AFTER payment is confirmed - ENHANCED WITH TEST MODE
+// Step 3: Create booking AFTER payment is confirmed - FIXED VERSION
 router.post('/bookings-with-payment', 
   authenticateToken,
   validateCreateBooking, 
@@ -1082,15 +1191,24 @@ router.post('/bookings-with-payment',
         throw new Error('MAGR API Service is not available');
       }
 
-      if (!StripeService) {
-        throw new Error('Stripe service is not available');
-      }
-
-      // Step 1: Verify payment with enhanced Stripe service FIRST
+      // Step 1: Verify payment FIRST using direct Stripe API
       let paymentDetails = null;
       try {
         console.log(`💳 Verifying Stripe payment before booking (${isTestMode ? 'TEST' : 'LIVE'} mode)...`);
-        paymentDetails = await StripeService.getPaymentDetails(payment_intent_id);
+        
+        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+        const paymentIntent = await stripe.paymentIntents.retrieve(payment_intent_id);
+        
+        paymentDetails = {
+          status: paymentIntent.status,
+          amount: paymentIntent.amount / 100, // Convert from cents
+          currency: paymentIntent.currency,
+          metadata: paymentIntent.metadata,
+          is_paid: paymentIntent.status === 'succeeded',
+          created: new Date(paymentIntent.created * 1000),
+          customer_id: paymentIntent.customer
+        };
+        
         console.log(`💳 Payment verification result (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
           status: paymentDetails.status,
           amount: paymentDetails.amount,
@@ -1171,7 +1289,7 @@ router.post('/bookings-with-payment',
       const magrResult = await MagrApiService.createBooking(magrBookingData);
 
       if (magrResult.success) {
-        // Step 5: Save booking to OUR database with enhanced payment information
+        // Step 5: Save booking to OUR database with payment information
         let savedBooking = null;
         let databaseSaveSuccess = false;
         
@@ -1231,7 +1349,7 @@ router.post('/bookings-with-payment',
                 car_color: bookingData.car_color
               },
               
-              // Enhanced Payment Details - WITH STRIPE INFORMATION AND TEST MODE INDICATOR
+              // Payment Details
               payment_details: {
                 payment_method: 'Stripe',
                 payment_token: payment_intent_id,
@@ -1243,7 +1361,7 @@ router.post('/bookings-with-payment',
                 stripe_customer_id: paymentDetails?.customer_id || null,
                 payment_date: paymentDetails?.created,
                 payment_confirmed_at: new Date(),
-                is_test_payment: isTestMode // NEW: Track if this was a test payment
+                is_test_payment: isTestMode // Track if this was a test payment
               },
               
               // Service Features
@@ -1282,7 +1400,7 @@ router.post('/bookings-with-payment',
           }
         }
 
-        // Step 6: Return enhanced success response
+        // Step 6: Return success response
         const responseData = {
           our_reference: ourBookingRef,
           magr_reference: magrResult.data?.reference || magrResult.reference,
@@ -1315,7 +1433,6 @@ router.post('/bookings-with-payment',
             make_model: `${bookingData.car_make} ${bookingData.car_model}`,
             color: bookingData.car_color
           },
-          // Enhanced response with payment metadata and test mode indicator
           payment_metadata: paymentDetails?.metadata || {},
           is_test_mode: isTestMode,
           stripe_mode: isTestMode ? 'test' : 'live'
@@ -1328,19 +1445,28 @@ router.post('/bookings-with-payment',
         });
 
       } else {
-        // MAGR booking failed - REFUND the payment automatically using enhanced service
+        // MAGR booking failed - REFUND the payment automatically
         console.error(`❌ MAGR booking failed (${isTestMode ? 'TEST' : 'LIVE'} mode), initiating refund...`);
         
         try {
-          const refundResult = await StripeService.createRefund(payment_intent_id, null, 'booking_failed');
-          console.log(`💰 Payment refunded due to booking failure (${isTestMode ? 'TEST' : 'LIVE'} mode):`, refundResult.refund_id);
+          const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+          const refund = await stripe.refunds.create({
+            payment_intent: payment_intent_id,
+            reason: 'requested_by_customer',
+            metadata: {
+              reason: 'booking_failed',
+              original_booking_ref: ourBookingRef
+            }
+          });
+          
+          console.log(`💰 Payment refunded due to booking failure (${isTestMode ? 'TEST' : 'LIVE'} mode):`, refund.id);
           
           return res.status(500).json({
             success: false,
             message: `Booking failed: ${magrResult.message}. Your payment has been automatically refunded. (${isTestMode ? 'TEST' : 'LIVE'} mode)`,
-            refund_id: refundResult.refund_id,
-            refund_status: refundResult.status,
-            refund_amount: refundResult.amount,
+            refund_id: refund.id,
+            refund_status: refund.status,
+            refund_amount: refund.amount / 100,
             is_test_mode: isTestMode
           });
         } catch (refundError) {
@@ -1408,10 +1534,6 @@ router.post('/stripe-webhook',
   express.raw({ type: 'application/json' }),
   async (req, res) => {
     try {
-      if (!StripeService) {
-        throw new Error('Stripe service not available');
-      }
-
       const signature = req.headers['stripe-signature'];
       const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
       const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
@@ -1438,13 +1560,14 @@ router.post('/stripe-webhook',
         mode: isTestMode ? 'TEST' : 'LIVE'
       });
 
-      // Handle the event using enhanced service
-      const result = await StripeService.handleWebhook(event);
+      // Handle the event
+      let result = { received: true, processed: false };
       
       // If booking model is available, update booking statuses based on webhook
       if (Booking && event.data.object.metadata) {
         try {
           await updateBookingFromWebhook(event, result, isTestMode);
+          result.processed = true;
         } catch (dbError) {
           console.error(`❌ Failed to update booking from webhook (${isTestMode ? 'TEST' : 'LIVE'} mode):`, dbError.message);
           // Don't fail the webhook response for database errors
@@ -1563,11 +1686,11 @@ if (Booking) {
           vehicle_registration: booking.vehicle_details?.car_registration_number,
           // Metadata
           created_at: booking.created_at,
-          can_cancel: booking.canBeCancelled(),
-          can_edit: booking.canBeAmended(),
-          can_refund: booking.canBeRefunded(), // New method from updated model
-          is_paid: booking.is_paid, // Virtual property
-          is_refunded: booking.is_refunded // Virtual property
+          can_cancel: booking.canBeCancelled && booking.canBeCancelled(),
+          can_edit: booking.canBeAmended && booking.canBeAmended(),
+          can_refund: booking.canBeRefunded && booking.canBeRefunded(),
+          is_paid: booking.payment_details?.payment_status === 'paid',
+          is_refunded: booking.payment_details?.payment_status === 'refunded'
         })),
         count: bookings.length,
         user: req.user.email
@@ -1608,11 +1731,18 @@ if (Booking) {
       
       // Get enhanced payment details if available
       let stripePaymentDetails = null;
-      if (booking.payment_details?.stripe_payment_intent_id && StripeService) {
+      if (booking.payment_details?.stripe_payment_intent_id) {
         try {
-          stripePaymentDetails = await StripeService.getPaymentDetails(
-            booking.payment_details.stripe_payment_intent_id
-          );
+          const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+          const paymentIntent = await stripe.paymentIntents.retrieve(booking.payment_details.stripe_payment_intent_id);
+          
+          stripePaymentDetails = {
+            status: paymentIntent.status,
+            amount: paymentIntent.amount / 100,
+            currency: paymentIntent.currency,
+            created: new Date(paymentIntent.created * 1000),
+            last_payment_error: paymentIntent.last_payment_error
+          };
         } catch (error) {
           console.warn('⚠️ Could not fetch Stripe payment details:', error.message);
         }
@@ -1620,7 +1750,22 @@ if (Booking) {
       
       res.json({
         success: true,
-        data: booking.toDisplayFormat(),
+        data: {
+          id: booking._id,
+          our_reference: booking.our_reference,
+          magr_reference: booking.magr_reference,
+          status: booking.status,
+          airport_code: booking.airport_code,
+          company_code: booking.company_code,
+          product_name: booking.product_name,
+          customer_details: booking.customer_details,
+          travel_details: booking.travel_details,
+          vehicle_details: booking.vehicle_details,
+          booking_amount: booking.booking_amount,
+          currency: booking.currency,
+          created_at: booking.created_at,
+          updated_at: booking.updated_at
+        },
         payment_details: {
           method: booking.payment_details?.payment_method,
           status: booking.payment_details?.payment_status,
@@ -1632,9 +1777,9 @@ if (Booking) {
           is_test_payment: booking.payment_details?.is_test_payment || false
         },
         stripe_details: stripePaymentDetails,
-        can_cancel: booking.canBeCancelled(),
-        can_edit: booking.canBeAmended(),
-        can_refund: booking.canBeRefunded(),
+        can_cancel: booking.canBeCancelled && booking.canBeCancelled(),
+        can_edit: booking.canBeAmended && booking.canBeAmended(),
+        can_refund: booking.canBeRefunded && booking.canBeRefunded(),
         raw_data: booking
       });
       
@@ -1671,10 +1816,10 @@ if (Booking) {
         });
       }
 
-      if (!booking.canBeCancelled()) {
+      if (booking.status === 'cancelled') {
         return res.status(400).json({
           success: false,
-          message: 'Booking cannot be cancelled at this time'
+          message: 'Booking is already cancelled'
         });
       }
 
@@ -1682,15 +1827,28 @@ if (Booking) {
       const cancelResult = await MagrApiService.cancelBooking(booking.magr_reference);
 
       if (cancelResult.success) {
-        // Process refund if payment was made via Stripe using enhanced service
+        // Process refund if payment was made via Stripe
         let refundResult = null;
-        if (booking.payment_details?.stripe_payment_intent_id && StripeService) {
+        if (booking.payment_details?.stripe_payment_intent_id) {
           try {
-            refundResult = await StripeService.createRefund(
-              booking.payment_details.stripe_payment_intent_id,
-              null, // Full refund
-              reason || 'cancelled_by_customer'
-            );
+            const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+            const refund = await stripe.refunds.create({
+              payment_intent: booking.payment_details.stripe_payment_intent_id,
+              reason: 'requested_by_customer',
+              metadata: {
+                booking_reference: booking.our_reference,
+                reason: reason || 'cancelled_by_customer'
+              }
+            });
+            
+            refundResult = {
+              refund_id: refund.id,
+              amount: refund.amount / 100,
+              status: refund.status,
+              reason: refund.reason,
+              is_test_mode: process.env.STRIPE_SECRET_KEY?.includes('test') || false
+            };
+            
             console.log('💰 Refund processed:', refundResult.refund_id);
           } catch (refundError) {
             console.error('❌ Refund failed:', refundError.message);
@@ -1714,13 +1872,7 @@ if (Booking) {
         res.json({
           success: true,
           message: 'Booking cancelled successfully',
-          refund: refundResult ? {
-            refund_id: refundResult.refund_id,
-            amount: refundResult.amount,
-            status: refundResult.status,
-            reason: refundResult.reason,
-            is_test_mode: refundResult.is_test_mode
-          } : null,
+          refund: refundResult,
           booking_status: 'cancelled'
         });
       } else {
@@ -1805,7 +1957,7 @@ if (Booking) {
     }
   });
 
-  // NEW: Manual refund endpoint for user bookings
+  // Manual refund endpoint for user bookings
   router.post('/bookings/:reference/refund', authenticateToken, async (req, res) => {
     try {
       const { reference } = req.params;
@@ -1828,10 +1980,10 @@ if (Booking) {
         });
       }
 
-      if (!booking.canBeRefunded()) {
+      if (booking.payment_details?.payment_status === 'refunded') {
         return res.status(400).json({
           success: false,
-          message: 'Booking cannot be refunded'
+          message: 'Booking has already been refunded'
         });
       }
 
@@ -1842,18 +1994,26 @@ if (Booking) {
         });
       }
 
-      // Process refund with enhanced service
-      const refundResult = await StripeService.createRefund(
-        booking.payment_details.stripe_payment_intent_id,
-        amount, // Partial or full refund
-        reason || 'customer_request'
-      );
+      // Process refund
+      const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+      const refundAmount = amount ? Math.round(parseFloat(amount) * 100) : undefined; // Convert to cents or full refund
+      
+      const refund = await stripe.refunds.create({
+        payment_intent: booking.payment_details.stripe_payment_intent_id,
+        amount: refundAmount,
+        reason: 'requested_by_customer',
+        metadata: {
+          booking_reference: booking.our_reference,
+          reason: reason || 'customer_request'
+        }
+      });
 
       // Update booking
-      booking.payment_details.refund_amount = (booking.payment_details.refund_amount || 0) + refundResult.amount;
+      const refundAmountInPounds = refund.amount / 100;
+      booking.payment_details.refund_amount = (booking.payment_details.refund_amount || 0) + refundAmountInPounds;
       booking.payment_details.refund_date = new Date();
       booking.payment_details.payment_status = booking.payment_details.refund_amount >= booking.booking_amount ? 'refunded' : 'partially_refunded';
-      booking.notes = `${booking.notes || ''}\nRefund processed: £${refundResult.amount} - ${reason || 'No reason provided'}`;
+      booking.notes = `${booking.notes || ''}\nRefund processed: £${refundAmountInPounds} - ${reason || 'No reason provided'}`;
 
       await booking.save();
 
@@ -1861,11 +2021,11 @@ if (Booking) {
         success: true,
         message: 'Refund processed successfully',
         refund: {
-          refund_id: refundResult.refund_id,
-          amount: refundResult.amount,
-          status: refundResult.status,
+          refund_id: refund.id,
+          amount: refundAmountInPounds,
+          status: refund.status,
           total_refunded: booking.payment_details.refund_amount,
-          is_test_mode: refundResult.is_test_mode
+          is_test_mode: process.env.STRIPE_SECRET_KEY?.includes('test') || false
         }
       });
 
