@@ -120,31 +120,21 @@ const ProfessionalParksyDashboard = () => {
 
   // ✅ IMPROVED getAuthToken function with enhanced token detection
   const getAuthToken = () => {
- try {
-   // Check all possible localStorage keys
-   const localStorageKeys = [
-     'token', 'authToken', 'jwt', 'access_token', 
-     'auth_token', 'userToken', 'accessToken',
-     'parksy_token', 'user_token', 'bearer_token'
-   ];
-   
-   for (const key of localStorageKeys) {
-     const token = localStorage.getItem(key);
-     if (token && token !== 'null' && token !== 'undefined' && token.length > 10) {
-       console.log(`🔑 Found token in localStorage.${key}, length:`, token.length);
-       
-       // Handle JSON token format
-       if (token.startsWith('{')) {
-         const parsed = JSON.parse(token);
-         if (parsed.id && parsed.email) {
-           const userData = { id: parsed.id, email: parsed.email, exp: Math.floor(Date.now()/1000) + 86400 };
-           const mockJWT = btoa(JSON.stringify({typ:'JWT'})) + '.' + btoa(JSON.stringify(userData)) + '.demo';
-           return mockJWT;
-         }
-       }
-       return token;
-     }
-   }
+    try {
+      // Check all possible localStorage keys
+      const localStorageKeys = [
+        'token', 'authToken', 'jwt', 'access_token', 
+        'auth_token', 'userToken', 'accessToken',
+        'parksy_token', 'user_token', 'bearer_token'
+      ];
+      
+      for (const key of localStorageKeys) {
+        const token = localStorage.getItem(key);
+        if (token && token !== 'null' && token !== 'undefined' && token.length > 10) {
+          console.log(`🔑 Found token in localStorage.${key}, length:`, token.length);
+          return token;
+        }
+      }
 
       // Check sessionStorage
       const sessionStorageKeys = [
@@ -178,6 +168,45 @@ const ProfessionalParksyDashboard = () => {
     }
   };
 
+  // 🚀 NEW: Convert token to valid JWT format
+  const getValidJWTToken = () => {
+    const token = getAuthToken();
+    if (!token) return null;
+    
+    // If it's already JWT format, return it
+    if (token.includes('.') && token.split('.').length === 3) {
+      console.log('✅ Token is already in JWT format');
+      return token;
+    }
+    
+    // If it's JSON format, convert to JWT
+    if (token.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(token);
+        if (parsed.id && parsed.email) {
+          const userData = { 
+            id: parsed.id, 
+            email: parsed.email, 
+            username: parsed.username || parsed.email,
+            exp: Math.floor(Date.now()/1000) + 86400,
+            iat: Math.floor(Date.now()/1000)
+          };
+          const header = btoa(JSON.stringify({typ:'JWT', alg:'HS256'}));
+          const payload = btoa(JSON.stringify(userData));
+          const mockJWT = `${header}.${payload}.demo_signature`;
+          console.log('✅ Converted JSON token to JWT format');
+          return mockJWT;
+        }
+      } catch (e) {
+        console.error('❌ Failed to parse JSON token:', e);
+      }
+    }
+    
+    // If it's some other format, try to use as is
+    console.log('⚠️ Token format unknown, using as-is');
+    return token;
+  };
+
   const isUserLoggedIn = () => {
     const token = getAuthToken();
     const isLoggedIn = !!token;
@@ -195,8 +224,15 @@ const ProfessionalParksyDashboard = () => {
     try {
       let payload;
       
+      // If it's JSON format, parse directly
+      if (token.startsWith('{')) {
+        payload = JSON.parse(token);
+        console.log('✅ JSON token decoded successfully');
+        return payload;
+      }
+      
+      // If it's JWT format
       if (token.includes('.')) {
-        // JWT format
         const base64Url = token.split('.')[1];
         if (!base64Url) {
           throw new Error('Invalid JWT format');
@@ -621,7 +657,7 @@ const ProfessionalParksyDashboard = () => {
 
   // ========== ENHANCED STRIPE PAYMENT FUNCTIONS (WITH FIXES) ==========
 
-  // ✅ FIXED createPaymentIntent - NO TOKEN IN BODY
+  // ✅ FIXED createPaymentIntent - Uses getValidJWTToken
   const createPaymentIntent = async () => {
     try {
       console.log(`💳 Creating payment intent in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode...`);
@@ -634,7 +670,7 @@ const ProfessionalParksyDashboard = () => {
         throw new Error('User must be logged in');
       }
 
-      const authToken = getAuthToken();
+      const authToken = getValidJWTToken(); // ✅ FIXED: Use converted JWT token
       
       if (!authToken) {
         throw new Error('Authentication token not found. Please log in again.');
@@ -745,7 +781,12 @@ const ProfessionalParksyDashboard = () => {
     try {
       console.log(`🔍 Verifying payment:`, paymentIntentId);
 
-      const authToken = getAuthToken();
+      const authToken = getValidJWTToken(); // ✅ FIXED: Use converted JWT token
+      
+      if (!authToken) {
+        throw new Error('Authentication token not found. Please log in again.');
+      }
+
       const response = await fetch(`${API_BASE_URL}/api/parking/verify-payment/${paymentIntentId}`, {
         method: 'GET',
         headers: {
@@ -776,7 +817,7 @@ const ProfessionalParksyDashboard = () => {
     }
   };
 
-  // ✅ FIXED createBookingWithPayment - NO TOKEN IN BODY
+  // ✅ FIXED createBookingWithPayment - Uses getValidJWTToken
   const createBookingWithPayment = async (paymentIntentId) => {
     try {
       console.log(`🎫 Creating booking with payment:`, paymentIntentId);
@@ -785,7 +826,7 @@ const ProfessionalParksyDashboard = () => {
         throw new Error('User must be logged in');
       }
 
-      const authToken = getAuthToken();
+      const authToken = getValidJWTToken(); // ✅ FIXED: Use converted JWT token
       
       if (!authToken) {
         throw new Error('Authentication token not found. Please log in again.');
@@ -793,7 +834,7 @@ const ProfessionalParksyDashboard = () => {
 
       const userInfo = getUserInfoFromToken();
 
-      console.log('🔑 Using auth token for booking:', authToken.substring(0, 20) + '...');
+      console.log('🔑 Using converted JWT token for booking:', authToken.substring(0, 20) + '...');
 
       // ✅ FIXED: Clean booking data - NO TOKEN IN BODY
       const bookingData = {
@@ -1520,21 +1561,6 @@ const ProfessionalParksyDashboard = () => {
             <div className="stat-item">
               <span className="stat-number">{filteredProducts.length}</span>
               <span className="stat-label">Live Services</span>
-            </div>
-            <div className="stat-divider"></div>
-            <div className="stat-item">
-              <span className="stat-number">🔴</span>
-              <span className="stat-label">Real-Time</span>
-            </div>
-            <div className="stat-divider"></div>
-            <div className="stat-item">
-              <span className="stat-number">{connectionStatus === 'connected' ? '✅' : '❌'}</span>
-              <span className="stat-label">API Status</span>
-            </div>
-            <div className="stat-divider"></div>
-            <div className="stat-item">
-              <span className="stat-number">{stripe ? (isStripeTestMode ? '🧪' : '💳') : '❌'}</span>
-              <span className="stat-label">{stripe ? (isStripeTestMode ? 'Stripe TEST' : 'Stripe LIVE') : 'Stripe Loading'}</span>
             </div>
             <div className="stat-divider"></div>
             <div className="stat-item">
