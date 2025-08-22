@@ -170,100 +170,77 @@ const ProfessionalParksyDashboard = () => {
 
   // 🚀 NEW: Convert token to valid JWT format
   const getValidJWTToken = () => {
-    const token = getAuthToken();
-    if (!token) return null;
-    
-    // If it's already JWT format, return it
-    if (token.includes('.') && token.split('.').length === 3) {
-      console.log('✅ Token is already in JWT format');
-      return token;
-    }
-    
-    // If it's JSON format, convert to JWT
-    if (token.startsWith('{')) {
-      try {
-        const parsed = JSON.parse(token);
-        if (parsed.id && parsed.email) {
-          const userData = { 
-            id: parsed.id, 
-            email: parsed.email, 
-            username: parsed.username || parsed.email,
-            exp: Math.floor(Date.now()/1000) + 86400,
-            iat: Math.floor(Date.now()/1000)
-          };
-          const header = btoa(JSON.stringify({typ:'JWT', alg:'HS256'}));
-          const payload = btoa(JSON.stringify(userData));
-          const mockJWT = `${header}.${payload}.demo_signature`;
-          console.log('✅ Converted JSON token to JWT format');
-          return mockJWT;
-        }
-      } catch (e) {
-        console.error('❌ Failed to parse JSON token:', e);
-      }
-    }
-    
-    // If it's some other format, try to use as is
-    console.log('⚠️ Token format unknown, using as-is');
+  const token = getAuthToken();
+  if (!token) return null;
+  
+  console.log('🔍 Token details:', {
+    length: token.length,
+    startsWithBrace: token.startsWith('{'),
+    includesDots: token.includes('.'),
+    dotCount: token.split('.').length,
+    first50Chars: token.substring(0, 50)
+  });
+  
+  // ✅ FIXED: Proper JWT detection - must have exactly 3 parts
+  const tokenParts = token.split('.');
+  if (tokenParts.length === 3 && !token.startsWith('{')) {
+    console.log('✅ Token is already in proper JWT format');
     return token;
-  };
-
-  const isUserLoggedIn = () => {
-    const token = getAuthToken();
-    const isLoggedIn = !!token;
-    console.log('🔐 Login check:', { hasToken: isLoggedIn, tokenLength: token?.length || 0 });
-    return isLoggedIn;
-  };
-
-  const getUserInfoFromToken = () => {
-    const token = getAuthToken();
-    if (!token) {
-      console.log('❌ No token available for decoding');
-      return null;
-    }
-    
+  }
+  
+  // ✅ FIXED: If it's JSON format OR has dots but wrong format, convert to JWT
+  if (token.startsWith('{') || (token.includes('.') && tokenParts.length !== 3)) {
     try {
-      let payload;
+      let parsed;
       
-      // If it's JSON format, parse directly
+      // Handle JSON token
       if (token.startsWith('{')) {
-        payload = JSON.parse(token);
-        console.log('✅ JSON token decoded successfully');
-        return payload;
-      }
-      
-      // If it's JWT format
-      if (token.includes('.')) {
-        const base64Url = token.split('.')[1];
-        if (!base64Url) {
-          throw new Error('Invalid JWT format');
-        }
-        
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-        }).join(''));
-        
-        payload = JSON.parse(jsonPayload);
-        console.log('✅ JWT token decoded successfully');
+        parsed = JSON.parse(token);
+        console.log('🔄 Parsing JSON token...');
       } else {
-        // Try direct JSON parsing for non-JWT tokens
-        payload = JSON.parse(atob(token));
-        console.log('✅ Base64 token decoded successfully');
+        // Handle malformed JWT-like token
+        console.log('🔄 Converting malformed token...');
+        // Try to extract payload from malformed token
+        const possiblePayload = tokenParts[1] || tokenParts[0];
+        parsed = JSON.parse(atob(possiblePayload));
       }
       
-      console.log('👤 User info extracted:', {
-        id: payload.id || payload.user_id || payload.sub,
-        email: payload.email,
-        name: payload.name || payload.username,
-        exp: payload.exp ? new Date(payload.exp * 1000) : null
+      console.log('📝 Parsed token data:', {
+        hasId: !!parsed.id,
+        hasEmail: !!parsed.email,
+        email: parsed.email
       });
       
-      return payload;
-    } catch (error) {
-      console.error('❌ Error decoding token:', error.message);
-      return null;
+      if (parsed.id && parsed.email) {
+        const userData = { 
+          sub: parsed.id.toString(),
+          id: parsed.id, 
+          email: parsed.email, 
+          username: parsed.username || parsed.email,
+          exp: Math.floor(Date.now()/1000) + 86400,
+          iat: Math.floor(Date.now()/1000)
+        };
+        
+        const header = btoa(JSON.stringify({typ:'JWT', alg:'HS256'}));
+        const payload = btoa(JSON.stringify(userData));
+        const mockJWT = `${header}.${payload}.demo_signature`;
+        
+        console.log('✅ Created proper JWT token:', {
+          originalLength: token.length,
+          newLength: mockJWT.length,
+          parts: mockJWT.split('.').length
+        });
+        
+        return mockJWT;
+      }
+    } catch (e) {
+      console.error('❌ Failed to convert token:', e);
     }
-  };
+  }
+  
+  console.log('⚠️ Using token as-is (might fail)');
+  return token;
+};
 
   // ✅ ADD debugging function to help troubleshoot
   const debugAuthenticationIssues = () => {
