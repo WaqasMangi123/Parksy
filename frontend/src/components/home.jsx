@@ -1074,7 +1074,7 @@ const ProfessionalParksyDashboard = () => {
           magrReference: bookingResult.data?.magr_reference || bookingResult.magr_reference,
           bookingId: bookingResult.data?.booking_id || bookingResult.data?.database_id || bookingResult.booking_id,
           paymentIntentId: paymentIntent.id,
-          paymentAmount: bookingResult.data?.payment_amount || paymentResult.amount,
+          paymentAmount: bookingResult.data?.payment_amount || selectedSpot.formatted_price,
           paymentCurrency: bookingResult.data?.payment_currency || 'gbp',
           isTestMode: bookingResult.data?.is_test_mode || isStripeTestMode,
           details: {
