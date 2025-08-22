@@ -806,7 +806,7 @@ const ProfessionalParksyDashboard = () => {
     }
   };
 
-  // ✅ FIXED: verifyPayment with proper token handling
+  // ✅ FIXED: verifyPayment with multiple auth methods
   const verifyPayment = async (paymentIntentId) => {
     try {
       console.log(`🔍 Verifying payment:`, paymentIntentId);
@@ -825,41 +825,83 @@ const ProfessionalParksyDashboard = () => {
         preview: authToken.substring(0, 30) + '...'
       });
 
-      const response = await fetch(`${API_BASE_URL}/api/parking/verify-payment/${paymentIntentId}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-        }
-      });
+      // Try multiple authentication methods
+      const authMethods = [
+        // Method 1: Bearer token in Authorization header
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+          }
+        },
+        // Method 2: Token in Authorization header without Bearer
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': authToken,
+          }
+        },
+        // Method 3: Token in custom header
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-auth-token': authToken,
+          }
+        },
+        // Method 4: Token as query parameter
+        {}
+      ];
 
-      console.log(`🔍 Payment verification response:`, response.status, response.statusText);
-
-      if (!response.ok) {
-        let errorMessage;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorData.error || `HTTP ${response.status}`;
-          console.error('❌ Payment verification error details:', errorData);
-        } catch (parseError) {
-          const errorText = await response.text();
-          errorMessage = errorText || `HTTP ${response.status}`;
-          console.error('❌ Payment verification error text:', errorText);
+      for (let i = 0; i < authMethods.length; i++) {
+        const method = authMethods[i];
+        let url = `${API_BASE_URL}/api/parking/verify-payment/${paymentIntentId}`;
+        
+        // For method 4, add token as query param
+        if (i === 3) {
+          url += `?token=${encodeURIComponent(authToken)}`;
         }
-        throw new Error(errorMessage);
+
+        console.log(`🔄 Trying authentication method ${i + 1}/4...`);
+
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: method.headers
+        });
+
+        console.log(`🔍 Payment verification response (method ${i + 1}):`, response.status, response.statusText);
+
+        if (response.ok) {
+          const result = await response.json();
+          console.log(`✅ Payment verification successful with method ${i + 1}:`, result);
+          return result.is_paid || result.verified || result.success;
+        } else if (response.status !== 401 && response.status !== 403) {
+          // If it's not an auth error, don't try other methods
+          let errorMessage;
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.message || errorData.error || `HTTP ${response.status}`;
+            console.error('❌ Payment verification error details:', errorData);
+          } catch (parseError) {
+            const errorText = await response.text();
+            errorMessage = errorText || `HTTP ${response.status}`;
+            console.error('❌ Payment verification error text:', errorText);
+          }
+          throw new Error(errorMessage);
+        }
+        
+        console.log(`⚠️ Authentication method ${i + 1} failed, trying next...`);
       }
 
-      const result = await response.json();
-      console.log(`✅ Payment verification result:`, result);
-      
-      return result.is_paid || result.verified || result.success;
+      // If all methods fail
+      throw new Error('All authentication methods failed for payment verification');
+
     } catch (error) {
       console.error('❌ Payment verification error:', error);
       throw error;
     }
   };
 
-  // ✅ FIXED: createBookingWithPayment with proper token handling
+  // ✅ FIXED: createBookingWithPayment with multiple auth methods
   const createBookingWithPayment = async (paymentIntentId) => {
     try {
       console.log(`🎫 Creating booking with payment:`, paymentIntentId);
@@ -936,35 +978,82 @@ const ProfessionalParksyDashboard = () => {
         amount: bookingData.booking_amount
       });
 
-      const response = await fetch(`${API_BASE_URL}/api/parking/bookings-with-payment`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
+      // Try multiple authentication methods
+      const authMethods = [
+        // Method 1: Bearer token in Authorization header
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+          },
+          body: JSON.stringify(bookingData)
         },
-        body: JSON.stringify(bookingData)
-      });
-
-      console.log('📋 Booking response status:', response.status, response.statusText);
-
-      if (!response.ok) {
-        let errorMessage;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorData.error || `HTTP ${response.status}`;
-          console.error('❌ Booking error details:', errorData);
-        } catch (parseError) {
-          const errorText = await response.text();
-          errorMessage = errorText || `HTTP ${response.status}`;
-          console.error('❌ Booking error text:', errorText);
+        // Method 2: Token in Authorization header without Bearer
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': authToken,
+          },
+          body: JSON.stringify(bookingData)
+        },
+        // Method 3: Token in custom header
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-auth-token': authToken,
+          },
+          body: JSON.stringify(bookingData)
+        },
+        // Method 4: Token in request body
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...bookingData,
+            token: authToken
+          })
         }
-        throw new Error(`Booking failed: ${errorMessage}`);
+      ];
+
+      for (let i = 0; i < authMethods.length; i++) {
+        const method = authMethods[i];
+
+        console.log(`🔄 Trying booking authentication method ${i + 1}/4...`);
+
+        const response = await fetch(`${API_BASE_URL}/api/parking/bookings-with-payment`, {
+          method: 'POST',
+          headers: method.headers,
+          body: method.body
+        });
+
+        console.log(`📋 Booking response status (method ${i + 1}):`, response.status, response.statusText);
+
+        if (response.ok) {
+          const result = await response.json();
+          console.log(`✅ Booking successful with method ${i + 1}:`, result);
+          return result;
+        } else if (response.status !== 401 && response.status !== 403) {
+          // If it's not an auth error, don't try other methods
+          let errorMessage;
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.message || errorData.error || `HTTP ${response.status}`;
+            console.error('❌ Booking error details:', errorData);
+          } catch (parseError) {
+            const errorText = await response.text();
+            errorMessage = errorText || `HTTP ${response.status}`;
+            console.error('❌ Booking error text:', errorText);
+          }
+          throw new Error(`Booking failed: ${errorMessage}`);
+        }
+        
+        console.log(`⚠️ Booking authentication method ${i + 1} failed, trying next...`);
       }
 
-      const result = await response.json();
-      console.log('✅ Booking successful:', result);
+      // If all methods fail
+      throw new Error('All authentication methods failed for booking creation');
 
-      return result;
     } catch (error) {
       console.error('❌ Booking error:', error);
       throw error;
