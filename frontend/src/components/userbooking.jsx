@@ -3,7 +3,8 @@ import {
   Calendar, User, Car, CreditCard, MapPin, Clock, Phone, Mail, 
   Plane, AlertCircle, CheckCircle, XCircle, RefreshCw, Trash2,
   Eye, Download, Filter, Search, Star, Shield, Navigation,
-  ArrowLeft, Home, LogOut, Bell, Settings, Plus, Edit
+  ArrowLeft, Home, LogOut, Bell, Settings, Plus, Edit, Loader2,
+  Info, Award
 } from 'lucide-react';
 import './userbooking.css';
 
@@ -21,10 +22,30 @@ const UserBooking = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState('created_at');
   const [showModal, setShowModal] = useState(false);
-  const [modalType, setModalType] = useState('view'); // 'view', 'cancel', 'delete'
+  const [modalType, setModalType] = useState('view'); // 'view', 'cancel', 'amend'
   const [cancelReason, setCancelReason] = useState('');
   const [processingAction, setProcessingAction] = useState(false);
   const [authStatus, setAuthStatus] = useState({ isLoggedIn: false, user: null });
+  const [actionResult, setActionResult] = useState(null);
+
+  // NEW: Amend form state
+  const [amendFormData, setAmendFormData] = useState({
+    dropoff_time: '',
+    pickup_time: '',
+    title: '',
+    first_name: '',
+    last_name: '',
+    customer_email: '',
+    phone_number: '',
+    departure_flight_number: '',
+    arrival_flight_number: '',
+    departure_terminal: '',
+    arrival_terminal: '',
+    car_registration_number: '',
+    car_make: '',
+    car_model: '',
+    car_color: ''
+  });
 
   // Airport mapping for better display
   const airportNames = {
@@ -101,6 +122,55 @@ const UserBooking = () => {
       console.error('❌ UserBooking: Error accessing browser storage:', error);
       return null;
     }
+  };
+
+  const getValidJWTToken = () => {
+    const token = getAuthToken();
+    if (!token) return null;
+    
+    // If it's already a JWT, return as-is
+    if (token.includes('.') && token.split('.').length === 3 && !token.startsWith('{')) {
+      return token;
+    }
+    
+    // Convert other formats to JWT if needed
+    try {
+      let userData = null;
+      
+      if (token.startsWith('{')) {
+        userData = JSON.parse(token);
+      } else {
+        try {
+          userData = JSON.parse(atob(token));
+        } catch (e) {
+          return token; // Use as-is if can't convert
+        }
+      }
+      
+      if (userData && (userData.id || userData.user_id || userData.sub) && userData.email) {
+        const jwtPayload = {
+          sub: (userData.id || userData.user_id || userData.sub).toString(),
+          id: userData.id || userData.user_id || userData.sub,
+          user_id: userData.id || userData.user_id || userData.sub,
+          email: userData.email,
+          username: userData.username || userData.email,
+          name: userData.name || userData.username || userData.email,
+          exp: Math.floor(Date.now()/1000) + 86400,
+          iat: Math.floor(Date.now()/1000),
+          iss: 'parksy-frontend',
+          aud: 'parksy-backend'
+        };
+        
+        const header = btoa(JSON.stringify({typ:'JWT', alg:'HS256'}));
+        const payload = btoa(JSON.stringify(jwtPayload));
+        const signature = 'demo_signature_for_frontend';
+        return `${header}.${payload}.${signature}`;
+      }
+    } catch (error) {
+      console.error('❌ Token conversion failed:', error);
+    }
+    
+    return token;
   };
 
   const getUserInfoFromToken = () => {
@@ -216,7 +286,7 @@ const UserBooking = () => {
       setLoading(true);
       setError(null);
       
-      const authToken = getAuthToken();
+      const authToken = getValidJWTToken();
       
       console.log('🚀 UserBookings: Starting fetchUserBookings with enhanced debug:', {
         tokenExists: !!authToken,
@@ -349,66 +419,155 @@ const UserBooking = () => {
     }
   };
 
-  // Cancel booking
-  const cancelBooking = async (bookingReference, reason) => {
-    try {
-      setProcessingAction(true);
-      const authToken = getAuthToken();
+  // NEW: Handle Cancel Booking
+  const handleCancelBooking = async (booking) => {
+    setSelectedBooking(booking);
+    setModalType('cancel');
+    setShowModal(true);
+    setCancelReason('');
+    setActionResult(null);
+  };
 
-      if (!authToken) {
-        throw new Error('Authentication required');
-      }
-
-      const response = await fetch(`${API_BASE_URL}/api/parking/bookings/${bookingReference}/cancel`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({ reason: reason || 'User cancellation' })
+  // NEW: Handle Amend Booking
+  const handleAmendBooking = async (booking) => {
+    setSelectedBooking(booking);
+    setModalType('amend');
+    setShowModal(true);
+    setCancelReason('');
+    setActionResult(null);
+    
+    // Pre-populate amend form with current booking data
+    if (booking) {
+      setAmendFormData({
+        dropoff_time: booking.dropoff_time || '',
+        pickup_time: booking.pickup_time || '',
+        title: booking.customer_details?.title || '',
+        first_name: booking.customer_details?.first_name || '',
+        last_name: booking.customer_details?.last_name || '',
+        customer_email: booking.customer_details?.customer_email || '',
+        phone_number: booking.customer_details?.phone_number || '',
+        departure_flight_number: booking.departure_flight_number || '',
+        arrival_flight_number: booking.arrival_flight_number || '',
+        departure_terminal: booking.departure_terminal || '',
+        arrival_terminal: booking.arrival_terminal || '',
+        car_registration_number: booking.vehicle_details?.car_registration_number || '',
+        car_make: booking.vehicle_details?.car_make || '',
+        car_model: booking.vehicle_details?.car_model || '',
+        car_color: booking.vehicle_details?.car_color || ''
       });
+    }
+  };
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Cancellation failed');
+  // NEW: Process Cancel/Amend Action
+  const processBookingAction = async () => {
+    if (!selectedBooking || !modalType) return;
+
+    setProcessingAction(true);
+    setActionResult(null);
+
+    try {
+      const authToken = getValidJWTToken();
+      if (!authToken) {
+        throw new Error('Authentication token not found');
       }
 
-      const result = await response.json();
-      
-      if (result.success) {
-        // Update local state
-        setUserBookings(prevBookings => 
-          prevBookings.map(booking => 
-            booking.our_reference === bookingReference 
-              ? { ...booking, status: 'cancelled' }
-              : booking
-          )
-        );
+      if (modalType === 'cancel') {
+        // Cancel booking
+        const response = await fetch(`${API_BASE_URL}/api/parking/cancel-booking`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            booking_reference: selectedBooking.our_reference,
+            refund_amount: selectedBooking.booking_amount,
+            reason: cancelReason || 'User requested cancellation'
+          })
+        });
+
+        const result = await response.json();
         
-        // Refresh data
-        await fetchUserBookings();
+        if (result.success) {
+          setActionResult({
+            success: true,
+            type: 'cancel',
+            message: 'Booking cancelled successfully! Refund will be processed within 3-5 business days.',
+            data: result.data
+          });
+          
+          // Refresh user bookings
+          await fetchUserBookings();
+        } else {
+          throw new Error(result.message || 'Failed to cancel booking');
+        }
+
+      } else if (modalType === 'amend') {
+        // Amend booking
+        const amendData = {
+          booking_reference: selectedBooking.our_reference,
+          ...amendFormData
+        };
+
+        // Remove empty fields
+        Object.keys(amendData).forEach(key => {
+          if (amendData[key] === '' || amendData[key] === null || amendData[key] === undefined) {
+            delete amendData[key];
+          }
+        });
+
+        const response = await fetch(`${API_BASE_URL}/api/parking/amend-booking`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+          },
+          body: JSON.stringify(amendData)
+        });
+
+        const result = await response.json();
         
-        setShowModal(false);
-        setSelectedBooking(null);
-        setCancelReason('');
-        
-        alert('Your booking has been cancelled successfully! Any refund will be processed within 3-5 business days.');
-      } else {
-        throw new Error(result.message || 'Cancellation failed');
+        if (result.success) {
+          setActionResult({
+            success: true,
+            type: 'amend',
+            message: 'Booking amended successfully! Your changes have been saved.',
+            data: result.data
+          });
+          
+          // Refresh user bookings
+          await fetchUserBookings();
+        } else {
+          throw new Error(result.message || 'Failed to amend booking');
+        }
       }
+
     } catch (error) {
-      console.error('❌ Error cancelling booking:', error);
-      alert(`Failed to cancel booking: ${error.message}`);
+      console.error(`❌ Error ${modalType}ing booking:`, error);
+      setActionResult({
+        success: false,
+        type: modalType,
+        message: error.message || `Failed to ${modalType} booking`,
+        error: error.message
+      });
     } finally {
       setProcessingAction(false);
     }
+  };
+
+  // NEW: Handle amend form changes
+  const handleAmendFormChange = (field, value) => {
+    setAmendFormData(prev => ({
+      ...prev,
+      [field]: value
+    }));
   };
 
   // Delete booking (only cancelled ones)
   const deleteBooking = async (bookingReference, reason) => {
     try {
       setProcessingAction(true);
-      const authToken = getAuthToken();
+      const authToken = getValidJWTToken();
 
       if (!authToken) {
         throw new Error('Authentication required');
@@ -790,19 +949,29 @@ Auth status: ${authStatus.isLoggedIn}
                     >
                       <Eye size={14} />
                     </button>
-                    {booking.can_cancel && booking.status === 'confirmed' && (
+                    
+                    {/* NEW: Cancel Button */}
+                    {booking.status === 'confirmed' && booking.is_cancelable && (
                       <button
                         className="ub-action-btn ub-cancel"
-                        onClick={() => {
-                          setSelectedBooking(booking);
-                          setModalType('cancel');
-                          setShowModal(true);
-                        }}
+                        onClick={() => handleCancelBooking(booking)}
                         title="Cancel Booking"
                       >
                         <XCircle size={14} />
                       </button>
                     )}
+                    
+                    {/* NEW: Amend Button */}
+                    {booking.status === 'confirmed' && booking.is_editable && (
+                      <button
+                        className="ub-action-btn ub-amend"
+                        onClick={() => handleAmendBooking(booking)}
+                        title="Amend Booking"
+                      >
+                        <Edit size={14} />
+                      </button>
+                    )}
+                    
                     {booking.status === 'cancelled' && (
                       <button
                         className="ub-action-btn ub-delete"
@@ -868,6 +1037,25 @@ Auth status: ${authStatus.isLoggedIn}
                       <small>Ref: {booking.magr_reference}</small>
                     </div>
                   )}
+                  
+                  {/* NEW: Booking capabilities indicators */}
+                  <div className="ub-booking-capabilities">
+                    {booking.is_cancelable && booking.status === 'confirmed' && (
+                      <span className="ub-capability-badge cancelable" title="Cancellable">
+                        <XCircle size={10} />
+                      </span>
+                    )}
+                    {booking.is_editable && booking.status === 'confirmed' && (
+                      <span className="ub-capability-badge editable" title="Amendable">
+                        <Edit size={10} />
+                      </span>
+                    )}
+                    {booking.is_test_payment && (
+                      <span className="ub-capability-badge test-mode" title="Test Mode">
+                        TEST
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -875,7 +1063,7 @@ Auth status: ${authStatus.isLoggedIn}
         )}
       </div>
 
-      {/* Modal */}
+      {/* Enhanced Modal */}
       {showModal && selectedBooking && (
         <div className="ub-modal-overlay" onClick={() => setShowModal(false)}>
           <div className="ub-modal-content" onClick={(e) => e.stopPropagation()}>
@@ -883,6 +1071,7 @@ Auth status: ${authStatus.isLoggedIn}
               <h2>
                 {modalType === 'view' && 'Booking Details'}
                 {modalType === 'cancel' && 'Cancel Booking'}
+                {modalType === 'amend' && 'Amend Booking'}
                 {modalType === 'delete' && 'Delete Booking'}
               </h2>
               <button 
@@ -906,6 +1095,11 @@ Auth status: ${authStatus.isLoggedIn}
                       <span className={getPaymentStatusBadge(selectedBooking.payment_status)}>
                         Payment: {selectedBooking.payment_status || 'Unknown'}
                       </span>
+                      {selectedBooking.is_test_payment && (
+                        <span className="ub-status-badge ub-test-mode">
+                          TEST MODE
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -946,6 +1140,18 @@ Auth status: ${authStatus.isLoggedIn}
                         <label>Pick-up</label>
                         <span>{formatDateOnly(selectedBooking.pickup_date)} at {selectedBooking.pickup_time}</span>
                       </div>
+                      {selectedBooking.departure_flight_number && (
+                        <div className="ub-detail-item">
+                          <label>Departure Flight</label>
+                          <span>{selectedBooking.departure_flight_number}</span>
+                        </div>
+                      )}
+                      {selectedBooking.arrival_flight_number && (
+                        <div className="ub-detail-item">
+                          <label>Arrival Flight</label>
+                          <span>{selectedBooking.arrival_flight_number}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -984,6 +1190,37 @@ Auth status: ${authStatus.isLoggedIn}
                           <span className="ub-refund-highlight">{formatCurrency(selectedBooking.refund_amount)}</span>
                         </div>
                       )}
+                      {selectedBooking.stripe_payment_intent_id && (
+                        <div className="ub-detail-item">
+                          <label>Payment ID</label>
+                          <span className="ub-payment-id">{selectedBooking.stripe_payment_intent_id}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Service Features */}
+                  <div className="ub-detail-section">
+                    <h3>Service Features</h3>
+                    <div className="ub-features-grid">
+                      {selectedBooking.is_cancelable && (
+                        <div className="ub-feature-item">
+                          <XCircle size={16} />
+                          <span>Cancellable</span>
+                        </div>
+                      )}
+                      {selectedBooking.is_editable && (
+                        <div className="ub-feature-item">
+                          <Edit size={16} />
+                          <span>Amendable</span>
+                        </div>
+                      )}
+                      {selectedBooking.is_test_payment && (
+                        <div className="ub-feature-item">
+                          <Award size={16} />
+                          <span>Test Mode</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -994,67 +1231,503 @@ Auth status: ${authStatus.isLoggedIn}
                       <span>{formatDate(selectedBooking.created_at)}</span>
                     </div>
                   </div>
+
+                  {/* Action Buttons in View Mode */}
+                  <div className="ub-view-actions">
+                    {selectedBooking.status === 'confirmed' && selectedBooking.is_cancelable && (
+                      <button 
+                        className="ub-btn-warning"
+                        onClick={() => {
+                          setModalType('cancel');
+                          setCancelReason('');
+                          setActionResult(null);
+                        }}
+                      >
+                        <XCircle size={16} />
+                        Cancel Booking
+                      </button>
+                    )}
+                    
+                    {selectedBooking.status === 'confirmed' && selectedBooking.is_editable && (
+                      <button 
+                        className="ub-btn-primary"
+                        onClick={() => {
+                          setModalType('amend');
+                          setCancelReason('');
+                          setActionResult(null);
+                          
+                          // Pre-populate amend form
+                          setAmendFormData({
+                            dropoff_time: selectedBooking.dropoff_time || '',
+                            pickup_time: selectedBooking.pickup_time || '',
+                            title: selectedBooking.customer_details?.title || '',
+                            first_name: selectedBooking.customer_details?.first_name || '',
+                            last_name: selectedBooking.customer_details?.last_name || '',
+                            customer_email: selectedBooking.customer_details?.customer_email || '',
+                            phone_number: selectedBooking.customer_details?.phone_number || '',
+                            departure_flight_number: selectedBooking.departure_flight_number || '',
+                            arrival_flight_number: selectedBooking.arrival_flight_number || '',
+                            departure_terminal: selectedBooking.departure_terminal || '',
+                            arrival_terminal: selectedBooking.arrival_terminal || '',
+                            car_registration_number: selectedBooking.vehicle_details?.car_registration_number || '',
+                            car_make: selectedBooking.vehicle_details?.car_make || '',
+                            car_model: selectedBooking.vehicle_details?.car_model || '',
+                            car_color: selectedBooking.vehicle_details?.car_color || ''
+                          });
+                        }}
+                      >
+                        <Edit size={16} />
+                        Amend Booking
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : !actionResult ? (
+                <div className="ub-action-form">
+                  {modalType === 'cancel' && (
+                    <div className="ub-cancel-form">
+                      <div className="ub-warning-message">
+                        <AlertCircle size={24} />
+                        <div>
+                          <h4>Cancel Your Booking</h4>
+                          <p>Cancelling your booking will process a refund according to the cancellation policy. This action cannot be undone.</p>
+                        </div>
+                      </div>
+
+                      <div className="ub-booking-summary">
+                        <div className="ub-summary-item">
+                          <span>Service:</span>
+                          <span>{selectedBooking.product_name}</span>
+                        </div>
+                        <div className="ub-summary-item">
+                          <span>Amount:</span>
+                          <span>{formatCurrency(selectedBooking.booking_amount)}</span>
+                        </div>
+                        <div className="ub-summary-item">
+                          <span>Refund Amount:</span>
+                          <span>{formatCurrency(selectedBooking.booking_amount)}</span>
+                        </div>
+                      </div>
+
+                      <div className="ub-form-group">
+                        <label>Reason (Optional)</label>
+                        <textarea
+                          value={cancelReason}
+                          onChange={(e) => setCancelReason(e.target.value)}
+                          placeholder="Why are you cancelling this booking?"
+                          rows={3}
+                          className="ub-reason-textarea"
+                        />
+                      </div>
+
+                      <div className="ub-modal-actions">
+                        <button 
+                          className="ub-btn-secondary"
+                          onClick={() => setShowModal(false)}
+                          disabled={processingAction}
+                        >
+                          Keep Booking
+                        </button>
+                        <button 
+                          className="ub-btn-danger"
+                          onClick={processBookingAction}
+                          disabled={processingAction}
+                        >
+                          {processingAction ? (
+                            <>
+                              <Loader2 className="ub-spinning" size={16} />
+                              Cancelling...
+                            </>
+                          ) : (
+                            <>
+                              <XCircle size={16} />
+                              Cancel Booking
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {modalType === 'amend' && (
+                    <div className="ub-amend-form">
+                      <div className="ub-info-message">
+                        <Info size={24} />
+                        <div>
+                          <h4>Modify Your Booking</h4>
+                          <p>Update the details below. Only changed fields will be updated.</p>
+                          <small>Note: Dates cannot be changed, only times and other details.</small>
+                        </div>
+                      </div>
+
+                      <div className="ub-amend-sections">
+                        {/* Travel Times */}
+                        <div className="ub-form-section">
+                          <h4>Travel Times</h4>
+                          <div className="ub-form-grid">
+                            <div className="ub-form-group">
+                              <label>Drop-off Time</label>
+                              <input
+                                type="time"
+                                value={amendFormData.dropoff_time}
+                                onChange={(e) => handleAmendFormChange('dropoff_time', e.target.value)}
+                              />
+                              <small>Current: {selectedBooking.dropoff_time}</small>
+                            </div>
+                            <div className="ub-form-group">
+                              <label>Pick-up Time</label>
+                              <input
+                                type="time"
+                                value={amendFormData.pickup_time}
+                                onChange={(e) => handleAmendFormChange('pickup_time', e.target.value)}
+                              />
+                              <small>Current: {selectedBooking.pickup_time}</small>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Personal Details */}
+                        <div className="ub-form-section">
+                          <h4>Personal Details</h4>
+                          <div className="ub-form-grid">
+                            <div className="ub-form-group">
+                              <label>Title</label>
+                              <select
+                                value={amendFormData.title}
+                                onChange={(e) => handleAmendFormChange('title', e.target.value)}
+                              >
+                                <option value="">No Change</option>
+                                <option value="Mr">Mr</option>
+                                <option value="Mrs">Mrs</option>
+                                <option value="Miss">Miss</option>
+                                <option value="Ms">Ms</option>
+                                <option value="Dr">Dr</option>
+                              </select>
+                              <small>Current: {selectedBooking.customer_details?.title}</small>
+                            </div>
+                            <div className="ub-form-group">
+                              <label>First Name</label>
+                              <input
+                                type="text"
+                                value={amendFormData.first_name}
+                                onChange={(e) => handleAmendFormChange('first_name', e.target.value)}
+                                placeholder={selectedBooking.customer_details?.first_name}
+                              />
+                              <small>Current: {selectedBooking.customer_details?.first_name}</small>
+                            </div>
+                            <div className="ub-form-group">
+                              <label>Last Name</label>
+                              <input
+                                type="text"
+                                value={amendFormData.last_name}
+                                onChange={(e) => handleAmendFormChange('last_name', e.target.value)}
+                                placeholder={selectedBooking.customer_details?.last_name}
+                              />
+                              <small>Current: {selectedBooking.customer_details?.last_name}</small>
+                            </div>
+                            <div className="ub-form-group">
+                              <label>Email</label>
+                              <input
+                                type="email"
+                                value={amendFormData.customer_email}
+                                onChange={(e) => handleAmendFormChange('customer_email', e.target.value)}
+                                placeholder={selectedBooking.customer_details?.customer_email}
+                              />
+                              <small>Current: {selectedBooking.customer_details?.customer_email}</small>
+                            </div>
+                            <div className="ub-form-group">
+                              <label>Phone</label>
+                              <input
+                                type="tel"
+                                value={amendFormData.phone_number}
+                                onChange={(e) => handleAmendFormChange('phone_number', e.target.value)}
+                                placeholder={selectedBooking.customer_details?.phone_number}
+                              />
+                              <small>Current: {selectedBooking.customer_details?.phone_number}</small>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Flight Details */}
+                        <div className="ub-form-section">
+                          <h4>Flight Details</h4>
+                          <div className="ub-form-grid">
+                            <div className="ub-form-group">
+                              <label>Departure Flight</label>
+                              <input
+                                type="text"
+                                value={amendFormData.departure_flight_number}
+                                onChange={(e) => handleAmendFormChange('departure_flight_number', e.target.value)}
+                                placeholder={selectedBooking.departure_flight_number}
+                              />
+                              <small>Current: {selectedBooking.departure_flight_number}</small>
+                            </div>
+                            <div className="ub-form-group">
+                              <label>Arrival Flight</label>
+                              <input
+                                type="text"
+                                value={amendFormData.arrival_flight_number}
+                                onChange={(e) => handleAmendFormChange('arrival_flight_number', e.target.value)}
+                                placeholder={selectedBooking.arrival_flight_number}
+                              />
+                              <small>Current: {selectedBooking.arrival_flight_number}</small>
+                            </div>
+                            <div className="ub-form-group">
+                              <label>Departure Terminal</label>
+                              <select
+                                value={amendFormData.departure_terminal}
+                                onChange={(e) => handleAmendFormChange('departure_terminal', e.target.value)}
+                              >
+                                <option value="">No Change</option>
+                                <option value="Terminal 1">Terminal 1</option>
+                                <option value="Terminal 2">Terminal 2</option>
+                                <option value="Terminal 3">Terminal 3</option>
+                                <option value="Terminal 4">Terminal 4</option>
+                                <option value="Terminal 5">Terminal 5</option>
+                              </select>
+                              <small>Current: {selectedBooking.departure_terminal}</small>
+                            </div>
+                            <div className="ub-form-group">
+                              <label>Arrival Terminal</label>
+                              <select
+                                value={amendFormData.arrival_terminal}
+                                onChange={(e) => handleAmendFormChange('arrival_terminal', e.target.value)}
+                              >
+                                <option value="">No Change</option>
+                                <option value="Terminal 1">Terminal 1</option>
+                                <option value="Terminal 2">Terminal 2</option>
+                                <option value="Terminal 3">Terminal 3</option>
+                                <option value="Terminal 4">Terminal 4</option>
+                                <option value="Terminal 5">Terminal 5</option>
+                              </select>
+                              <small>Current: {selectedBooking.arrival_terminal}</small>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Vehicle Details */}
+                        <div className="ub-form-section">
+                          <h4>Vehicle Details</h4>
+                          <div className="ub-form-grid">
+                            <div className="ub-form-group">
+                              <label>Registration</label>
+                              <input
+                                type="text"
+                                value={amendFormData.car_registration_number}
+                                onChange={(e) => handleAmendFormChange('car_registration_number', e.target.value)}
+                                placeholder={selectedBooking.vehicle_details?.car_registration_number}
+                              />
+                              <small>Current: {selectedBooking.vehicle_details?.car_registration_number}</small>
+                            </div>
+                            <div className="ub-form-group">
+                              <label>Make</label>
+                              <input
+                                type="text"
+                                value={amendFormData.car_make}
+                                onChange={(e) => handleAmendFormChange('car_make', e.target.value)}
+                                placeholder={selectedBooking.vehicle_details?.car_make}
+                              />
+                              <small>Current: {selectedBooking.vehicle_details?.car_make}</small>
+                            </div>
+                            <div className="ub-form-group">
+                              <label>Model</label>
+                              <input
+                                type="text"
+                                value={amendFormData.car_model}
+                                onChange={(e) => handleAmendFormChange('car_model', e.target.value)}
+                                placeholder={selectedBooking.vehicle_details?.car_model}
+                              />
+                              <small>Current: {selectedBooking.vehicle_details?.car_model}</small>
+                            </div>
+                            <div className="ub-form-group">
+                              <label>Color</label>
+                              <input
+                                type="text"
+                                value={amendFormData.car_color}
+                                onChange={(e) => handleAmendFormChange('car_color', e.target.value)}
+                                placeholder={selectedBooking.vehicle_details?.car_color}
+                              />
+                              <small>Current: {selectedBooking.vehicle_details?.car_color}</small>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="ub-form-group">
+                        <label>Reason for Changes (Optional)</label>
+                        <textarea
+                          value={cancelReason}
+                          onChange={(e) => setCancelReason(e.target.value)}
+                          placeholder="Why are you making these changes?"
+                          rows={3}
+                          className="ub-reason-textarea"
+                        />
+                      </div>
+
+                      <div className="ub-modal-actions">
+                        <button 
+                          className="ub-btn-secondary"
+                          onClick={() => setShowModal(false)}
+                          disabled={processingAction}
+                        >
+                          Cancel Changes
+                        </button>
+                        <button 
+                          className="ub-btn-primary"
+                          onClick={processBookingAction}
+                          disabled={processingAction}
+                        >
+                          {processingAction ? (
+                            <>
+                              <Loader2 className="ub-spinning" size={16} />
+                              Updating...
+                            </>
+                          ) : (
+                            <>
+                              <Edit size={16} />
+                              Save Changes
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {modalType === 'delete' && (
+                    <div className="ub-warning-message">
+                      <AlertCircle size={24} />
+                      <div>
+                        <h4>Delete Booking Record</h4>
+                        <p>This will permanently remove this booking from your history. Only cancelled bookings can be deleted.</p>
+                      </div>
+
+                      <div className="ub-form-group">
+                        <label>Reason (Optional)</label>
+                        <textarea
+                          value={cancelReason}
+                          onChange={(e) => setCancelReason(e.target.value)}
+                          placeholder="Why are you deleting this booking record?"
+                          rows={3}
+                          className="ub-reason-textarea"
+                        />
+                      </div>
+
+                      <div className="ub-modal-actions">
+                        <button 
+                          className="ub-btn-secondary"
+                          onClick={() => setShowModal(false)}
+                          disabled={processingAction}
+                        >
+                          Keep Record
+                        </button>
+                        <button 
+                          className="ub-btn-danger"
+                          onClick={() => deleteBooking(selectedBooking.our_reference, cancelReason)}
+                          disabled={processingAction}
+                        >
+                          {processingAction ? (
+                            <>
+                              <RefreshCw className="ub-spinning" size={16} />
+                              Deleting...
+                            </>
+                          ) : (
+                            <>
+                              <Trash2 size={16} />
+                              Delete Record
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div className="ub-action-form">
-                  <div className="ub-warning-message">
-                    <AlertCircle size={24} />
-                    <div>
-                      <h4>
-                        {modalType === 'cancel' ? 'Cancel Your Booking' : 'Delete Booking Record'}
-                      </h4>
-                      <p>
-                        {modalType === 'cancel' 
-                          ? 'Cancelling your booking will process a refund according to the cancellation policy. This action cannot be undone.'
-                          : 'This will permanently remove this booking from your history. Only cancelled bookings can be deleted.'
-                        }
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="ub-form-group">
-                    <label>Reason (Optional)</label>
-                    <textarea
-                      value={cancelReason}
-                      onChange={(e) => setCancelReason(e.target.value)}
-                      placeholder={`Why are you ${modalType === 'cancel' ? 'cancelling' : 'deleting'} this booking?`}
-                      rows={3}
-                      className="ub-reason-textarea"
-                    />
-                  </div>
-
-                  <div className="ub-modal-actions">
-                    <button 
-                      className="ub-btn-secondary"
-                      onClick={() => setShowModal(false)}
-                      disabled={processingAction}
-                    >
-                      Keep Booking
-                    </button>
-                    <button 
-                      className={`ub-btn-primary ${modalType === 'delete' ? 'ub-btn-danger' : 'ub-btn-warning'}`}
-                      onClick={() => {
-                        if (modalType === 'cancel') {
-                          cancelBooking(selectedBooking.our_reference, cancelReason);
-                        } else {
-                          deleteBooking(selectedBooking.our_reference, cancelReason);
-                        }
-                      }}
-                      disabled={processingAction}
-                    >
-                      {processingAction ? (
-                        <>
-                          <RefreshCw className="ub-spinning" size={16} />
-                          Processing...
-                        </>
-                      ) : (
-                        <>
-                          {modalType === 'cancel' ? <XCircle size={16} /> : <Trash2 size={16} />}
-                          {modalType === 'cancel' ? 'Cancel Booking' : 'Delete Record'}
-                        </>
+                <div className="ub-action-result">
+                  {actionResult.success ? (
+                    <>
+                      <div className="ub-success-animation">
+                        <div className="ub-success-icon">
+                          <CheckCircle size={64} />
+                          <div className="ub-success-pulse"></div>
+                        </div>
+                      </div>
+                      
+                      <h2>{actionResult.type === 'cancel' ? '✅ Booking Cancelled Successfully!' : '✅ Booking Updated Successfully!'}</h2>
+                      <p>{actionResult.message}</p>
+                      
+                      {actionResult.data && (
+                        <div className="ub-result-details">
+                          <div className="ub-detail-row">
+                            <span>Reference:</span>
+                            <strong>{actionResult.data.our_reference || actionResult.data.reference}</strong>
+                          </div>
+                          {actionResult.data.refund_amount && (
+                            <div className="ub-detail-row">
+                              <span>Refund Amount:</span>
+                              <strong>£{actionResult.data.refund_amount}</strong>
+                            </div>
+                          )}
+                          {actionResult.type === 'cancel' && (
+                            <div className="ub-detail-row">
+                              <span>Refund Processing:</span>
+                              <span>3-5 business days</span>
+                            </div>
+                          )}
+                        </div>
                       )}
-                    </button>
-                  </div>
+                      
+                      <div className="ub-success-actions">
+                        <button 
+                          className="ub-action-btn ub-primary"
+                          onClick={() => {
+                            setShowModal(false);
+                            setSelectedBooking(null);
+                            setModalType('view');
+                            setCancelReason('');
+                            setActionResult(null);
+                          }}
+                        >
+                          <CheckCircle size={18} />
+                          <span>Done</span>
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="ub-error-animation">
+                        <div className="ub-error-icon">
+                          <AlertCircle size={64} />
+                          <div className="ub-error-pulse"></div>
+                        </div>
+                      </div>
+                      
+                      <h2>❌ {actionResult.type === 'cancel' ? 'Cancellation Failed' : 'Amendment Failed'}</h2>
+                      <p>{actionResult.message}</p>
+                      
+                      <div className="ub-error-actions">
+                        <button 
+                          className="ub-retry-btn"
+                          onClick={() => {
+                            setActionResult(null);
+                          }}
+                        >
+                          Try Again
+                        </button>
+                        <button 
+                          className="ub-btn-secondary"
+                          onClick={() => {
+                            setShowModal(false);
+                            setSelectedBooking(null);
+                            setModalType('view');
+                            setCancelReason('');
+                            setActionResult(null);
+                          }}
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>
