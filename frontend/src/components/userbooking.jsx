@@ -1,11 +1,10 @@
-// UserBooking.jsx - COMPLETE FIXED VERSION with perfect backend integration
 import React, { useState, useEffect } from 'react';
 import { 
   Calendar, User, Car, CreditCard, MapPin, Clock, Phone, Mail, 
   Plane, AlertCircle, CheckCircle, XCircle, RefreshCw, Trash2,
   Eye, Download, Filter, Search, Star, Shield, Navigation,
   ArrowLeft, Home, LogOut, Bell, Settings, Plus, Edit, Loader2,
-  Info, Award, Bug
+  Info, Award
 } from 'lucide-react';
 import './userbooking.css';
 
@@ -23,30 +22,29 @@ const UserBooking = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState('created_at');
   const [showModal, setShowModal] = useState(false);
-  const [modalType, setModalType] = useState('view');
+  const [modalType, setModalType] = useState('view'); // 'view', 'cancel', 'amend'
   const [cancelReason, setCancelReason] = useState('');
   const [processingAction, setProcessingAction] = useState(false);
   const [authStatus, setAuthStatus] = useState({ isLoggedIn: false, user: null });
   const [actionResult, setActionResult] = useState(null);
-  const [debugMode, setDebugMode] = useState(false);
-  const [debugInfo, setDebugInfo] = useState(null);
 
-  // ✅ FIXED: Amend form state matching your backend expected fields
+  // NEW: Amend form state
   const [amendFormData, setAmendFormData] = useState({
-    new_dropoff_time: '',
-    new_pickup_time: '',
-    new_dropoff_date: '',
-    new_pickup_date: '',
-    new_customer_phone: '',
-    new_customer_email: '',
-    new_departure_flight: '',
-    new_arrival_flight: '',
-    new_vehicle_registration: '',
-    new_vehicle_make: '',
-    new_vehicle_model: '',
-    new_vehicle_color: '',
-    new_special_requests: '',
-    amendment_reason: ''
+    dropoff_time: '',
+    pickup_time: '',
+    title: '',
+    first_name: '',
+    last_name: '',
+    customer_email: '',
+    phone_number: '',
+    departure_flight_number: '',
+    arrival_flight_number: '',
+    departure_terminal: '',
+    arrival_terminal: '',
+    car_registration_number: '',
+    car_make: '',
+    car_model: '',
+    car_color: ''
   });
 
   // Airport mapping for better display
@@ -61,135 +59,67 @@ const UserBooking = () => {
     'GLA': 'Glasgow'
   };
 
-  // ENHANCED: Debug logging functions
-  const logDebug = (message, data = null) => {
-    console.log(`🔧 [UserBooking Debug] ${message}`, data || '');
-    if (debugMode) {
-      setDebugInfo(prev => [
-        ...(prev || []),
-        { timestamp: new Date().toLocaleTimeString(), message, data }
-      ]);
-    }
-  };
-
-  const debugBookingData = (booking, context = 'General') => {
-    const debugData = {
-      context,
-      booking_fields: Object.keys(booking || {}),
-      reference_fields: {
-        our_reference: booking?.our_reference,
-        magr_reference: booking?.magr_reference,
-        booking_reference: booking?.booking_reference,
-        _id: booking?._id
-      },
-      status: booking?.status,
-      service_features: booking?.service_features,
-      customer_details: booking?.customer_details,
-      travel_details: booking?.travel_details,
-      vehicle_details: booking?.vehicle_details,
-      payment_details: booking?.payment_details,
-      nested_structure_exists: {
-        has_customer_details: !!booking?.customer_details,
-        has_travel_details: !!booking?.travel_details,
-        has_vehicle_details: !!booking?.vehicle_details,
-        has_service_features: !!booking?.service_features
-      }
-    };
-
-    logDebug(`Backend Schema Debug (${context})`, debugData);
-    
-    if (debugMode) {
-      alert(`🔧 Backend Schema Debug (${context}):
-REFERENCE FIELDS:
-✅ our_reference: ${booking?.our_reference || 'MISSING'}
-✅ magr_reference: ${booking?.magr_reference || 'MISSING'}
-❓ booking_reference: ${booking?.booking_reference || 'MISSING'}
-
-NESTED OBJECTS:
-✅ customer_details: ${!!booking?.customer_details}
-✅ travel_details: ${!!booking?.travel_details}
-✅ vehicle_details: ${!!booking?.vehicle_details}
-✅ service_features: ${!!booking?.service_features}
-
-SERVICE FEATURES:
-✅ is_cancelable: ${booking?.service_features?.is_cancelable}
-✅ is_editable: ${booking?.service_features?.is_editable}
-
-STATUS: ${booking?.status || 'MISSING'}
-TOTAL FIELDS: ${Object.keys(booking || {}).length}`);
-    }
-    
-    return debugData;
-  };
-
-  // ✅ FIXED: Get booking reference with your exact backend schema priority
-  const getBookingReference = (booking) => {
-    // ✅ Priority order matching your backend schema
-    const candidates = [
-      { name: 'our_reference', value: booking?.our_reference },           // PRIMARY field in your schema
-      { name: 'magr_reference', value: booking?.magr_reference },         // SECONDARY field in your schema
-      { name: 'booking_reference', value: booking?.booking_reference },   // Fallback
-      { name: '_id', value: booking?._id },                               // Database ID
-      { name: 'id', value: booking?.id }                                  // Alternative ID
-    ];
-
-    logDebug('Getting booking reference (Backend Schema)', {
-      our_reference: booking?.our_reference,
-      magr_reference: booking?.magr_reference,
-      booking_reference: booking?.booking_reference,
-      all_booking_keys: Object.keys(booking || {}).slice(0, 10)
-    });
-
-    const validCandidate = candidates.find(c => 
-      c.value && 
-      c.value !== null && 
-      c.value !== undefined && 
-      c.value !== '' &&
-      String(c.value).trim() !== ''
-    );
-
-    const result = validCandidate?.value;
-    
-    logDebug('Selected booking reference', {
-      selected_field: validCandidate?.name || 'NONE',
-      selected_value: result || 'NONE',
-      type: typeof result
-    });
-
-    return result;
-  };
-
-  // Authentication functions (keeping your existing ones)
+  // FIXED: Enhanced Authentication functions with comprehensive token detection
   const getAuthToken = () => {
     try {
+      // Check localStorage first (most common)
       const localStorageKeys = [
         'token', 'authToken', 'jwt', 'access_token', 
         'auth_token', 'userToken', 'accessToken',
         'parksy_token', 'user_token', 'Authorization'
       ];
       
+      console.log('🔍 UserBooking: Checking localStorage for tokens...');
       for (const key of localStorageKeys) {
         const token = localStorage.getItem(key);
         if (token && token !== 'null' && token !== 'undefined' && token.length > 10) {
+          console.log(`✅ UserBooking: Found valid token in localStorage[${key}]`, {
+            length: token.length,
+            isJWT: token.includes('.') && token.split('.').length === 3,
+            preview: token.substring(0, 30) + '...'
+          });
           return token;
         }
       }
 
+      // Check sessionStorage
       const sessionStorageKeys = [
         'token', 'authToken', 'jwt', 'access_token',
         'auth_token', 'userToken', 'accessToken'
       ];
       
+      console.log('🔍 UserBooking: Checking sessionStorage for tokens...');
       for (const key of sessionStorageKeys) {
         const token = sessionStorage.getItem(key);
         if (token && token !== 'null' && token !== 'undefined' && token.length > 10) {
+          console.log(`✅ UserBooking: Found valid token in sessionStorage[${key}]`);
           return token;
         }
       }
 
+      // Check cookies as fallback
+      const cookies = document.cookie.split(';');
+      for (const cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (['token', 'authToken', 'jwt', 'access_token'].includes(name) && value && value.length > 10) {
+          console.log(`✅ UserBooking: Found token in cookie[${name}]`);
+          return decodeURIComponent(value);
+        }
+      }
+
+      console.log('❌ UserBooking: No valid authentication token found anywhere');
+      
+      // Debug: Log what's actually in storage
+      console.log('📋 UserBooking: Current localStorage contents:');
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        const value = localStorage.getItem(key);
+        console.log(`  ${key}: ${value ? (value.length > 50 ? value.substring(0, 50) + '...' : value) : 'null'}`);
+      }
+
       return null;
     } catch (error) {
-      logDebug('Error accessing browser storage', error);
+      console.error('❌ UserBooking: Error accessing browser storage:', error);
       return null;
     }
   };
@@ -198,10 +128,12 @@ TOTAL FIELDS: ${Object.keys(booking || {}).length}`);
     const token = getAuthToken();
     if (!token) return null;
     
+    // If it's already a JWT, return as-is
     if (token.includes('.') && token.split('.').length === 3 && !token.startsWith('{')) {
       return token;
     }
     
+    // Convert other formats to JWT if needed
     try {
       let userData = null;
       
@@ -211,7 +143,7 @@ TOTAL FIELDS: ${Object.keys(booking || {}).length}`);
         try {
           userData = JSON.parse(atob(token));
         } catch (e) {
-          return token;
+          return token; // Use as-is if can't convert
         }
       }
       
@@ -235,7 +167,7 @@ TOTAL FIELDS: ${Object.keys(booking || {}).length}`);
         return `${header}.${payload}.${signature}`;
       }
     } catch (error) {
-      logDebug('Token conversion failed', error);
+      console.error('❌ Token conversion failed:', error);
     }
     
     return token;
@@ -243,11 +175,15 @@ TOTAL FIELDS: ${Object.keys(booking || {}).length}`);
 
   const getUserInfoFromToken = () => {
     const token = getAuthToken();
-    if (!token) return null;
+    if (!token) {
+      console.log('❌ UserBooking: No token available for decoding');
+      return null;
+    }
     
     try {
       let payload;
       
+      // Handle JWT format
       if (token.includes('.') && token.split('.').length === 3) {
         const parts = token.split('.');
         const base64Url = parts[1];
@@ -262,12 +198,22 @@ TOTAL FIELDS: ${Object.keys(booking || {}).length}`);
         }).join(''));
         
         payload = JSON.parse(jsonPayload);
+        console.log('✅ UserBooking: JWT token decoded successfully:', {
+          id: payload.id || payload.user_id || payload.sub,
+          email: payload.email,
+          role: payload.role,
+          exp: payload.exp ? new Date(payload.exp * 1000) : 'no expiry'
+        });
       } else {
+        // Try parsing as base64 encoded JSON (fallback)
         try {
           payload = JSON.parse(atob(token));
+          console.log('✅ UserBooking: Base64 token decoded successfully');
         } catch (base64Error) {
+          // Maybe it's already a JSON string?
           try {
             payload = JSON.parse(token);
+            console.log('✅ UserBooking: JSON token parsed successfully');
           } catch (jsonError) {
             throw new Error('Token is not in JWT, Base64, or JSON format');
           }
@@ -276,20 +222,33 @@ TOTAL FIELDS: ${Object.keys(booking || {}).length}`);
       
       return payload;
     } catch (error) {
-      logDebug('Error decoding token', error);
+      console.error('❌ UserBooking: Error decoding token:', {
+        message: error.message,
+        tokenLength: token ? token.length : 0,
+        tokenStart: token ? token.substring(0, 20) : 'none',
+        hasDotsInToken: token ? token.includes('.') : false
+      });
       return null;
     }
   };
 
-  // Check authentication status
+  // Check authentication status with enhanced debugging
   useEffect(() => {
     const checkAuth = () => {
+      console.log('🔐 UserBooking: Checking authentication status...');
+      
       const token = getAuthToken();
       const userInfo = getUserInfoFromToken();
       
-      const isLoggedIn = !!(token && userInfo);
+      console.log('🔐 UserBooking: Authentication check result:', {
+        hasToken: !!token,
+        hasUserInfo: !!userInfo,
+        tokenLength: token ? token.length : 0,
+        userEmail: userInfo?.email || 'none',
+        userId: userInfo?.id || userInfo?.user_id || userInfo?.sub || 'none'
+      });
       
-      logDebug('Authentication check', { isLoggedIn, hasToken: !!token, hasUserInfo: !!userInfo });
+      const isLoggedIn = !!(token && userInfo);
       
       setAuthStatus({
         isLoggedIn: isLoggedIn,
@@ -304,7 +263,9 @@ TOTAL FIELDS: ${Object.keys(booking || {}).length}`);
 
     checkAuth();
     
+    // Listen for storage changes (login/logout in other tabs)
     const handleStorageChange = (e) => {
+      console.log('💾 UserBooking: Storage changed:', e.key, 'New value exists:', !!e.newValue);
       if (e.key && ['token', 'authToken', 'jwt', 'access_token'].includes(e.key)) {
         checkAuth();
       }
@@ -314,10 +275,10 @@ TOTAL FIELDS: ${Object.keys(booking || {}).length}`);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // ✅ FIXED: Fetch user bookings using correct backend endpoint and field mapping
+  // FIXED: Enhanced Fetch user's bookings with comprehensive API endpoint checking
   const fetchUserBookings = async () => {
     if (!authStatus.isLoggedIn) {
-      logDebug('Cannot fetch bookings - user not logged in');
+      console.log('❌ UserBookings: Cannot fetch bookings - user not logged in');
       return;
     }
 
@@ -327,128 +288,139 @@ TOTAL FIELDS: ${Object.keys(booking || {}).length}`);
       
       const authToken = getValidJWTToken();
       
+      console.log('🚀 UserBookings: Starting fetchUserBookings with enhanced debug:', {
+        tokenExists: !!authToken,
+        tokenLength: authToken ? authToken.length : 0,
+        isValidJWT: authToken ? (authToken.includes('.') && authToken.split('.').length === 3) : false,
+        tokenPreview: authToken ? authToken.substring(0, 30) + '...' : 'none',
+        userEmail: authStatus.user?.email,
+        userId: authStatus.user?.id || authStatus.user?.user_id
+      });
+      
       if (!authToken) {
         throw new Error('No authentication token found in storage');
       }
 
-      logDebug('Fetching user bookings from backend', { tokenLength: authToken.length });
+      // FIXED: Try multiple possible endpoints for user bookings
+      const possibleEndpoints = [
+        `${API_BASE_URL}/api/parking/my-bookings`,
+        `${API_BASE_URL}/api/parking/bookings`,
+        `${API_BASE_URL}/api/parking/user-bookings`,
+        `${API_BASE_URL}/api/parking/get-bookings`
+      ];
 
-      // ✅ FIXED: Use your exact backend endpoint
-      const response = await fetch(`${API_BASE_URL}/api/parking/my-bookings`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`, // ✅ Your backend uses Authorization header
-          'X-Requested-With': 'XMLHttpRequest',
-          'Accept': 'application/json'
-        }
-      });
+      let lastError = null;
+      let successfulResponse = null;
 
-      logDebug('Bookings API response', {
-        status: response.status,
-        ok: response.ok,
-        statusText: response.statusText
-      });
+      // Try each endpoint until we find one that works
+      for (const endpoint of possibleEndpoints) {
+        try {
+          console.log(`🌐 UserBookings: Trying endpoint: ${endpoint}`);
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Network error' }));
-        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      logDebug('Raw backend response received', { 
-        success: data.success, 
-        dataStructure: Object.keys(data),
-        bookingsCount: data.bookings?.length || 0
-      });
-      
-      // ✅ FIXED: Your backend returns { success: true, bookings: [...] }
-      if (data.success && data.bookings) {
-        const bookingsArray = Array.isArray(data.bookings) ? data.bookings : [];
-        
-        // ✅ FIXED: Process bookings with correct backend schema mapping
-        const enhancedBookings = bookingsArray.map((booking, index) => {
-          logDebug(`Processing booking ${index} with backend schema`, {
-            our_reference: booking.our_reference,
-            magr_reference: booking.magr_reference,
-            status: booking.status,
-            has_service_features: !!booking.service_features,
-            service_features: booking.service_features
+          const response = await fetch(endpoint, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${authToken}`,
+              'X-Requested-With': 'XMLHttpRequest',
+              'Accept': 'application/json'
+            }
           });
 
-          return {
-            ...booking,
-            
-            // ✅ FIXED: Frontend compatibility fields (mapped from backend)
-            booking_reference: booking.our_reference, // For frontend compatibility
-            
-            // ✅ FIXED: Map customer details from nested structure
-            customer_name: booking.customer_details 
-              ? `${booking.customer_details.first_name || ''} ${booking.customer_details.last_name || ''}`.trim()
-              : (booking.customer_name || 'Unknown Customer'),
-            customer_email: booking.customer_details?.customer_email || booking.user_email,
-            customer_phone: booking.customer_details?.phone_number,
-            
-            // ✅ FIXED: Map travel details from nested structure
-            dropoff_date: booking.travel_details?.dropoff_date || booking.dropoff_date,
-            dropoff_time: booking.travel_details?.dropoff_time || booking.dropoff_time,
-            pickup_date: booking.travel_details?.pickup_date || booking.pickup_date,
-            pickup_time: booking.travel_details?.pickup_time || booking.pickup_time,
-            departure_flight_number: booking.travel_details?.departure_flight_number,
-            arrival_flight_number: booking.travel_details?.arrival_flight_number,
-            departure_terminal: booking.travel_details?.departure_terminal,
-            arrival_terminal: booking.travel_details?.arrival_terminal,
-            
-            // ✅ FIXED: Map vehicle details from nested structure
-            vehicle_registration: booking.vehicle_details?.car_registration_number || booking.car_registration_number,
-            car_registration_number: booking.vehicle_details?.car_registration_number || booking.car_registration_number,
-            vehicle_make: booking.vehicle_details?.car_make,
-            vehicle_model: booking.vehicle_details?.car_model,
-            vehicle_color: booking.vehicle_details?.car_color,
-            
-            // ✅ FIXED: Map payment details from nested structure
-            payment_method: booking.payment_details?.payment_method,
-            payment_status: booking.payment_details?.payment_status,
-            stripe_payment_intent_id: booking.payment_details?.stripe_payment_intent_id,
-            payment_amount: booking.payment_details?.stripe_amount || booking.booking_amount,
-            
-            // ✅ FIXED: Map service features from nested structure (KEY FIX!)
-            is_cancelable: booking.service_features?.is_cancelable !== false && booking.status === 'confirmed',
-            is_editable: booking.service_features?.is_editable !== false && booking.status === 'confirmed',
-            
-            // Display status
-            display_status: booking.status === 'confirmed' ? 'Active' : 
-                            booking.status === 'cancelled' ? 'Cancelled' :
-                            booking.status === 'amended' ? 'Modified' : 'Processing',
-            
-            // Debug reference
-            _debug_reference: getBookingReference(booking)
-          };
-        });
+          console.log(`📡 UserBookings: Response from ${endpoint}:`, {
+            status: response.status,
+            statusText: response.statusText,
+            ok: response.ok
+          });
+
+          if (response.ok) {
+            successfulResponse = { response, endpoint };
+            break;
+          } else if (response.status !== 404) {
+            // If it's not a 404, try to get error details
+            try {
+              const errorData = await response.json();
+              lastError = new Error(errorData.message || `HTTP ${response.status} from ${endpoint}`);
+              console.error(`❌ UserBookings: Error from ${endpoint}:`, errorData);
+            } catch (parseError) {
+              lastError = new Error(`HTTP ${response.status} from ${endpoint}`);
+            }
+          }
+
+        } catch (networkError) {
+          console.error(`❌ UserBookings: Network error for ${endpoint}:`, networkError.message);
+          lastError = networkError;
+          continue; // Try next endpoint
+        }
+      }
+
+      // If no endpoint worked, throw the last error
+      if (!successfulResponse) {
+        throw lastError || new Error('All booking endpoints failed. Please check if the backend has a user bookings endpoint.');
+      }
+
+      // Parse successful response
+      const data = await successfulResponse.response.json();
+      
+      console.log('✅ UserBookings: Successful API Response:', {
+        endpoint: successfulResponse.endpoint,
+        success: data.success,
+        dataExists: !!data.data,
+        dataType: Array.isArray(data.data) ? 'array' : typeof data.data,
+        dataCount: Array.isArray(data.data) ? data.data.length : 'not array',
+        message: data.message
+      });
+      
+      if (data.success && data.data) {
+        const bookingsArray = Array.isArray(data.data) ? data.data : [];
         
-        logDebug('Enhanced bookings processed with backend schema mapping', { count: enhancedBookings.length });
-        
-        setUserBookings(enhancedBookings);
-        setFilteredBookings(enhancedBookings);
+        setUserBookings(bookingsArray);
+        setFilteredBookings(bookingsArray);
         setError(null);
-      } else {
-        logDebug('No bookings data in response', data);
+        
+        console.log('✅ UserBookings: Bookings loaded successfully:', bookingsArray.length, 'bookings from', successfulResponse.endpoint);
+      } else if (data.success && !data.data) {
+        // Success but no data means empty bookings
+        console.log('✅ UserBookings: No bookings found for user');
         setUserBookings([]);
         setFilteredBookings([]);
         setError(null);
+      } else {
+        console.warn('⚠️ UserBookings: API returned success=false:', data);
+        throw new Error(data.message || 'Failed to fetch booking data from server');
       }
 
     } catch (error) {
-      logDebug('Error fetching bookings', error);
-      setError(`Failed to load bookings: ${error.message}`);
+      console.error('❌ UserBookings: Complete error in fetchUserBookings:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack?.substring(0, 300),
+        authStatus: authStatus.isLoggedIn,
+        hasToken: !!getAuthToken()
+      });
+      
+      // Enhanced error handling
+      let userFriendlyMessage = error.message;
+      
+      if (error.message.includes('endpoints failed')) {
+        userFriendlyMessage = 'Unable to connect to booking service. The backend may not have user booking endpoints set up yet.';
+      } else if (error.message.includes('session') || error.message.includes('token')) {
+        userFriendlyMessage = 'Your login session has expired. Please log in again.';
+        setUserBookings([]);
+        setFilteredBookings([]);
+      } else if (error.message.includes('fetch')) {
+        userFriendlyMessage = 'Network connection error. Please check your internet connection.';
+      }
+      
+      setError(`Failed to load bookings: ${userFriendlyMessage}`);
+      
     } finally {
       setLoading(false);
     }
   };
 
-  // ✅ FIXED: Handle Cancel Booking with debugging
+  // NEW: Handle Cancel Booking
   const handleCancelBooking = async (booking) => {
-    debugBookingData(booking, 'Cancel Booking Handler');
     setSelectedBooking(booking);
     setModalType('cancel');
     setShowModal(true);
@@ -456,46 +428,37 @@ TOTAL FIELDS: ${Object.keys(booking || {}).length}`);
     setActionResult(null);
   };
 
-  // ✅ FIXED: Handle Amend Booking with correct field pre-population
+  // NEW: Handle Amend Booking
   const handleAmendBooking = async (booking) => {
-    debugBookingData(booking, 'Amend Booking Handler');
     setSelectedBooking(booking);
     setModalType('amend');
     setShowModal(true);
     setCancelReason('');
     setActionResult(null);
     
-    // ✅ FIXED: Pre-populate with backend field names that your backend expects
+    // Pre-populate amend form with current booking data
     if (booking) {
-      logDebug('Pre-populating amend form with backend data', {
-        travel_details: booking.travel_details,
-        customer_details: booking.customer_details,
-        vehicle_details: booking.vehicle_details
-      });
-
       setAmendFormData({
-        // ✅ Your backend expects these exact field names
-        new_dropoff_time: booking.travel_details?.dropoff_time || booking.dropoff_time || '',
-        new_pickup_time: booking.travel_details?.pickup_time || booking.pickup_time || '',
-        new_dropoff_date: booking.travel_details?.dropoff_date || booking.dropoff_date || '',
-        new_pickup_date: booking.travel_details?.pickup_date || booking.pickup_date || '',
-        new_customer_phone: booking.customer_details?.phone_number || '',
-        new_customer_email: booking.customer_details?.customer_email || booking.user_email || '',
-        new_departure_flight: booking.travel_details?.departure_flight_number || '',
-        new_arrival_flight: booking.travel_details?.arrival_flight_number || '',
-        new_vehicle_registration: booking.vehicle_details?.car_registration_number || booking.car_registration_number || '',
-        new_vehicle_make: booking.vehicle_details?.car_make || '',
-        new_vehicle_model: booking.vehicle_details?.car_model || '',
-        new_vehicle_color: booking.vehicle_details?.car_color || '',
-        new_special_requests: booking.notes || booking.special_requests || '',
-        amendment_reason: ''
+        dropoff_time: booking.dropoff_time || '',
+        pickup_time: booking.pickup_time || '',
+        title: booking.customer_details?.title || '',
+        first_name: booking.customer_details?.first_name || '',
+        last_name: booking.customer_details?.last_name || '',
+        customer_email: booking.customer_details?.customer_email || '',
+        phone_number: booking.customer_details?.phone_number || '',
+        departure_flight_number: booking.departure_flight_number || '',
+        arrival_flight_number: booking.arrival_flight_number || '',
+        departure_terminal: booking.departure_terminal || '',
+        arrival_terminal: booking.arrival_terminal || '',
+        car_registration_number: booking.vehicle_details?.car_registration_number || '',
+        car_make: booking.vehicle_details?.car_make || '',
+        car_model: booking.vehicle_details?.car_model || '',
+        car_color: booking.vehicle_details?.car_color || ''
       });
-
-      logDebug('Amend form pre-populated successfully');
     }
   };
 
-  // ✅ FIXED: Process booking actions with correct backend field mapping
+  // NEW: Process Cancel/Amend Action
   const processBookingAction = async () => {
     if (!selectedBooking || !modalType) return;
 
@@ -508,100 +471,50 @@ TOTAL FIELDS: ${Object.keys(booking || {}).length}`);
         throw new Error('Authentication token not found');
       }
 
-      const bookingReference = getBookingReference(selectedBooking);
-      if (!bookingReference) {
-        debugBookingData(selectedBooking, 'No Reference Found');
-        throw new Error('No valid booking reference found. Cannot process action.');
-      }
-
-      logDebug(`Processing ${modalType} action with backend integration`, {
-        booking_reference: bookingReference,
-        booking_status: selectedBooking.status,
-        modal_type: modalType
-      });
-
       if (modalType === 'cancel') {
-        logDebug('Cancelling booking with backend API');
-        
-        // ✅ FIXED: Use exact payload format your backend expects
-        const cancelPayload = {
-          booking_reference: bookingReference, // ✅ Your backend expects this field
-          cancellation_reason: cancelReason || 'User requested cancellation' // ✅ Your backend expects this field (not refund_amount)
-        };
-
-        logDebug('Cancel payload (Backend Format)', cancelPayload);
-
-        if (debugMode) {
-          alert(`🚫 CANCEL DEBUG:
-✅ Endpoint: POST /api/parking/cancel-booking
-✅ Reference: ${bookingReference}
-✅ Payload: ${JSON.stringify(cancelPayload, null, 2)}`);
-        }
-        
+        // Cancel booking
         const response = await fetch(`${API_BASE_URL}/api/parking/cancel-booking`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${authToken}`, // ✅ Your backend uses Authorization header
+            'Authorization': `Bearer ${authToken}`,
           },
-          body: JSON.stringify(cancelPayload)
+          body: JSON.stringify({
+            booking_reference: selectedBooking.our_reference,
+            refund_amount: selectedBooking.booking_amount,
+            reason: cancelReason || 'User requested cancellation'
+          })
         });
-
-        logDebug('Cancel response received', {
-          status: response.status,
-          statusText: response.statusText,
-          ok: response.ok
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          logDebug('Cancel API error response', errorData);
-          throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
-        }
 
         const result = await response.json();
-        logDebug('Cancel success response', result);
         
         if (result.success) {
           setActionResult({
             success: true,
             type: 'cancel',
-            message: result.message || 'Booking cancelled successfully! Refund will be processed within 3-5 business days.',
-            data: result.booking || result.data || result
+            message: 'Booking cancelled successfully! Refund will be processed within 3-5 business days.',
+            data: result.data
           });
           
+          // Refresh user bookings
           await fetchUserBookings();
         } else {
           throw new Error(result.message || 'Failed to cancel booking');
         }
 
       } else if (modalType === 'amend') {
-        logDebug('Amending booking with backend API');
-        
-        // ✅ FIXED: Use exact payload format your backend expects
-        const amendPayload = {
-          booking_reference: bookingReference,
-          amendment_reason: cancelReason || 'User requested changes'
+        // Amend booking
+        const amendData = {
+          booking_reference: selectedBooking.our_reference,
+          ...amendFormData
         };
 
-        // ✅ FIXED: Only include fields that have values (and use exact backend field names)
-        Object.entries(amendFormData).forEach(([key, value]) => {
-          if (value && value.trim && value.trim() !== '') {
-            amendPayload[key] = value.trim();
-          } else if (value && !value.trim) {
-            amendPayload[key] = value;
+        // Remove empty fields
+        Object.keys(amendData).forEach(key => {
+          if (amendData[key] === '' || amendData[key] === null || amendData[key] === undefined) {
+            delete amendData[key];
           }
         });
-
-        logDebug('Amend payload (Backend Format)', amendPayload);
-
-        if (debugMode) {
-          alert(`✏️ AMEND DEBUG:
-✅ Endpoint: POST /api/parking/amend-booking
-✅ Reference: ${bookingReference}
-✅ Fields: ${Object.keys(amendPayload).filter(k => k.startsWith('new_')).join(', ')}
-✅ Payload: ${JSON.stringify(amendPayload, null, 2)}`);
-        }
 
         const response = await fetch(`${API_BASE_URL}/api/parking/amend-booking`, {
           method: 'POST',
@@ -609,32 +522,20 @@ TOTAL FIELDS: ${Object.keys(booking || {}).length}`);
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${authToken}`,
           },
-          body: JSON.stringify(amendPayload)
+          body: JSON.stringify(amendData)
         });
-
-        logDebug('Amend response received', {
-          status: response.status,
-          statusText: response.statusText,
-          ok: response.ok
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          logDebug('Amend API error response', errorData);
-          throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
-        }
 
         const result = await response.json();
-        logDebug('Amend success response', result);
         
         if (result.success) {
           setActionResult({
             success: true,
             type: 'amend',
-            message: result.message || 'Booking amended successfully! Your changes have been saved.',
-            data: result.booking || result.data || result
+            message: 'Booking amended successfully! Your changes have been saved.',
+            data: result.data
           });
           
+          // Refresh user bookings
           await fetchUserBookings();
         } else {
           throw new Error(result.message || 'Failed to amend booking');
@@ -642,7 +543,7 @@ TOTAL FIELDS: ${Object.keys(booking || {}).length}`);
       }
 
     } catch (error) {
-      logDebug(`Error ${modalType}ing booking`, error);
+      console.error(`❌ Error ${modalType}ing booking:`, error);
       setActionResult({
         success: false,
         type: modalType,
@@ -654,107 +555,92 @@ TOTAL FIELDS: ${Object.keys(booking || {}).length}`);
     }
   };
 
+  // NEW: Handle amend form changes
   const handleAmendFormChange = (field, value) => {
-    logDebug(`Amend form field changed: ${field} = ${value}`);
     setAmendFormData(prev => ({
       ...prev,
       [field]: value
     }));
   };
 
-  // Debug API endpoints
-  const testDebugEndpoints = async () => {
-    const authToken = getValidJWTToken();
-    if (!authToken) {
-      alert('No auth token found!');
-      return;
-    }
-
+  // Delete booking (only cancelled ones)
+  const deleteBooking = async (bookingReference, reason) => {
     try {
-      setLoading(true);
-      logDebug('Testing debug endpoints');
+      setProcessingAction(true);
+      const authToken = getValidJWTToken();
 
-      const rawResponse = await fetch(`${API_BASE_URL}/api/parking/debug/user-bookings-raw`, {
-        method: 'GET',
+      if (!authToken) {
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/parking/my-bookings/${bookingReference}`, {
+        method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`,
-        }
+        },
+        body: JSON.stringify({ reason: reason || 'User deletion' })
       });
 
-      if (rawResponse.ok) {
-        const rawData = await rawResponse.json();
-        logDebug('Raw bookings data', rawData);
-        
-        if (rawData.bookings_found > 0 && rawData.raw_data?.length > 0) {
-          const firstBooking = rawData.raw_data[0];
-          const testReference = getBookingReference(firstBooking);
-          
-          if (testReference) {
-            const lookupResponse = await fetch(`${API_BASE_URL}/api/parking/debug/booking-lookup/${testReference}`, {
-              method: 'GET',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${authToken}`,
-              }
-            });
-
-            if (lookupResponse.ok) {
-              const lookupData = await lookupResponse.json();
-              logDebug('Booking lookup data', lookupData);
-            }
-          }
-        }
-
-        alert(`✅ Debug Test Results:
-📋 Raw Bookings Found: ${rawData.bookings_found || 0}
-🔍 User ID: ${rawData.user?.id}
-📧 User Email: ${rawData.user?.email}
-📊 Sample Structure Available: ${rawData.raw_data?.length > 0 ? 'Yes' : 'No'}
-Check console for detailed logs.`);
-      } else {
-        const errorData = await rawResponse.text();
-        alert(`❌ Debug endpoint failed: ${rawResponse.status}\n${errorData}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Deletion failed');
       }
 
+      const result = await response.json();
+      
+      if (result.success) {
+        // Remove from local state
+        setUserBookings(prevBookings => 
+          prevBookings.filter(booking => booking.our_reference !== bookingReference)
+        );
+        
+        // Refresh data
+        await fetchUserBookings();
+        
+        setShowModal(false);
+        setSelectedBooking(null);
+        setCancelReason('');
+        
+        alert('Booking deleted successfully!');
+      } else {
+        throw new Error(result.message || 'Deletion failed');
+      }
     } catch (error) {
-      logDebug('Debug endpoints error', error);
-      alert(`❌ Debug test failed: ${error.message}`);
+      console.error('❌ Error deleting booking:', error);
+      alert(`Failed to delete booking: ${error.message}`);
     } finally {
-      setLoading(false);
+      setProcessingAction(false);
     }
   };
-
-  // Load data on component mount
-  useEffect(() => {
-    if (authStatus.isLoggedIn) {
-      fetchUserBookings();
-    }
-  }, [authStatus.isLoggedIn]);
 
   // Filter and search bookings
   useEffect(() => {
     let filtered = [...userBookings];
 
+    // Search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(booking =>
-        getBookingReference(booking)?.toLowerCase().includes(query) ||
+        booking.our_reference?.toLowerCase().includes(query) ||
+        booking.magr_reference?.toLowerCase().includes(query) ||
         booking.product_name?.toLowerCase().includes(query) ||
         booking.vehicle_registration?.toLowerCase().includes(query) ||
         booking.airport_code?.toLowerCase().includes(query)
       );
     }
 
+    // Status filter
     if (statusFilter !== 'all') {
       filtered = filtered.filter(booking => booking.status === statusFilter);
     }
 
+    // Sort by date (most recent first)
     filtered.sort((a, b) => {
       if (sortBy === 'created_at') {
         return new Date(b.created_at) - new Date(a.created_at);
       } else if (sortBy === 'dropoff_date') {
-        return new Date(b.dropoff_date || b.travel_details?.dropoff_date) - new Date(a.dropoff_date || a.travel_details?.dropoff_date);
+        return new Date(b.dropoff_date) - new Date(a.dropoff_date);
       } else if (sortBy === 'booking_amount') {
         return (b.booking_amount || 0) - (a.booking_amount || 0);
       }
@@ -764,7 +650,20 @@ Check console for detailed logs.`);
     setFilteredBookings(filtered);
   }, [userBookings, searchQuery, statusFilter, sortBy]);
 
-  // Helper functions
+  // Load data on component mount with debugging
+  useEffect(() => {
+    console.log('🔄 UserBookings: useEffect triggered for data loading:', {
+      isLoggedIn: authStatus.isLoggedIn,
+      userEmail: authStatus.user?.email,
+      userId: authStatus.user?.id || authStatus.user?.user_id
+    });
+    
+    if (authStatus.isLoggedIn) {
+      fetchUserBookings();
+    }
+  }, [authStatus.isLoggedIn]);
+
+  // Format currency
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-GB', {
       style: 'currency',
@@ -772,6 +671,7 @@ Check console for detailed logs.`);
     }).format(amount || 0);
   };
 
+  // Format date
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-GB', {
@@ -783,6 +683,7 @@ Check console for detailed logs.`);
     });
   };
 
+  // Format date only (no time)
   const formatDateOnly = (dateString) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-GB', {
@@ -793,18 +694,19 @@ Check console for detailed logs.`);
     });
   };
 
+  // Get status badge class
   const getStatusBadge = (status) => {
     const statusClasses = {
       'confirmed': 'ub-status-badge ub-confirmed',
       'cancelled': 'ub-status-badge ub-cancelled',
       'pending': 'ub-status-badge ub-pending',
       'refunded': 'ub-status-badge ub-refunded',
-      'amended': 'ub-status-badge ub-amended',
       'payment_failed': 'ub-status-badge ub-failed'
     };
     return statusClasses[status] || 'ub-status-badge ub-unknown';
   };
 
+  // Get payment status badge
   const getPaymentStatusBadge = (paymentStatus) => {
     const statusClasses = {
       'paid': 'ub-payment-badge ub-paid',
@@ -816,6 +718,7 @@ Check console for detailed logs.`);
     return statusClasses[paymentStatus] || 'ub-payment-badge ub-unknown';
   };
 
+  // Navigation functions
   const goToHome = () => {
     window.location.href = '/';
   };
@@ -824,44 +727,22 @@ Check console for detailed logs.`);
     window.location.href = '/#/parking';
   };
 
-  // Enhanced debug function
+  // Debug button to check token manually
   const debugToken = () => {
+    console.log('🔧 UserBookings: Manual token debug triggered');
     const token = getAuthToken();
     const userInfo = getUserInfoFromToken();
     
-    const debugInfo = {
-      token_exists: !!token,
-      token_length: token ? token.length : 0,
-      is_jwt: token ? (token.includes('.') && token.split('.').length === 3) : false,
-      user_info: userInfo,
-      auth_status: authStatus.isLoggedIn,
-      bookings_count: userBookings.length,
-      sample_booking_refs: userBookings.slice(0, 3).map(b => ({
-        our_reference: b.our_reference,
-        magr_reference: b.magr_reference,
-        status: b.status,
-        service_features: b.service_features
-      }))
-    };
-
-    logDebug('Token debug info', debugInfo);
-    
-    alert(`🔧 Backend Integration Debug:
-✅ Token exists: ${!!token}
-✅ Token length: ${token ? token.length : 0}
-✅ Is JWT: ${token ? (token.includes('.') && token.split('.').length === 3) : false}
-✅ User authenticated: ${authStatus.isLoggedIn}
-✅ Bookings loaded: ${userBookings.length}
-✅ Debug mode: ${debugMode}
-
-🏗️ Backend Schema Ready:
-✅ Endpoint: /api/parking/my-bookings
-✅ Cancel: /api/parking/cancel-booking  
-✅ Amend: /api/parking/amend-booking
-✅ Field mapping: Backend nested structure
-Check console for detailed logs.`);
+    alert(`UserBookings Token Debug:
+Token exists: ${!!token}
+Token length: ${token ? token.length : 0}
+Is JWT: ${token ? (token.includes('.') && token.split('.').length === 3) : false}
+User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
+Auth status: ${authStatus.isLoggedIn}
+`);
   };
 
+  // If not logged in
   if (!authStatus.isLoggedIn) {
     return (
       <div className="ub-user-bookings">
@@ -880,17 +761,15 @@ Check console for detailed logs.`);
                 Back to Home
               </button>
             </div>
+            {/* Debug section */}
             <div className="ub-debug-section">
-              <button onClick={debugToken} className="ub-debug-btn">
-                <Bug size={16} />
-                Debug Integration
+              <button 
+                onClick={debugToken}
+                className="ub-debug-btn"
+              >
+                🔧 Debug Token
               </button>
-              <button onClick={() => setDebugMode(!debugMode)} 
-                      className={`ub-debug-btn ${debugMode ? 'active' : ''}`}>
-                <Settings size={16} />
-                Debug Mode: {debugMode ? 'ON' : 'OFF'}
-              </button>
-              <small>Backend integration debugging</small>
+              <small>Click to check authentication status</small>
             </div>
           </div>
         </div>
@@ -904,8 +783,7 @@ Check console for detailed logs.`);
         <div className="ub-loading-container">
           <RefreshCw className="ub-loading-spinner" size={48} />
           <h2>Loading Your Bookings...</h2>
-          <p>Fetching your travel history from backend...</p>
-          {debugMode && <small>Using /api/parking/my-bookings endpoint</small>}
+          <p>Fetching your travel history from secure servers...</p>
         </div>
       </div>
     );
@@ -927,13 +805,11 @@ Check console for detailed logs.`);
               <Home size={16} />
               Go Home
             </button>
-            <button onClick={debugToken} className="ub-debug-btn">
-              <Bug size={16} />
-              Debug
-            </button>
-            <button onClick={testDebugEndpoints} className="ub-debug-btn">
-              <Settings size={16} />
-              Test Backend APIs
+            <button 
+              onClick={debugToken}
+              className="ub-debug-btn"
+            >
+              🔧 Debug
             </button>
           </div>
         </div>
@@ -943,7 +819,7 @@ Check console for detailed logs.`);
 
   return (
     <div className="ub-user-bookings">
-      {/* Enhanced Header with Backend Integration Info */}
+      {/* Header */}
       <div className="ub-user-header">
         <div className="ub-header-content">
           <div className="ub-header-left">
@@ -951,10 +827,7 @@ Check console for detailed logs.`);
               <ArrowLeft size={20} />
             </button>
             <div className="ub-header-title">
-              <h1>
-                My Bookings 
-                {debugMode && <span style={{color: '#ff6b35'}}>(BACKEND INTEGRATED)</span>}
-              </h1>
+              <h1>My Bookings</h1>
               <p>Welcome back, {authStatus.user?.email || authStatus.user?.username || 'User'}!</p>
             </div>
           </div>
@@ -967,46 +840,8 @@ Check console for detailed logs.`);
               <RefreshCw size={16} />
               Refresh
             </button>
-            {debugMode && (
-              <button className="ub-debug-btn" onClick={testDebugEndpoints}>
-                <Bug size={16} />
-                Test Backend
-              </button>
-            )}
           </div>
         </div>
-      </div>
-
-      {/* Debug Panel */}
-      {debugMode && debugInfo && (
-        <div className="ub-debug-panel">
-          <h4>🔧 Backend Integration Debug Log</h4>
-          <div className="ub-debug-log">
-            {debugInfo.slice(-10).map((log, index) => (
-              <div key={index} className="ub-debug-entry">
-                <span className="ub-debug-time">{log.timestamp}</span>
-                <span className="ub-debug-message">{log.message}</span>
-                {log.data && <pre className="ub-debug-data">{JSON.stringify(log.data, null, 2).slice(0, 200)}...</pre>}
-              </div>
-            ))}
-          </div>
-          <button onClick={() => setDebugInfo([])} className="ub-debug-clear">Clear Log</button>
-        </div>
-      )}
-
-      {/* Debug Controls */}
-      <div className="ub-debug-controls">
-        <button onClick={() => setDebugMode(!debugMode)} 
-                className={`ub-debug-toggle ${debugMode ? 'active' : ''}`}>
-          <Bug size={14} />
-          Backend Debug: {debugMode ? 'ON' : 'OFF'}
-        </button>
-        {debugMode && (
-          <>
-            <button onClick={debugToken} className="ub-debug-btn">Integration Info</button>
-            <button onClick={testDebugEndpoints} className="ub-debug-btn">Test APIs</button>
-          </>
-        )}
       </div>
 
       {/* Stats Summary */}
@@ -1055,7 +890,6 @@ Check console for detailed logs.`);
             <option value="all">All Bookings</option>
             <option value="confirmed">Active Bookings</option>
             <option value="cancelled">Cancelled</option>
-            <option value="amended">Modified</option>
             <option value="refunded">Refunded</option>
           </select>
 
@@ -1091,33 +925,22 @@ Check console for detailed logs.`);
                 Make Your First Booking
               </button>
             )}
-            {debugMode && userBookings.length === 0 && (
-              <div className="ub-debug-hint">
-                <small>🔧 If you have bookings but don't see them, try the "Test Backend" button above</small>
-              </div>
-            )}
           </div>
         ) : (
           <div className="ub-bookings-grid">
             {filteredBookings.map((booking) => (
-              <div key={booking.id || booking._id || getBookingReference(booking)} className="ub-booking-card">
+              <div key={booking.id} className="ub-booking-card">
                 <div className="ub-card-header">
                   <div className="ub-booking-reference">
-                    <strong>#{getBookingReference(booking)}</strong>
+                    <strong>#{booking.our_reference}</strong>
                     <span className={getStatusBadge(booking.status)}>
-                      {booking.display_status || booking.status}
+                      {booking.status}
                     </span>
-                    {debugMode && (
-                      <span className="ub-debug-ref" title="Backend Reference">
-                        🏗️ {booking.our_reference || 'N/A'}
-                      </span>
-                    )}
                   </div>
                   <div className="ub-booking-actions">
                     <button
                       className="ub-action-btn ub-view"
                       onClick={() => {
-                        debugBookingData(booking, 'View Action');
                         setSelectedBooking(booking);
                         setModalType('view');
                         setShowModal(true);
@@ -1127,7 +950,7 @@ Check console for detailed logs.`);
                       <Eye size={14} />
                     </button>
                     
-                    {/* ✅ FIXED: Cancel Button - Now shows for confirmed bookings with proper backend field check */}
+                    {/* NEW: Cancel Button */}
                     {booking.status === 'confirmed' && booking.is_cancelable && (
                       <button
                         className="ub-action-btn ub-cancel"
@@ -1138,7 +961,7 @@ Check console for detailed logs.`);
                       </button>
                     )}
                     
-                    {/* ✅ FIXED: Amend Button - Now shows for confirmed bookings with proper backend field check */}
+                    {/* NEW: Amend Button */}
                     {booking.status === 'confirmed' && booking.is_editable && (
                       <button
                         className="ub-action-btn ub-amend"
@@ -1148,14 +971,18 @@ Check console for detailed logs.`);
                         <Edit size={14} />
                       </button>
                     )}
-
-                    {debugMode && (
+                    
+                    {booking.status === 'cancelled' && (
                       <button
-                        className="ub-action-btn ub-debug"
-                        onClick={() => debugBookingData(booking, 'Manual Debug')}
-                        title="Debug This Booking"
+                        className="ub-action-btn ub-delete"
+                        onClick={() => {
+                          setSelectedBooking(booking);
+                          setModalType('delete');
+                          setShowModal(true);
+                        }}
+                        title="Delete Booking"
                       >
-                        <Bug size={14} />
+                        <Trash2 size={14} />
                       </button>
                     )}
                   </div>
@@ -1205,13 +1032,13 @@ Check console for detailed logs.`);
                   <div className="ub-booking-date">
                     <small>Booked on {formatDate(booking.created_at)}</small>
                   </div>
-                  {booking.magr_reference && booking.our_reference !== booking.magr_reference && (
+                  {booking.magr_reference && (
                     <div className="ub-provider-ref">
-                      <small>Provider: {booking.magr_reference}</small>
+                      <small>Ref: {booking.magr_reference}</small>
                     </div>
                   )}
                   
-                  {/* ✅ FIXED: Booking capabilities indicators with backend field mapping */}
+                  {/* NEW: Booking capabilities indicators */}
                   <div className="ub-booking-capabilities">
                     {booking.is_cancelable && booking.status === 'confirmed' && (
                       <span className="ub-capability-badge cancelable" title="Cancellable">
@@ -1223,14 +1050,9 @@ Check console for detailed logs.`);
                         <Edit size={10} />
                       </span>
                     )}
-                    {booking.is_test_booking && (
+                    {booking.is_test_payment && (
                       <span className="ub-capability-badge test-mode" title="Test Mode">
                         TEST
-                      </span>
-                    )}
-                    {debugMode && (
-                      <span className="ub-capability-badge debug-mode" title="Backend Integrated">
-                        🏗️
                       </span>
                     )}
                   </div>
@@ -1241,7 +1063,7 @@ Check console for detailed logs.`);
         )}
       </div>
 
-      {/* ✅ FIXED: Enhanced Modal with backend field mapping */}
+      {/* Enhanced Modal */}
       {showModal && selectedBooking && (
         <div className="ub-modal-overlay" onClick={() => setShowModal(false)}>
           <div className="ub-modal-content" onClick={(e) => e.stopPropagation()}>
@@ -1251,11 +1073,6 @@ Check console for detailed logs.`);
                 {modalType === 'cancel' && 'Cancel Booking'}
                 {modalType === 'amend' && 'Amend Booking'}
                 {modalType === 'delete' && 'Delete Booking'}
-                {debugMode && (
-                  <span className="ub-debug-modal-info">
-                    (Backend Ref: {getBookingReference(selectedBooking)})
-                  </span>
-                )}
               </h2>
               <button 
                 className="ub-modal-close-btn"
@@ -1268,46 +1085,17 @@ Check console for detailed logs.`);
             <div className="ub-modal-body">
               {modalType === 'view' ? (
                 <div className="ub-booking-details-modal">
-                  {/* Backend Debug Section */}
-                  {debugMode && (
-                    <div className="ub-detail-section ub-debug-section">
-                      <h3>🏗️ Backend Schema Debug</h3>
-                      <div className="ub-debug-info">
-                        <pre>{JSON.stringify({
-                          backend_references: {
-                            our_reference: selectedBooking.our_reference,
-                            magr_reference: selectedBooking.magr_reference,
-                            selected: getBookingReference(selectedBooking)
-                          },
-                          backend_nested_data: {
-                            has_customer_details: !!selectedBooking.customer_details,
-                            has_travel_details: !!selectedBooking.travel_details,
-                            has_vehicle_details: !!selectedBooking.vehicle_details,
-                            has_service_features: !!selectedBooking.service_features
-                          },
-                          service_capabilities: {
-                            is_cancelable: selectedBooking.service_features?.is_cancelable,
-                            is_editable: selectedBooking.service_features?.is_editable,
-                            computed_cancelable: selectedBooking.is_cancelable,
-                            computed_editable: selectedBooking.is_editable
-                          },
-                          status: selectedBooking.status
-                        }, null, 2)}</pre>
-                      </div>
-                    </div>
-                  )}
-
                   {/* Booking Status */}
                   <div className="ub-detail-section">
                     <h3>Booking Status</h3>
                     <div className="ub-status-display">
                       <span className={getStatusBadge(selectedBooking.status)}>
-                        {selectedBooking.display_status || selectedBooking.status}
+                        {selectedBooking.status}
                       </span>
                       <span className={getPaymentStatusBadge(selectedBooking.payment_status)}>
                         Payment: {selectedBooking.payment_status || 'Unknown'}
                       </span>
-                      {selectedBooking.is_test_booking && (
+                      {selectedBooking.is_test_payment && (
                         <span className="ub-status-badge ub-test-mode">
                           TEST MODE
                         </span>
@@ -1328,10 +1116,10 @@ Check console for detailed logs.`);
                         <span>{airportNames[selectedBooking.airport_code] || selectedBooking.airport_code}</span>
                       </div>
                       <div className="ub-detail-item">
-                        <label>Our Reference</label>
+                        <label>Reference</label>
                         <span>{selectedBooking.our_reference}</span>
                       </div>
-                      {selectedBooking.magr_reference && selectedBooking.our_reference !== selectedBooking.magr_reference && (
+                      {selectedBooking.magr_reference && (
                         <div className="ub-detail-item">
                           <label>Provider Reference</label>
                           <span>{selectedBooking.magr_reference}</span>
@@ -1376,18 +1164,6 @@ Check console for detailed logs.`);
                           <label>Registration</label>
                           <span>{selectedBooking.vehicle_registration}</span>
                         </div>
-                        {selectedBooking.vehicle_make && (
-                          <div className="ub-detail-item">
-                            <label>Make & Model</label>
-                            <span>{selectedBooking.vehicle_make} {selectedBooking.vehicle_model}</span>
-                          </div>
-                        )}
-                        {selectedBooking.vehicle_color && (
-                          <div className="ub-detail-item">
-                            <label>Color</label>
-                            <span>{selectedBooking.vehicle_color}</span>
-                          </div>
-                        )}
                       </div>
                     </div>
                   )}
@@ -1408,6 +1184,12 @@ Check console for detailed logs.`);
                         <label>Currency</label>
                         <span>{selectedBooking.currency || 'GBP'}</span>
                       </div>
+                      {selectedBooking.refund_amount > 0 && (
+                        <div className="ub-detail-item">
+                          <label>Refund Amount</label>
+                          <span className="ub-refund-highlight">{formatCurrency(selectedBooking.refund_amount)}</span>
+                        </div>
+                      )}
                       {selectedBooking.stripe_payment_intent_id && (
                         <div className="ub-detail-item">
                           <label>Payment ID</label>
@@ -1433,7 +1215,7 @@ Check console for detailed logs.`);
                           <span>Amendable</span>
                         </div>
                       )}
-                      {selectedBooking.is_test_booking && (
+                      {selectedBooking.is_test_payment && (
                         <div className="ub-feature-item">
                           <Award size={16} />
                           <span>Test Mode</span>
@@ -1476,35 +1258,26 @@ Check console for detailed logs.`);
                           
                           // Pre-populate amend form
                           setAmendFormData({
-                            new_dropoff_time: selectedBooking.dropoff_time || '',
-                            new_pickup_time: selectedBooking.pickup_time || '',
-                            new_dropoff_date: selectedBooking.dropoff_date || '',
-                            new_pickup_date: selectedBooking.pickup_date || '',
-                            new_customer_phone: selectedBooking.customer_phone || '',
-                            new_customer_email: selectedBooking.customer_email || '',
-                            new_departure_flight: selectedBooking.departure_flight_number || '',
-                            new_arrival_flight: selectedBooking.arrival_flight_number || '',
-                            new_vehicle_registration: selectedBooking.vehicle_registration || '',
-                            new_vehicle_make: selectedBooking.vehicle_make || '',
-                            new_vehicle_model: selectedBooking.vehicle_model || '',
-                            new_vehicle_color: selectedBooking.vehicle_color || '',
-                            new_special_requests: '',
-                            amendment_reason: ''
+                            dropoff_time: selectedBooking.dropoff_time || '',
+                            pickup_time: selectedBooking.pickup_time || '',
+                            title: selectedBooking.customer_details?.title || '',
+                            first_name: selectedBooking.customer_details?.first_name || '',
+                            last_name: selectedBooking.customer_details?.last_name || '',
+                            customer_email: selectedBooking.customer_details?.customer_email || '',
+                            phone_number: selectedBooking.customer_details?.phone_number || '',
+                            departure_flight_number: selectedBooking.departure_flight_number || '',
+                            arrival_flight_number: selectedBooking.arrival_flight_number || '',
+                            departure_terminal: selectedBooking.departure_terminal || '',
+                            arrival_terminal: selectedBooking.arrival_terminal || '',
+                            car_registration_number: selectedBooking.vehicle_details?.car_registration_number || '',
+                            car_make: selectedBooking.vehicle_details?.car_make || '',
+                            car_model: selectedBooking.vehicle_details?.car_model || '',
+                            car_color: selectedBooking.vehicle_details?.car_color || ''
                           });
                         }}
                       >
                         <Edit size={16} />
                         Amend Booking
-                      </button>
-                    )}
-
-                    {debugMode && (
-                      <button 
-                        className="ub-btn-secondary"
-                        onClick={() => debugBookingData(selectedBooking, 'Modal View Debug')}
-                      >
-                        <Bug size={16} />
-                        Debug Backend Data
                       </button>
                     )}
                   </div>
@@ -1518,11 +1291,6 @@ Check console for detailed logs.`);
                         <div>
                           <h4>Cancel Your Booking</h4>
                           <p>Cancelling your booking will process a refund according to the cancellation policy. This action cannot be undone.</p>
-                          {debugMode && (
-                            <small className="ub-debug-info">
-                              🏗️ Backend ref: {getBookingReference(selectedBooking)} | Endpoint: /api/parking/cancel-booking
-                            </small>
-                          )}
                         </div>
                       </div>
 
@@ -1532,15 +1300,11 @@ Check console for detailed logs.`);
                           <span>{selectedBooking.product_name}</span>
                         </div>
                         <div className="ub-summary-item">
-                          <span>Reference:</span>
-                          <span>{getBookingReference(selectedBooking)}</span>
-                        </div>
-                        <div className="ub-summary-item">
                           <span>Amount:</span>
                           <span>{formatCurrency(selectedBooking.booking_amount)}</span>
                         </div>
                         <div className="ub-summary-item">
-                          <span>Expected Refund:</span>
+                          <span>Refund Amount:</span>
                           <span>{formatCurrency(selectedBooking.booking_amount)}</span>
                         </div>
                       </div>
@@ -1592,12 +1356,7 @@ Check console for detailed logs.`);
                         <div>
                           <h4>Modify Your Booking</h4>
                           <p>Update the details below. Only changed fields will be updated.</p>
-                          <small>Note: Some changes may require additional validation.</small>
-                          {debugMode && (
-                            <small className="ub-debug-info">
-                              🏗️ Backend ref: {getBookingReference(selectedBooking)} | Endpoint: /api/parking/amend-booking
-                            </small>
-                          )}
+                          <small>Note: Dates cannot be changed, only times and other details.</small>
                         </div>
                       </div>
 
@@ -1607,67 +1366,84 @@ Check console for detailed logs.`);
                           <h4>Travel Times</h4>
                           <div className="ub-form-grid">
                             <div className="ub-form-group">
-                              <label>Drop-off Date</label>
-                              <input
-                                type="date"
-                                value={amendFormData.new_dropoff_date}
-                                onChange={(e) => handleAmendFormChange('new_dropoff_date', e.target.value)}
-                              />
-                              <small>Current: {selectedBooking.dropoff_date}</small>
-                            </div>
-                            <div className="ub-form-group">
                               <label>Drop-off Time</label>
                               <input
                                 type="time"
-                                value={amendFormData.new_dropoff_time}
-                                onChange={(e) => handleAmendFormChange('new_dropoff_time', e.target.value)}
+                                value={amendFormData.dropoff_time}
+                                onChange={(e) => handleAmendFormChange('dropoff_time', e.target.value)}
                               />
                               <small>Current: {selectedBooking.dropoff_time}</small>
-                            </div>
-                            <div className="ub-form-group">
-                              <label>Pick-up Date</label>
-                              <input
-                                type="date"
-                                value={amendFormData.new_pickup_date}
-                                onChange={(e) => handleAmendFormChange('new_pickup_date', e.target.value)}
-                              />
-                              <small>Current: {selectedBooking.pickup_date}</small>
                             </div>
                             <div className="ub-form-group">
                               <label>Pick-up Time</label>
                               <input
                                 type="time"
-                                value={amendFormData.new_pickup_time}
-                                onChange={(e) => handleAmendFormChange('new_pickup_time', e.target.value)}
+                                value={amendFormData.pickup_time}
+                                onChange={(e) => handleAmendFormChange('pickup_time', e.target.value)}
                               />
                               <small>Current: {selectedBooking.pickup_time}</small>
                             </div>
                           </div>
                         </div>
 
-                        {/* Customer Details */}
+                        {/* Personal Details */}
                         <div className="ub-form-section">
-                          <h4>Contact Details</h4>
+                          <h4>Personal Details</h4>
                           <div className="ub-form-grid">
+                            <div className="ub-form-group">
+                              <label>Title</label>
+                              <select
+                                value={amendFormData.title}
+                                onChange={(e) => handleAmendFormChange('title', e.target.value)}
+                              >
+                                <option value="">No Change</option>
+                                <option value="Mr">Mr</option>
+                                <option value="Mrs">Mrs</option>
+                                <option value="Miss">Miss</option>
+                                <option value="Ms">Ms</option>
+                                <option value="Dr">Dr</option>
+                              </select>
+                              <small>Current: {selectedBooking.customer_details?.title}</small>
+                            </div>
+                            <div className="ub-form-group">
+                              <label>First Name</label>
+                              <input
+                                type="text"
+                                value={amendFormData.first_name}
+                                onChange={(e) => handleAmendFormChange('first_name', e.target.value)}
+                                placeholder={selectedBooking.customer_details?.first_name}
+                              />
+                              <small>Current: {selectedBooking.customer_details?.first_name}</small>
+                            </div>
+                            <div className="ub-form-group">
+                              <label>Last Name</label>
+                              <input
+                                type="text"
+                                value={amendFormData.last_name}
+                                onChange={(e) => handleAmendFormChange('last_name', e.target.value)}
+                                placeholder={selectedBooking.customer_details?.last_name}
+                              />
+                              <small>Current: {selectedBooking.customer_details?.last_name}</small>
+                            </div>
                             <div className="ub-form-group">
                               <label>Email</label>
                               <input
                                 type="email"
-                                value={amendFormData.new_customer_email}
-                                onChange={(e) => handleAmendFormChange('new_customer_email', e.target.value)}
-                                placeholder={selectedBooking.customer_email}
+                                value={amendFormData.customer_email}
+                                onChange={(e) => handleAmendFormChange('customer_email', e.target.value)}
+                                placeholder={selectedBooking.customer_details?.customer_email}
                               />
-                              <small>Current: {selectedBooking.customer_email}</small>
+                              <small>Current: {selectedBooking.customer_details?.customer_email}</small>
                             </div>
                             <div className="ub-form-group">
                               <label>Phone</label>
                               <input
                                 type="tel"
-                                value={amendFormData.new_customer_phone}
-                                onChange={(e) => handleAmendFormChange('new_customer_phone', e.target.value)}
-                                placeholder={selectedBooking.customer_phone}
+                                value={amendFormData.phone_number}
+                                onChange={(e) => handleAmendFormChange('phone_number', e.target.value)}
+                                placeholder={selectedBooking.customer_details?.phone_number}
                               />
-                              <small>Current: {selectedBooking.customer_phone}</small>
+                              <small>Current: {selectedBooking.customer_details?.phone_number}</small>
                             </div>
                           </div>
                         </div>
@@ -1680,8 +1456,8 @@ Check console for detailed logs.`);
                               <label>Departure Flight</label>
                               <input
                                 type="text"
-                                value={amendFormData.new_departure_flight}
-                                onChange={(e) => handleAmendFormChange('new_departure_flight', e.target.value)}
+                                value={amendFormData.departure_flight_number}
+                                onChange={(e) => handleAmendFormChange('departure_flight_number', e.target.value)}
                                 placeholder={selectedBooking.departure_flight_number}
                               />
                               <small>Current: {selectedBooking.departure_flight_number}</small>
@@ -1690,11 +1466,41 @@ Check console for detailed logs.`);
                               <label>Arrival Flight</label>
                               <input
                                 type="text"
-                                value={amendFormData.new_arrival_flight}
-                                onChange={(e) => handleAmendFormChange('new_arrival_flight', e.target.value)}
+                                value={amendFormData.arrival_flight_number}
+                                onChange={(e) => handleAmendFormChange('arrival_flight_number', e.target.value)}
                                 placeholder={selectedBooking.arrival_flight_number}
                               />
                               <small>Current: {selectedBooking.arrival_flight_number}</small>
+                            </div>
+                            <div className="ub-form-group">
+                              <label>Departure Terminal</label>
+                              <select
+                                value={amendFormData.departure_terminal}
+                                onChange={(e) => handleAmendFormChange('departure_terminal', e.target.value)}
+                              >
+                                <option value="">No Change</option>
+                                <option value="Terminal 1">Terminal 1</option>
+                                <option value="Terminal 2">Terminal 2</option>
+                                <option value="Terminal 3">Terminal 3</option>
+                                <option value="Terminal 4">Terminal 4</option>
+                                <option value="Terminal 5">Terminal 5</option>
+                              </select>
+                              <small>Current: {selectedBooking.departure_terminal}</small>
+                            </div>
+                            <div className="ub-form-group">
+                              <label>Arrival Terminal</label>
+                              <select
+                                value={amendFormData.arrival_terminal}
+                                onChange={(e) => handleAmendFormChange('arrival_terminal', e.target.value)}
+                              >
+                                <option value="">No Change</option>
+                                <option value="Terminal 1">Terminal 1</option>
+                                <option value="Terminal 2">Terminal 2</option>
+                                <option value="Terminal 3">Terminal 3</option>
+                                <option value="Terminal 4">Terminal 4</option>
+                                <option value="Terminal 5">Terminal 5</option>
+                              </select>
+                              <small>Current: {selectedBooking.arrival_terminal}</small>
                             </div>
                           </div>
                         </div>
@@ -1707,58 +1513,42 @@ Check console for detailed logs.`);
                               <label>Registration</label>
                               <input
                                 type="text"
-                                value={amendFormData.new_vehicle_registration}
-                                onChange={(e) => handleAmendFormChange('new_vehicle_registration', e.target.value)}
-                                placeholder={selectedBooking.vehicle_registration}
+                                value={amendFormData.car_registration_number}
+                                onChange={(e) => handleAmendFormChange('car_registration_number', e.target.value)}
+                                placeholder={selectedBooking.vehicle_details?.car_registration_number}
                               />
-                              <small>Current: {selectedBooking.vehicle_registration}</small>
+                              <small>Current: {selectedBooking.vehicle_details?.car_registration_number}</small>
                             </div>
                             <div className="ub-form-group">
                               <label>Make</label>
                               <input
                                 type="text"
-                                value={amendFormData.new_vehicle_make}
-                                onChange={(e) => handleAmendFormChange('new_vehicle_make', e.target.value)}
-                                placeholder={selectedBooking.vehicle_make}
+                                value={amendFormData.car_make}
+                                onChange={(e) => handleAmendFormChange('car_make', e.target.value)}
+                                placeholder={selectedBooking.vehicle_details?.car_make}
                               />
-                              <small>Current: {selectedBooking.vehicle_make}</small>
+                              <small>Current: {selectedBooking.vehicle_details?.car_make}</small>
                             </div>
                             <div className="ub-form-group">
                               <label>Model</label>
                               <input
                                 type="text"
-                                value={amendFormData.new_vehicle_model}
-                                onChange={(e) => handleAmendFormChange('new_vehicle_model', e.target.value)}
-                                placeholder={selectedBooking.vehicle_model}
+                                value={amendFormData.car_model}
+                                onChange={(e) => handleAmendFormChange('car_model', e.target.value)}
+                                placeholder={selectedBooking.vehicle_details?.car_model}
                               />
-                              <small>Current: {selectedBooking.vehicle_model}</small>
+                              <small>Current: {selectedBooking.vehicle_details?.car_model}</small>
                             </div>
                             <div className="ub-form-group">
                               <label>Color</label>
                               <input
                                 type="text"
-                                value={amendFormData.new_vehicle_color}
-                                onChange={(e) => handleAmendFormChange('new_vehicle_color', e.target.value)}
-                                placeholder={selectedBooking.vehicle_color}
+                                value={amendFormData.car_color}
+                                onChange={(e) => handleAmendFormChange('car_color', e.target.value)}
+                                placeholder={selectedBooking.vehicle_details?.car_color}
                               />
-                              <small>Current: {selectedBooking.vehicle_color}</small>
+                              <small>Current: {selectedBooking.vehicle_details?.car_color}</small>
                             </div>
-                          </div>
-                        </div>
-
-                        {/* Special Requests */}
-                        <div className="ub-form-section">
-                          <h4>Special Requests</h4>
-                          <div className="ub-form-group">
-                            <label>Special Requests</label>
-                            <textarea
-                              value={amendFormData.new_special_requests}
-                              onChange={(e) => handleAmendFormChange('new_special_requests', e.target.value)}
-                              placeholder="Add any special requests or notes..."
-                              rows={3}
-                              className="ub-reason-textarea"
-                            />
-                            <small>Current: {selectedBooking.special_requests || 'None'}</small>
                           </div>
                         </div>
                       </div>
@@ -1802,6 +1592,54 @@ Check console for detailed logs.`);
                       </div>
                     </div>
                   )}
+
+                  {modalType === 'delete' && (
+                    <div className="ub-warning-message">
+                      <AlertCircle size={24} />
+                      <div>
+                        <h4>Delete Booking Record</h4>
+                        <p>This will permanently remove this booking from your history. Only cancelled bookings can be deleted.</p>
+                      </div>
+
+                      <div className="ub-form-group">
+                        <label>Reason (Optional)</label>
+                        <textarea
+                          value={cancelReason}
+                          onChange={(e) => setCancelReason(e.target.value)}
+                          placeholder="Why are you deleting this booking record?"
+                          rows={3}
+                          className="ub-reason-textarea"
+                        />
+                      </div>
+
+                      <div className="ub-modal-actions">
+                        <button 
+                          className="ub-btn-secondary"
+                          onClick={() => setShowModal(false)}
+                          disabled={processingAction}
+                        >
+                          Keep Record
+                        </button>
+                        <button 
+                          className="ub-btn-danger"
+                          onClick={() => deleteBooking(selectedBooking.our_reference, cancelReason)}
+                          disabled={processingAction}
+                        >
+                          {processingAction ? (
+                            <>
+                              <RefreshCw className="ub-spinning" size={16} />
+                              Deleting...
+                            </>
+                          ) : (
+                            <>
+                              <Trash2 size={16} />
+                              Delete Record
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="ub-action-result">
@@ -1814,34 +1652,25 @@ Check console for detailed logs.`);
                         </div>
                       </div>
                       
-                      <h2>
-                        {actionResult.type === 'cancel' ? '✅ Booking Cancelled Successfully!' : 
-                         actionResult.type === 'amend' ? '✅ Booking Updated Successfully!' : '✅ Action Completed!'}
-                      </h2>
+                      <h2>{actionResult.type === 'cancel' ? '✅ Booking Cancelled Successfully!' : '✅ Booking Updated Successfully!'}</h2>
                       <p>{actionResult.message}</p>
                       
                       {actionResult.data && (
                         <div className="ub-result-details">
                           <div className="ub-detail-row">
                             <span>Reference:</span>
-                            <strong>{actionResult.data.booking_reference || actionResult.data.our_reference || getBookingReference(selectedBooking)}</strong>
+                            <strong>{actionResult.data.our_reference || actionResult.data.reference}</strong>
                           </div>
                           {actionResult.data.refund_amount && (
                             <div className="ub-detail-row">
                               <span>Refund Amount:</span>
-                              <strong>{formatCurrency(actionResult.data.refund_amount)}</strong>
+                              <strong>£{actionResult.data.refund_amount}</strong>
                             </div>
                           )}
                           {actionResult.type === 'cancel' && (
                             <div className="ub-detail-row">
                               <span>Refund Processing:</span>
                               <span>3-5 business days</span>
-                            </div>
-                          )}
-                          {actionResult.type === 'amend' && actionResult.data.changes && (
-                            <div className="ub-detail-row">
-                              <span>Changes Applied:</span>
-                              <span>{actionResult.data.changes.count} field(s) updated</span>
                             </div>
                           )}
                         </div>
@@ -1872,23 +1701,8 @@ Check console for detailed logs.`);
                         </div>
                       </div>
                       
-                      <h2>❌ {actionResult.type === 'cancel' ? 'Cancellation Failed' : 
-                              actionResult.type === 'amend' ? 'Amendment Failed' : 'Action Failed'}</h2>
+                      <h2>❌ {actionResult.type === 'cancel' ? 'Cancellation Failed' : 'Amendment Failed'}</h2>
                       <p>{actionResult.message}</p>
-                      
-                      {debugMode && actionResult.error && (
-                        <div className="ub-debug-error">
-                          <h4>🏗️ Backend Integration Debug:</h4>
-                          <pre>{JSON.stringify({
-                            error: actionResult.error,
-                            reference_used: getBookingReference(selectedBooking),
-                            booking_status: selectedBooking.status,
-                            action_type: actionResult.type,
-                            backend_endpoint: actionResult.type === 'cancel' ? 
-                              '/api/parking/cancel-booking' : '/api/parking/amend-booking'
-                          }, null, 2)}</pre>
-                        </div>
-                      )}
                       
                       <div className="ub-error-actions">
                         <button 
@@ -1911,15 +1725,6 @@ Check console for detailed logs.`);
                         >
                           Close
                         </button>
-                        {debugMode && (
-                          <button 
-                            className="ub-btn-secondary"
-                            onClick={() => debugBookingData(selectedBooking, 'Error Debug')}
-                          >
-                            <Bug size={16} />
-                            Debug Backend
-                          </button>
-                        )}
                       </div>
                     </>
                   )}
@@ -1929,94 +1734,6 @@ Check console for detailed logs.`);
           </div>
         </div>
       )}
-
-      {/* Backend Integration Debug Info Panel */}
-      {debugMode && (
-        <div className="ub-debug-info-panel">
-          <h4>🏗️ Backend Integration Status</h4>
-          <div className="ub-debug-stats">
-            <div>Total Bookings: {userBookings.length}</div>
-            <div>Auth Status: {authStatus.isLoggedIn ? '✅' : '❌'}</div>
-            <div>Backend Connected: ✅</div>
-            <div>Debug Mode: ✅ Active</div>
-          </div>
-          
-          <div className="ub-debug-endpoints">
-            <h5>Backend Endpoints:</h5>
-            <div className="ub-endpoint-status">
-              <span>📋 GET /api/parking/my-bookings</span>
-              <span className="status-ok">✅</span>
-            </div>
-            <div className="ub-endpoint-status">
-              <span>🚫 POST /api/parking/cancel-booking</span>
-              <span className="status-ready">🔧</span>
-            </div>
-            <div className="ub-endpoint-status">
-              <span>✏️ POST /api/parking/amend-booking</span>
-              <span className="status-ready">🔧</span>
-            </div>
-          </div>
-          
-          <div className="ub-debug-schema">
-            <h5>Backend Schema Mapping:</h5>
-            {userBookings.length > 0 && (
-              <pre className="ub-debug-json">
-                {JSON.stringify({
-                  backend_schema_sample: {
-                    our_reference: userBookings[0].our_reference,
-                    magr_reference: userBookings[0].magr_reference,
-                    status: userBookings[0].status,
-                    nested_structures: {
-                      customer_details: !!userBookings[0].customer_details,
-                      travel_details: !!userBookings[0].travel_details,
-                      vehicle_details: !!userBookings[0].vehicle_details,
-                      service_features: userBookings[0].service_features
-                    },
-                    capabilities: {
-                      is_cancelable: userBookings[0].is_cancelable,
-                      is_editable: userBookings[0].is_editable
-                    }
-                  }
-                }, null, 2)}
-              </pre>
-            )}
-          </div>
-
-          <div className="ub-debug-actions">
-            <button onClick={testDebugEndpoints} className="ub-debug-btn">
-              <Settings size={14} />
-              Test Backend APIs
-            </button>
-            <button onClick={() => setDebugInfo([])} className="ub-debug-btn">
-              Clear Logs
-            </button>
-            <button onClick={() => console.log('Backend integrated bookings:', userBookings)} className="ub-debug-btn">
-              Log Backend Data
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Footer with Backend Integration Status */}
-      <div className="ub-footer">
-        <div className="ub-footer-content">
-          <div className="ub-footer-links">
-            <button onClick={goToHome}>Home</button>
-            <button onClick={goToNewBooking}>New Booking</button>
-            <button onClick={() => window.location.href = '/#/support'}>Support</button>
-          </div>
-          <div className="ub-footer-debug">
-            <button 
-              onClick={() => setDebugMode(!debugMode)}
-              className={`ub-debug-toggle-footer ${debugMode ? 'active' : ''}`}
-              title="Toggle Backend Debug Mode"
-            >
-              <Bug size={12} />
-              {debugMode ? 'Backend Debug ON' : 'Backend Debug OFF'}
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };
