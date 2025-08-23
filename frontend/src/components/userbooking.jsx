@@ -336,7 +336,7 @@ const UserBooking = () => {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // ✅ COMPLETELY FIXED: Enhanced Fetch user's bookings with backend-matching endpoints
+  // ✅ COMPLETELY FIXED: Enhanced Fetch user's bookings with MongoDB structure handling
   const fetchUserBookings = async () => {
     if (!authStatus.isLoggedIn) {
       console.log('❌ UserBookings: Cannot fetch bookings - user not logged in');
@@ -465,33 +465,56 @@ const UserBooking = () => {
         throw new Error(data.message || data.error || 'Failed to fetch booking data from server');
       }
 
-      // ✅ FIXED: Enhanced data processing to handle different field structures
+      // ✅ COMPLETELY FIXED: Enhanced data processing to handle MongoDB nested structure correctly
       const processedBookings = bookingsArray.map(booking => ({
         ...booking,
-        // Ensure consistent field names
+        // Ensure consistent field names with proper nesting
         our_reference: booking.our_reference || booking.booking_reference,
         booking_reference: booking.booking_reference || booking.our_reference,
         
-        // Handle nested structures
-        dropoff_date: booking.dropoff_date || booking.travel_details?.dropoff_date,
-        dropoff_time: booking.dropoff_time || booking.travel_details?.dropoff_time,
-        pickup_date: booking.pickup_date || booking.travel_details?.pickup_date,
-        pickup_time: booking.pickup_time || booking.travel_details?.pickup_time,
+        // ✅ FIXED: Handle nested travel_details structure from MongoDB
+        dropoff_date: booking.travel_details?.dropoff_date || booking.dropoff_date,
+        dropoff_time: booking.travel_details?.dropoff_time || booking.dropoff_time,
+        pickup_date: booking.travel_details?.pickup_date || booking.pickup_date,
+        pickup_time: booking.travel_details?.pickup_time || booking.pickup_time,
+        departure_flight_number: booking.travel_details?.departure_flight_number || booking.departure_flight_number,
+        arrival_flight_number: booking.travel_details?.arrival_flight_number || booking.arrival_flight_number,
+        departure_terminal: booking.travel_details?.departure_terminal || booking.departure_terminal,
+        arrival_terminal: booking.travel_details?.arrival_terminal || booking.arrival_terminal,
         
-        // Customer details
-        customer_email: booking.customer_email || booking.customer_details?.customer_email,
-        customer_name: booking.customer_name || booking.customer_details?.customer_name,
+        // ✅ FIXED: Handle nested customer_details structure from MongoDB
+        customer_email: booking.customer_details?.customer_email || booking.customer_email,
+        customer_name: booking.customer_details ? 
+          `${booking.customer_details.title || ''} ${booking.customer_details.first_name || ''} ${booking.customer_details.last_name || ''}`.trim() :
+          booking.customer_name,
+        first_name: booking.customer_details?.first_name || booking.first_name,
+        last_name: booking.customer_details?.last_name || booking.last_name,
+        title: booking.customer_details?.title || booking.title,
+        phone_number: booking.customer_details?.phone_number || booking.phone_number,
         
-        // Vehicle details
-        vehicle_registration: booking.vehicle_registration || booking.car_registration_number,
+        // ✅ FIXED: Handle nested vehicle_details structure from MongoDB  
+        vehicle_registration: booking.vehicle_details?.car_registration_number || booking.vehicle_registration || booking.car_registration_number,
+        car_registration_number: booking.vehicle_details?.car_registration_number || booking.car_registration_number,
+        car_make: booking.vehicle_details?.car_make || booking.car_make,
+        car_model: booking.vehicle_details?.car_model || booking.car_model,
+        car_color: booking.vehicle_details?.car_color || booking.car_color,
         
-        // Service features (default to true for better UX)
-        is_cancelable: booking.is_cancelable !== false,
-        is_editable: booking.is_editable !== false,
+        // ✅ FIXED: Handle nested payment_details structure from MongoDB
+        payment_status: booking.payment_details?.payment_status || booking.payment_status,
+        payment_method: booking.payment_details?.payment_method || booking.payment_method,
+        stripe_payment_intent_id: booking.payment_details?.stripe_payment_intent_id || booking.stripe_payment_intent_id,
+        refund_amount: booking.payment_details?.refund_amount || booking.refund_amount || 0,
+        
+        // ✅ FIXED: Handle nested service_features structure from MongoDB
+        is_cancelable: booking.service_features?.is_cancelable !== false,
+        is_editable: booking.service_features?.is_editable !== false,
         
         // Status processing
         display_status: booking.status,
-        status_class: booking.status
+        status_class: booking.status,
+        
+        // Test mode detection
+        is_test_payment: booking.payment_details?.is_test_mode || booking.is_test_payment || booking.our_reference?.includes('TEST')
       }));
         
       setUserBookings(processedBookings);
@@ -505,7 +528,13 @@ const UserBooking = () => {
           ref: processedBookings[0].our_reference,
           status: processedBookings[0].status,
           cancelable: processedBookings[0].is_cancelable,
-          editable: processedBookings[0].is_editable
+          editable: processedBookings[0].is_editable,
+          hasNestedData: {
+            customer_details: !!processedBookings[0].customer_details,
+            travel_details: !!processedBookings[0].travel_details,
+            vehicle_details: !!processedBookings[0].vehicle_details,
+            payment_details: !!processedBookings[0].payment_details
+          }
         } : null
       });
 
@@ -555,7 +584,7 @@ const UserBooking = () => {
     setActionResult(null);
   };
 
-  // NEW: Handle Amend Booking
+  // ✅ FIXED: Handle Amend Booking with correct nested field access
   const handleAmendBooking = async (booking) => {
     setSelectedBooking(booking);
     setModalType('amend');
@@ -563,20 +592,20 @@ const UserBooking = () => {
     setCancelReason('');
     setActionResult(null);
     
-    // Pre-populate amend form with current booking data
+    // ✅ FIXED: Pre-populate amend form with correct nested field access
     if (booking) {
       setAmendFormData({
-        dropoff_time: booking.dropoff_time || booking.travel_details?.dropoff_time || '',
-        pickup_time: booking.pickup_time || booking.travel_details?.pickup_time || '',
+        dropoff_time: booking.travel_details?.dropoff_time || booking.dropoff_time || '',
+        pickup_time: booking.travel_details?.pickup_time || booking.pickup_time || '',
         title: booking.customer_details?.title || booking.title || '',
         first_name: booking.customer_details?.first_name || booking.first_name || '',
         last_name: booking.customer_details?.last_name || booking.last_name || '',
         customer_email: booking.customer_details?.customer_email || booking.customer_email || '',
         phone_number: booking.customer_details?.phone_number || booking.phone_number || '',
-        departure_flight_number: booking.departure_flight_number || '',
-        arrival_flight_number: booking.arrival_flight_number || '',
-        departure_terminal: booking.departure_terminal || '',
-        arrival_terminal: booking.arrival_terminal || '',
+        departure_flight_number: booking.travel_details?.departure_flight_number || booking.departure_flight_number || '',
+        arrival_flight_number: booking.travel_details?.arrival_flight_number || booking.arrival_flight_number || '',
+        departure_terminal: booking.travel_details?.departure_terminal || booking.departure_terminal || '',
+        arrival_terminal: booking.travel_details?.arrival_terminal || booking.arrival_terminal || '',
         car_registration_number: booking.vehicle_details?.car_registration_number || booking.car_registration_number || '',
         car_make: booking.vehicle_details?.car_make || booking.car_make || '',
         car_model: booking.vehicle_details?.car_model || booking.car_model || '',
@@ -804,14 +833,14 @@ const UserBooking = () => {
   useEffect(() => {
     let filtered = [...userBookings];
 
-    // Search filter
+    // Search filter - ✅ FIXED: Updated to use correct nested field access
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(booking =>
         (booking.our_reference || booking.booking_reference || '').toLowerCase().includes(query) ||
         (booking.magr_reference || '').toLowerCase().includes(query) ||
         (booking.product_name || '').toLowerCase().includes(query) ||
-        (booking.vehicle_registration || booking.car_registration_number || '').toLowerCase().includes(query) ||
+        (booking.vehicle_details?.car_registration_number || booking.car_registration_number || '').toLowerCase().includes(query) ||
         (booking.airport_code || '').toLowerCase().includes(query)
       );
     }
@@ -821,14 +850,14 @@ const UserBooking = () => {
       filtered = filtered.filter(booking => booking.status === statusFilter);
     }
 
-    // Sort by date (most recent first)
+    // Sort by date (most recent first) - ✅ FIXED: Updated to use correct nested field access
     filtered.sort((a, b) => {
       if (sortBy === 'created_at') {
         return new Date(b.created_at) - new Date(a.created_at);
       } else if (sortBy === 'dropoff_date') {
-        const aDate = b.dropoff_date || b.travel_details?.dropoff_date;
-        const bDate = a.dropoff_date || a.travel_details?.dropoff_date;
-        return new Date(aDate) - new Date(bDate);
+        const aDate = a.travel_details?.dropoff_date || a.dropoff_date;
+        const bDate = b.travel_details?.dropoff_date || b.dropoff_date;
+        return new Date(bDate) - new Date(aDate);
       } else if (sortBy === 'booking_amount') {
         return (b.booking_amount || 0) - (a.booking_amount || 0);
       }
@@ -895,8 +924,9 @@ const UserBooking = () => {
     return statusClasses[status] || 'ub-status-badge ub-unknown';
   };
 
-  // Get payment status badge
-  const getPaymentStatusBadge = (paymentStatus) => {
+  // Get payment status badge - ✅ FIXED: Updated to handle nested payment_details
+  const getPaymentStatusBadge = (booking) => {
+    const paymentStatus = booking.payment_details?.payment_status || booking.payment_status;
     const statusClasses = {
       'paid': 'ub-payment-badge ub-paid',
       'refunded': 'ub-payment-badge ub-refunded',
@@ -1118,7 +1148,7 @@ Auth status: ${authStatus.isLoggedIn}
         ) : (
           <div className="ub-bookings-grid">
             {filteredBookings.map((booking, index) => (
-              <div key={booking.id || index} className="ub-booking-card">
+              <div key={booking._id || booking.id || index} className="ub-booking-card">
                 <div className="ub-card-header">
                   <div className="ub-booking-reference">
                     <strong>#{booking.our_reference || booking.booking_reference}</strong>
@@ -1139,8 +1169,8 @@ Auth status: ${authStatus.isLoggedIn}
                       <Eye size={14} />
                     </button>
                     
-                    {/* NEW: Cancel Button */}
-                    {booking.status === 'confirmed' && (booking.is_cancelable !== false) && (
+                    {/* ✅ FIXED: Cancel Button with correct nested field access */}
+                    {booking.status === 'confirmed' && (booking.service_features?.is_cancelable !== false) && (
                       <button
                         className="ub-action-btn ub-cancel"
                         onClick={() => handleCancelBooking(booking)}
@@ -1150,8 +1180,8 @@ Auth status: ${authStatus.isLoggedIn}
                       </button>
                     )}
                     
-                    {/* NEW: Amend Button */}
-                    {booking.status === 'confirmed' && (booking.is_editable !== false) && (
+                    {/* ✅ FIXED: Amend Button with correct nested field access */}
+                    {booking.status === 'confirmed' && (booking.service_features?.is_editable !== false) && (
                       <button
                         className="ub-action-btn ub-amend"
                         onClick={() => handleAmendBooking(booking)}
@@ -1187,19 +1217,20 @@ Auth status: ${authStatus.isLoggedIn}
                       </div>
                     </div>
                     
+                    {/* ✅ FIXED: Booking details with correct nested field access */}
                     <div className="ub-booking-details">
                       <div className="ub-detail-row">
                         <Calendar size={14} />
-                        <span>Drop-off: {formatDateOnly(booking.dropoff_date || booking.travel_details?.dropoff_date)} at {booking.dropoff_time || booking.travel_details?.dropoff_time}</span>
+                        <span>Drop-off: {formatDateOnly(booking.travel_details?.dropoff_date || booking.dropoff_date)} at {booking.travel_details?.dropoff_time || booking.dropoff_time}</span>
                       </div>
                       <div className="ub-detail-row">
                         <Calendar size={14} />
-                        <span>Pick-up: {formatDateOnly(booking.pickup_date || booking.travel_details?.pickup_date)} at {booking.pickup_time || booking.travel_details?.pickup_time}</span>
+                        <span>Pick-up: {formatDateOnly(booking.travel_details?.pickup_date || booking.pickup_date)} at {booking.travel_details?.pickup_time || booking.pickup_time}</span>
                       </div>
-                      {(booking.vehicle_registration || booking.car_registration_number) && (
+                      {(booking.vehicle_details?.car_registration_number || booking.car_registration_number) && (
                         <div className="ub-detail-row">
                           <Car size={14} />
-                          <span>{booking.vehicle_registration || booking.car_registration_number}</span>
+                          <span>{booking.vehicle_details?.car_registration_number || booking.car_registration_number}</span>
                         </div>
                       )}
                     </div>
@@ -1210,8 +1241,8 @@ Auth status: ${authStatus.isLoggedIn}
                       {formatCurrency(booking.booking_amount || booking.price)}
                     </div>
                     <div className="ub-payment-status">
-                      <span className={getPaymentStatusBadge(booking.payment_status)}>
-                        {booking.payment_status || 'N/A'}
+                      <span className={getPaymentStatusBadge(booking)}>
+                        {booking.payment_details?.payment_status || booking.payment_status || 'N/A'}
                       </span>
                     </div>
                   </div>
@@ -1227,19 +1258,19 @@ Auth status: ${authStatus.isLoggedIn}
                     </div>
                   )}
                   
-                  {/* NEW: Booking capabilities indicators */}
+                  {/* ✅ FIXED: Booking capabilities indicators with correct nested field access */}
                   <div className="ub-booking-capabilities">
-                    {(booking.is_cancelable !== false) && booking.status === 'confirmed' && (
+                    {(booking.service_features?.is_cancelable !== false) && booking.status === 'confirmed' && (
                       <span className="ub-capability-badge cancelable" title="Cancellable">
                         <XCircle size={10} />
                       </span>
                     )}
-                    {(booking.is_editable !== false) && booking.status === 'confirmed' && (
+                    {(booking.service_features?.is_editable !== false) && booking.status === 'confirmed' && (
                       <span className="ub-capability-badge editable" title="Amendable">
                         <Edit size={10} />
                       </span>
                     )}
-                    {booking.is_test_payment && (
+                    {(booking.payment_details?.is_test_mode || booking.our_reference?.includes('TEST')) && (
                       <span className="ub-capability-badge test-mode" title="Test Mode">
                         TEST
                       </span>
@@ -1252,7 +1283,7 @@ Auth status: ${authStatus.isLoggedIn}
         )}
       </div>
 
-      {/* Enhanced Modal */}
+      {/* ✅ COMPLETELY FIXED: Enhanced Modal with correct nested field access throughout */}
       {showModal && selectedBooking && (
         <div className="ub-modal-overlay" onClick={() => setShowModal(false)}>
           <div className="ub-modal-content" onClick={(e) => e.stopPropagation()}>
@@ -1281,10 +1312,10 @@ Auth status: ${authStatus.isLoggedIn}
                       <span className={getStatusBadge(selectedBooking.status)}>
                         {selectedBooking.status}
                       </span>
-                      <span className={getPaymentStatusBadge(selectedBooking.payment_status)}>
-                        Payment: {selectedBooking.payment_status || 'Unknown'}
+                      <span className={getPaymentStatusBadge(selectedBooking)}>
+                        Payment: {selectedBooking.payment_details?.payment_status || selectedBooking.payment_status || 'Unknown'}
                       </span>
-                      {selectedBooking.is_test_payment && (
+                      {(selectedBooking.payment_details?.is_test_mode || selectedBooking.our_reference?.includes('TEST')) && (
                         <span className="ub-status-badge ub-test-mode">
                           TEST MODE
                         </span>
@@ -1317,59 +1348,86 @@ Auth status: ${authStatus.isLoggedIn}
                     </div>
                   </div>
 
-                  {/* Travel Information */}
+                  {/* ✅ FIXED: Travel Information with correct nested field access */}
                   <div className="ub-detail-section">
                     <h3>Travel Information</h3>
                     <div className="ub-detail-grid">
                       <div className="ub-detail-item">
                         <label>Drop-off</label>
-                        <span>{formatDateOnly(selectedBooking.dropoff_date || selectedBooking.travel_details?.dropoff_date)} at {selectedBooking.dropoff_time || selectedBooking.travel_details?.dropoff_time}</span>
+                        <span>{formatDateOnly(selectedBooking.travel_details?.dropoff_date || selectedBooking.dropoff_date)} at {selectedBooking.travel_details?.dropoff_time || selectedBooking.dropoff_time}</span>
                       </div>
                       <div className="ub-detail-item">
                         <label>Pick-up</label>
-                        <span>{formatDateOnly(selectedBooking.pickup_date || selectedBooking.travel_details?.pickup_date)} at {selectedBooking.pickup_time || selectedBooking.travel_details?.pickup_time}</span>
+                        <span>{formatDateOnly(selectedBooking.travel_details?.pickup_date || selectedBooking.pickup_date)} at {selectedBooking.travel_details?.pickup_time || selectedBooking.pickup_time}</span>
                       </div>
-                      {selectedBooking.departure_flight_number && (
+                      {(selectedBooking.travel_details?.departure_flight_number || selectedBooking.departure_flight_number) && (
                         <div className="ub-detail-item">
                           <label>Departure Flight</label>
-                          <span>{selectedBooking.departure_flight_number}</span>
+                          <span>{selectedBooking.travel_details?.departure_flight_number || selectedBooking.departure_flight_number}</span>
                         </div>
                       )}
-                      {selectedBooking.arrival_flight_number && (
+                      {(selectedBooking.travel_details?.arrival_flight_number || selectedBooking.arrival_flight_number) && (
                         <div className="ub-detail-item">
                           <label>Arrival Flight</label>
-                          <span>{selectedBooking.arrival_flight_number}</span>
+                          <span>{selectedBooking.travel_details?.arrival_flight_number || selectedBooking.arrival_flight_number}</span>
                         </div>
                       )}
                     </div>
                   </div>
 
-                  {/* Vehicle Information */}
-                  {(selectedBooking.vehicle_registration || selectedBooking.car_registration_number) && (
+                  {/* ✅ FIXED: Customer Information with correct nested field access */}
+                  <div className="ub-detail-section">
+                    <h3>Customer Information</h3>
+                    <div className="ub-detail-grid">
+                      <div className="ub-detail-item">
+                        <label>Customer Name</label>
+                        <span>{selectedBooking.customer_details ? 
+                          `${selectedBooking.customer_details.title || ''} ${selectedBooking.customer_details.first_name || ''} ${selectedBooking.customer_details.last_name || ''}`.trim() :
+                          selectedBooking.customer_name || 'N/A'}</span>
+                      </div>
+                      <div className="ub-detail-item">
+                        <label>Email</label>
+                        <span>{selectedBooking.customer_details?.customer_email || selectedBooking.customer_email}</span>
+                      </div>
+                      <div className="ub-detail-item">
+                        <label>Phone</label>
+                        <span>{selectedBooking.customer_details?.phone_number || selectedBooking.phone_number}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ✅ FIXED: Vehicle Information with correct nested field access */}
+                  {(selectedBooking.vehicle_details?.car_registration_number || selectedBooking.car_registration_number) && (
                     <div className="ub-detail-section">
                       <h3>Vehicle Information</h3>
                       <div className="ub-detail-grid">
                         <div className="ub-detail-item">
                           <label>Registration</label>
-                          <span>{selectedBooking.vehicle_registration || selectedBooking.car_registration_number}</span>
+                          <span>{selectedBooking.vehicle_details?.car_registration_number || selectedBooking.car_registration_number}</span>
                         </div>
-                        {(selectedBooking.car_make || selectedBooking.vehicle_details?.car_make) && (
+                        {(selectedBooking.vehicle_details?.car_make || selectedBooking.car_make) && (
                           <div className="ub-detail-item">
                             <label>Make</label>
-                            <span>{selectedBooking.car_make || selectedBooking.vehicle_details?.car_make}</span>
+                            <span>{selectedBooking.vehicle_details?.car_make || selectedBooking.car_make}</span>
                           </div>
                         )}
-                        {(selectedBooking.car_model || selectedBooking.vehicle_details?.car_model) && (
+                        {(selectedBooking.vehicle_details?.car_model || selectedBooking.car_model) && (
                           <div className="ub-detail-item">
                             <label>Model</label>
-                            <span>{selectedBooking.car_model || selectedBooking.vehicle_details?.car_model}</span>
+                            <span>{selectedBooking.vehicle_details?.car_model || selectedBooking.car_model}</span>
+                          </div>
+                        )}
+                        {(selectedBooking.vehicle_details?.car_color || selectedBooking.car_color) && (
+                          <div className="ub-detail-item">
+                            <label>Color</label>
+                            <span>{selectedBooking.vehicle_details?.car_color || selectedBooking.car_color}</span>
                           </div>
                         )}
                       </div>
                     </div>
                   )}
 
-                  {/* Payment Information */}
+                  {/* ✅ FIXED: Payment Information with correct nested field access */}
                   <div className="ub-detail-section">
                     <h3>Payment Information</h3>
                     <div className="ub-detail-grid">
@@ -1379,44 +1437,44 @@ Auth status: ${authStatus.isLoggedIn}
                       </div>
                       <div className="ub-detail-item">
                         <label>Payment Method</label>
-                        <span>{selectedBooking.payment_method || 'Card Payment'}</span>
+                        <span>{selectedBooking.payment_details?.payment_method || selectedBooking.payment_method || 'Card Payment'}</span>
                       </div>
                       <div className="ub-detail-item">
                         <label>Currency</label>
                         <span>{selectedBooking.currency || 'GBP'}</span>
                       </div>
-                      {selectedBooking.refund_amount > 0 && (
+                      {(selectedBooking.payment_details?.refund_amount > 0) && (
                         <div className="ub-detail-item">
                           <label>Refund Amount</label>
-                          <span className="ub-refund-highlight">{formatCurrency(selectedBooking.refund_amount)}</span>
+                          <span className="ub-refund-highlight">{formatCurrency(selectedBooking.payment_details.refund_amount)}</span>
                         </div>
                       )}
-                      {selectedBooking.stripe_payment_intent_id && (
+                      {selectedBooking.payment_details?.stripe_payment_intent_id && (
                         <div className="ub-detail-item">
                           <label>Payment ID</label>
-                          <span className="ub-payment-id">{selectedBooking.stripe_payment_intent_id}</span>
+                          <span className="ub-payment-id">{selectedBooking.payment_details.stripe_payment_intent_id}</span>
                         </div>
                       )}
                     </div>
                   </div>
 
-                  {/* Service Features */}
+                  {/* ✅ FIXED: Service Features with correct nested field access */}
                   <div className="ub-detail-section">
                     <h3>Service Features</h3>
                     <div className="ub-features-grid">
-                      {(selectedBooking.is_cancelable !== false) && (
+                      {(selectedBooking.service_features?.is_cancelable !== false) && (
                         <div className="ub-feature-item">
                           <XCircle size={16} />
                           <span>Cancellable</span>
                         </div>
                       )}
-                      {(selectedBooking.is_editable !== false) && (
+                      {(selectedBooking.service_features?.is_editable !== false) && (
                         <div className="ub-feature-item">
                           <Edit size={16} />
                           <span>Amendable</span>
                         </div>
                       )}
-                      {selectedBooking.is_test_payment && (
+                      {(selectedBooking.payment_details?.is_test_mode || selectedBooking.our_reference?.includes('TEST')) && (
                         <div className="ub-feature-item">
                           <Award size={16} />
                           <span>Test Mode</span>
@@ -1433,9 +1491,9 @@ Auth status: ${authStatus.isLoggedIn}
                     </div>
                   </div>
 
-                  {/* Action Buttons in View Mode */}
+                  {/* ✅ FIXED: Action Buttons in View Mode with correct nested field access */}
                   <div className="ub-view-actions">
-                    {selectedBooking.status === 'confirmed' && (selectedBooking.is_cancelable !== false) && (
+                    {selectedBooking.status === 'confirmed' && (selectedBooking.service_features?.is_cancelable !== false) && (
                       <button 
                         className="ub-btn-warning"
                         onClick={() => {
@@ -1449,7 +1507,7 @@ Auth status: ${authStatus.isLoggedIn}
                       </button>
                     )}
                     
-                    {selectedBooking.status === 'confirmed' && (selectedBooking.is_editable !== false) && (
+                    {selectedBooking.status === 'confirmed' && (selectedBooking.service_features?.is_editable !== false) && (
                       <button 
                         className="ub-btn-primary"
                         onClick={() => {
@@ -1457,19 +1515,19 @@ Auth status: ${authStatus.isLoggedIn}
                           setCancelReason('');
                           setActionResult(null);
                           
-                          // Pre-populate amend form
+                          // ✅ FIXED: Pre-populate amend form with correct nested field access
                           setAmendFormData({
-                            dropoff_time: selectedBooking.dropoff_time || selectedBooking.travel_details?.dropoff_time || '',
-                            pickup_time: selectedBooking.pickup_time || selectedBooking.travel_details?.pickup_time || '',
+                            dropoff_time: selectedBooking.travel_details?.dropoff_time || selectedBooking.dropoff_time || '',
+                            pickup_time: selectedBooking.travel_details?.pickup_time || selectedBooking.pickup_time || '',
                             title: selectedBooking.customer_details?.title || selectedBooking.title || '',
                             first_name: selectedBooking.customer_details?.first_name || selectedBooking.first_name || '',
                             last_name: selectedBooking.customer_details?.last_name || selectedBooking.last_name || '',
                             customer_email: selectedBooking.customer_details?.customer_email || selectedBooking.customer_email || '',
                             phone_number: selectedBooking.customer_details?.phone_number || selectedBooking.phone_number || '',
-                            departure_flight_number: selectedBooking.departure_flight_number || '',
-                            arrival_flight_number: selectedBooking.arrival_flight_number || '',
-                            departure_terminal: selectedBooking.departure_terminal || '',
-                            arrival_terminal: selectedBooking.arrival_terminal || '',
+                            departure_flight_number: selectedBooking.travel_details?.departure_flight_number || selectedBooking.departure_flight_number || '',
+                            arrival_flight_number: selectedBooking.travel_details?.arrival_flight_number || selectedBooking.arrival_flight_number || '',
+                            departure_terminal: selectedBooking.travel_details?.departure_terminal || selectedBooking.departure_terminal || '',
+                            arrival_terminal: selectedBooking.travel_details?.arrival_terminal || selectedBooking.arrival_terminal || '',
                             car_registration_number: selectedBooking.vehicle_details?.car_registration_number || selectedBooking.car_registration_number || '',
                             car_make: selectedBooking.vehicle_details?.car_make || selectedBooking.car_make || '',
                             car_model: selectedBooking.vehicle_details?.car_model || selectedBooking.car_model || '',
@@ -1573,7 +1631,7 @@ Auth status: ${authStatus.isLoggedIn}
                                 value={amendFormData.dropoff_time}
                                 onChange={(e) => handleAmendFormChange('dropoff_time', e.target.value)}
                               />
-                              <small>Current: {selectedBooking.dropoff_time || selectedBooking.travel_details?.dropoff_time}</small>
+                              <small>Current: {selectedBooking.travel_details?.dropoff_time || selectedBooking.dropoff_time}</small>
                             </div>
                             <div className="ub-form-group">
                               <label>Pick-up Time</label>
@@ -1582,7 +1640,7 @@ Auth status: ${authStatus.isLoggedIn}
                                 value={amendFormData.pickup_time}
                                 onChange={(e) => handleAmendFormChange('pickup_time', e.target.value)}
                               />
-                              <small>Current: {selectedBooking.pickup_time || selectedBooking.travel_details?.pickup_time}</small>
+                              <small>Current: {selectedBooking.travel_details?.pickup_time || selectedBooking.pickup_time}</small>
                             </div>
                           </div>
                         </div>
@@ -1659,9 +1717,9 @@ Auth status: ${authStatus.isLoggedIn}
                                 type="text"
                                 value={amendFormData.departure_flight_number}
                                 onChange={(e) => handleAmendFormChange('departure_flight_number', e.target.value)}
-                                placeholder={selectedBooking.departure_flight_number}
+                                placeholder={selectedBooking.travel_details?.departure_flight_number || selectedBooking.departure_flight_number}
                               />
-                              <small>Current: {selectedBooking.departure_flight_number}</small>
+                              <small>Current: {selectedBooking.travel_details?.departure_flight_number || selectedBooking.departure_flight_number}</small>
                             </div>
                             <div className="ub-form-group">
                               <label>Arrival Flight</label>
@@ -1669,9 +1727,9 @@ Auth status: ${authStatus.isLoggedIn}
                                 type="text"
                                 value={amendFormData.arrival_flight_number}
                                 onChange={(e) => handleAmendFormChange('arrival_flight_number', e.target.value)}
-                                placeholder={selectedBooking.arrival_flight_number}
+                                placeholder={selectedBooking.travel_details?.arrival_flight_number || selectedBooking.arrival_flight_number}
                               />
-                              <small>Current: {selectedBooking.arrival_flight_number}</small>
+                              <small>Current: {selectedBooking.travel_details?.arrival_flight_number || selectedBooking.arrival_flight_number}</small>
                             </div>
                             <div className="ub-form-group">
                               <label>Departure Terminal</label>
@@ -1686,7 +1744,7 @@ Auth status: ${authStatus.isLoggedIn}
                                 <option value="Terminal 4">Terminal 4</option>
                                 <option value="Terminal 5">Terminal 5</option>
                               </select>
-                              <small>Current: {selectedBooking.departure_terminal}</small>
+                              <small>Current: {selectedBooking.travel_details?.departure_terminal || selectedBooking.departure_terminal}</small>
                             </div>
                             <div className="ub-form-group">
                               <label>Arrival Terminal</label>
@@ -1701,7 +1759,7 @@ Auth status: ${authStatus.isLoggedIn}
                                 <option value="Terminal 4">Terminal 4</option>
                                 <option value="Terminal 5">Terminal 5</option>
                               </select>
-                              <small>Current: {selectedBooking.arrival_terminal}</small>
+                              <small>Current: {selectedBooking.travel_details?.arrival_terminal || selectedBooking.arrival_terminal}</small>
                             </div>
                           </div>
                         </div>
