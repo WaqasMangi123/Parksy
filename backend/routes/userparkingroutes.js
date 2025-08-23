@@ -1504,68 +1504,6 @@ router.post('/cancel-booking',
         }
       }
 
-      // ✅ FIXED: Try multiple lookup strategies to find the booking for amendment
-      let booking = null;
-      
-      // Strategy 1: Look up by booking_reference and user_id
-      try {
-        console.log('🔍 Trying lookup by booking_reference + user_id');
-        booking = await Booking.findOne({
-          booking_reference: booking_reference,
-          user_id: req.user._id
-        });
-        if (booking) console.log('✅ Found booking for amendment by user_id');
-      } catch (error) {
-        console.log('⚠️ user_id lookup failed:', error.message);
-      }
-      
-      // Strategy 2: Look up by booking_reference and user_email
-      if (!booking) {
-        try {
-          console.log('🔍 Trying lookup by booking_reference + user_email');
-          booking = await Booking.findOne({
-            booking_reference: booking_reference,
-            user_email: req.user.email
-          });
-          if (booking) console.log('✅ Found booking for amendment by user_email');
-        } catch (error) {
-          console.log('⚠️ user_email lookup failed:', error.message);
-        }
-      }
-      
-      // Strategy 3: Look up by booking_reference and created_by
-      if (!booking) {
-        try {
-          console.log('🔍 Trying lookup by booking_reference + created_by');
-          booking = await Booking.findOne({
-            booking_reference: booking_reference,
-            created_by: req.user.email
-          });
-          if (booking) console.log('✅ Found booking for amendment by created_by');
-        } catch (error) {
-          console.log('⚠️ created_by lookup failed:', error.message);
-        }
-      }
-      
-      // Strategy 4: Look up by booking_reference and customer_email in nested field
-      if (!booking) {
-        try {
-          console.log('🔍 Trying lookup by booking_reference + customer_details.customer_email');
-          booking = await Booking.findOne({
-            booking_reference: booking_reference,
-            'customer_details.customer_email': req.user.email
-          });
-          if (booking) console.log('✅ Found booking for amendment by customer_details.customer_email');
-        } catch (error) {
-          console.log('⚠️ customer_details.customer_email lookup failed:', error.message);
-        }
-      }
-
-      const booking = await Booking.findOne({
-        booking_reference: booking_reference,
-        user_id: req.user._id
-      });
-
       if (!booking) {
         console.log('❌ Booking not found');
         return res.status(404).json({
@@ -1813,12 +1751,64 @@ router.post('/amend-booking',
         });
       }
 
-      const booking = await Booking.findOne({
-        booking_reference: booking_reference,
-        user_id: req.user._id
-      });
+      // ✅ FIXED: Try multiple lookup strategies to find the booking for amendment
+      let amendBooking = null;
+      
+      // Strategy 1: Look up by booking_reference and user_id
+      try {
+        console.log('🔍 Trying lookup by booking_reference + user_id');
+        amendBooking = await Booking.findOne({
+          booking_reference: booking_reference,
+          user_id: req.user._id
+        });
+        if (amendBooking) console.log('✅ Found booking for amendment by user_id');
+      } catch (error) {
+        console.log('⚠️ user_id lookup failed:', error.message);
+      }
+      
+      // Strategy 2: Look up by booking_reference and user_email
+      if (!amendBooking) {
+        try {
+          console.log('🔍 Trying lookup by booking_reference + user_email');
+          amendBooking = await Booking.findOne({
+            booking_reference: booking_reference,
+            user_email: req.user.email
+          });
+          if (amendBooking) console.log('✅ Found booking for amendment by user_email');
+        } catch (error) {
+          console.log('⚠️ user_email lookup failed:', error.message);
+        }
+      }
+      
+      // Strategy 3: Look up by booking_reference and created_by
+      if (!amendBooking) {
+        try {
+          console.log('🔍 Trying lookup by booking_reference + created_by');
+          amendBooking = await Booking.findOne({
+            booking_reference: booking_reference,
+            created_by: req.user.email
+          });
+          if (amendBooking) console.log('✅ Found booking for amendment by created_by');
+        } catch (error) {
+          console.log('⚠️ created_by lookup failed:', error.message);
+        }
+      }
+      
+      // Strategy 4: Look up by booking_reference and customer_email in nested field
+      if (!amendBooking) {
+        try {
+          console.log('🔍 Trying lookup by booking_reference + customer_details.customer_email');
+          amendBooking = await Booking.findOne({
+            booking_reference: booking_reference,
+            'customer_details.customer_email': req.user.email
+          });
+          if (amendBooking) console.log('✅ Found booking for amendment by customer_details.customer_email');
+        } catch (error) {
+          console.log('⚠️ customer_details.customer_email lookup failed:', error.message);
+        }
+      }
 
-      if (!booking) {
+      if (!amendBooking) {
         console.log('❌ Booking not found');
         return res.status(404).json({
           success: false,
@@ -1828,13 +1818,13 @@ router.post('/amend-booking',
       }
 
       console.log('✅ Original booking found:', {
-        reference: booking.booking_reference,
-        status: booking.status,
-        is_editable: booking.is_editable
+        reference: amendBooking.booking_reference,
+        status: amendBooking.status,
+        is_editable: amendBooking.is_editable
       });
 
       // Check if booking can be amended
-      if (booking.status === 'cancelled') {
+      if (amendBooking.status === 'cancelled') {
         return res.status(400).json({
           success: false,
           message: 'Cannot amend a cancelled booking',
@@ -1847,34 +1837,34 @@ router.post('/amend-booking',
       const changeLog = [];
       
       // Date/time changes
-      if (req.body.new_dropoff_date && req.body.new_dropoff_date !== booking.dropoff_date) {
+      if (req.body.new_dropoff_date && req.body.new_dropoff_date !== amendBooking.dropoff_date) {
         changes.dropoff_date = req.body.new_dropoff_date;
-        changeLog.push(`Dropoff date: ${booking.dropoff_date} → ${req.body.new_dropoff_date}`);
+        changeLog.push(`Dropoff date: ${amendBooking.dropoff_date} → ${req.body.new_dropoff_date}`);
       }
       
-      if (req.body.new_dropoff_time && req.body.new_dropoff_time !== booking.dropoff_time) {
+      if (req.body.new_dropoff_time && req.body.new_dropoff_time !== amendBooking.dropoff_time) {
         changes.dropoff_time = req.body.new_dropoff_time;
-        changeLog.push(`Dropoff time: ${booking.dropoff_time} → ${req.body.new_dropoff_time}`);
+        changeLog.push(`Dropoff time: ${amendBooking.dropoff_time} → ${req.body.new_dropoff_time}`);
       }
       
-      if (req.body.new_pickup_date && req.body.new_pickup_date !== booking.pickup_date) {
+      if (req.body.new_pickup_date && req.body.new_pickup_date !== amendBooking.pickup_date) {
         changes.pickup_date = req.body.new_pickup_date;
-        changeLog.push(`Pickup date: ${booking.pickup_date} → ${req.body.new_pickup_date}`);
+        changeLog.push(`Pickup date: ${amendBooking.pickup_date} → ${req.body.new_pickup_date}`);
       }
       
-      if (req.body.new_pickup_time && req.body.new_pickup_time !== booking.pickup_time) {
+      if (req.body.new_pickup_time && req.body.new_pickup_time !== amendBooking.pickup_time) {
         changes.pickup_time = req.body.new_pickup_time;
-        changeLog.push(`Pickup time: ${booking.pickup_time} → ${req.body.new_pickup_time}`);
+        changeLog.push(`Pickup time: ${amendBooking.pickup_time} → ${req.body.new_pickup_time}`);
       }
 
       // Customer details changes
-      if (req.body.new_customer_phone && req.body.new_customer_phone !== booking.customer_phone) {
+      if (req.body.new_customer_phone && req.body.new_customer_phone !== amendBooking.customer_phone) {
         changes.customer_phone = req.body.new_customer_phone;
-        changeLog.push(`Phone: ${booking.customer_phone} → ${req.body.new_customer_phone}`);
+        changeLog.push(`Phone: ${amendBooking.customer_phone} → ${req.body.new_customer_phone}`);
       }
 
       // Special requests changes
-      if (req.body.new_special_requests !== undefined && req.body.new_special_requests !== booking.special_requests) {
+      if (req.body.new_special_requests !== undefined && req.body.new_special_requests !== amendBooking.special_requests) {
         changes.special_requests = req.body.new_special_requests;
         changeLog.push(`Special requests updated`);
       }
@@ -1890,7 +1880,7 @@ router.post('/amend-booking',
         return res.json({
           success: true,
           message: 'No changes detected - booking remains the same',
-          booking: booking.toObject ? booking.toObject() : booking,
+          booking: amendBooking.toObject ? amendBooking.toObject() : amendBooking,
           warning: 'No amendments were necessary'
         });
       }
@@ -1898,10 +1888,10 @@ router.post('/amend-booking',
       // ✅ FLEXIBLE TIME VALIDATION - Less strict for amendments
       if (changes.dropoff_date || changes.dropoff_time || changes.pickup_date || changes.pickup_time) {
         try {
-          const newDropoffDate = changes.dropoff_date || booking.dropoff_date;
-          const newDropoffTime = changes.dropoff_time || booking.dropoff_time;
-          const newPickupDate = changes.pickup_date || booking.pickup_date;
-          const newPickupTime = changes.pickup_time || booking.pickup_time;
+          const newDropoffDate = changes.dropoff_date || amendBooking.dropoff_date;
+          const newDropoffTime = changes.dropoff_time || amendBooking.dropoff_time;
+          const newPickupDate = changes.pickup_date || amendBooking.pickup_date;
+          const newPickupTime = changes.pickup_time || amendBooking.pickup_time;
 
           const dropoffDateTime = new Date(`${newDropoffDate}T${newDropoffTime}`);
           const pickupDateTime = new Date(`${newPickupDate}T${newPickupTime}`);
@@ -1937,14 +1927,14 @@ router.post('/amend-booking',
 
       // Step 1: Try to amend via MAGR API (but don't fail if it doesn't work)
       let magrAmendResult = { success: false, error: 'Not attempted' };
-      if (MagrApiService && booking.magr_booking_id) {
+      if (MagrApiService && amendBooking.magr_booking_id) {
         try {
           console.log('🚀 Attempting MAGR API amendment...');
           
           // ✅ CLEAN DATA FOR MAGR API - Only send non-empty fields
           const magrAmendData = {
             booking_reference: booking_reference,
-            magr_booking_id: booking.magr_booking_id,
+            magr_booking_id: amendBooking.magr_booking_id,
             amendment_reason: req.body.amendment_reason || 'User requested changes'
           };
 
@@ -1981,7 +1971,7 @@ router.post('/amend-booking',
           amendment_date: new Date(),
           amendment_reason: req.body.amendment_reason || 'User requested changes',
           amended_by: req.user.email,
-          amendment_count: (booking.amendment_count || 0) + 1,
+          amendment_count: (amendBooking.amendment_count || 0) + 1,
           
           // MAGR API results
           magr_amendment_success: magrAmendResult.success,
@@ -2003,7 +1993,7 @@ router.post('/amend-booking',
         });
 
         const updatedBooking = await Booking.findByIdAndUpdate(
-          booking._id,
+          amendBooking._id,
           filteredUpdateData,
           { new: true, runValidators: false }
         );
@@ -2065,7 +2055,7 @@ router.post('/amend-booking',
           },
           operations: {
             magr_api: {
-              attempted: !!MagrApiService && !!booking.magr_booking_id,
+              attempted: !!MagrApiService && !!amendBooking.magr_booking_id,
               success: magrAmendResult.success,
               error: magrAmendResult.success ? null : magrAmendResult.error
             },
