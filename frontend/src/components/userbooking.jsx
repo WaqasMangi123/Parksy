@@ -372,10 +372,10 @@ const UserBooking = () => {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${authToken}`,
           },
-          body: JSON.stringify({
-            booking_reference: selectedBooking.our_reference,
-            refund_amount: selectedBooking.booking_amount,
-            reason: cancelReason || 'User requested cancellation'
+        body: JSON.stringify({
+  booking_reference: selectedBooking.our_reference || selectedBooking.magr_reference, // ✅ FIXED
+  refund_amount: selectedBooking.booking_amount,
+  reason: cancelReason || 'User requested cancellation'
           })
         });
 
@@ -407,7 +407,7 @@ const UserBooking = () => {
         console.log('✏️ Amending booking:', selectedBooking.our_reference);
         
         const amendData = {
-          booking_reference: selectedBooking.our_reference,
+           booking_reference: selectedBooking.our_reference || selectedBooking.magr_reference,
           ...amendFormData
         };
 
@@ -481,7 +481,7 @@ const UserBooking = () => {
         throw new Error('Authentication required');
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/parking/my-bookings/${bookingReference}`, {
+     const response = await fetch(`${API_BASE_URL}/api/parking/my-bookings/${selectedBooking.our_reference || selectedBooking.magr_reference}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
