@@ -1,11 +1,11 @@
-// UserBooking.jsx - FIXED VERSION with proper cancel/amend support
+// UserBooking.jsx - FULLY FIXED VERSION with enhanced debugging and robust cancel/amend support
 import React, { useState, useEffect } from 'react';
 import { 
   Calendar, User, Car, CreditCard, MapPin, Clock, Phone, Mail, 
   Plane, AlertCircle, CheckCircle, XCircle, RefreshCw, Trash2,
   Eye, Download, Filter, Search, Star, Shield, Navigation,
   ArrowLeft, Home, LogOut, Bell, Settings, Plus, Edit, Loader2,
-  Info, Award
+  Info, Award, Bug
 } from 'lucide-react';
 import './userbooking.css';
 
@@ -28,6 +28,8 @@ const UserBooking = () => {
   const [processingAction, setProcessingAction] = useState(false);
   const [authStatus, setAuthStatus] = useState({ isLoggedIn: false, user: null });
   const [actionResult, setActionResult] = useState(null);
+  const [debugMode, setDebugMode] = useState(false);
+  const [debugInfo, setDebugInfo] = useState(null);
 
   // NEW: Amend form state
   const [amendFormData, setAmendFormData] = useState({
@@ -60,7 +62,83 @@ const UserBooking = () => {
     'GLA': 'Glasgow'
   };
 
-  // FIXED: Enhanced Authentication functions with comprehensive token detection
+  // ENHANCED: Debug logging functions
+  const logDebug = (message, data = null) => {
+    console.log(`🔧 [UserBooking Debug] ${message}`, data || '');
+    if (debugMode) {
+      setDebugInfo(prev => [
+        ...(prev || []),
+        { timestamp: new Date().toLocaleTimeString(), message, data }
+      ]);
+    }
+  };
+
+  const debugBookingData = (booking, context = 'General') => {
+    const debugData = {
+      context,
+      booking_fields: Object.keys(booking || {}),
+      id_fields: {
+        id: booking?.id,
+        _id: booking?._id,
+        our_reference: booking?.our_reference,
+        magr_reference: booking?.magr_reference,
+        booking_reference: booking?.booking_reference,
+        reference: booking?.reference,
+        booking_id: booking?.booking_id
+      },
+      status: booking?.status,
+      user_id: booking?.user_id,
+      customer_details: booking?.customer_details,
+      vehicle_details: booking?.vehicle_details,
+      travel_details: booking?.travel_details,
+      nested_references: {
+        customer_ref: booking?.customer_details?.booking_reference,
+        travel_ref: booking?.travel_details?.booking_reference
+      }
+    };
+
+    logDebug(`Booking Debug (${context})`, debugData);
+    
+    if (debugMode) {
+      alert(`🔧 Booking Debug (${context}):
+ID Fields:
+- id: ${booking?.id || 'MISSING'}
+- _id: ${booking?._id || 'MISSING'}
+- our_reference: ${booking?.our_reference || 'MISSING'}
+- magr_reference: ${booking?.magr_reference || 'MISSING'}
+- booking_reference: ${booking?.booking_reference || 'MISSING'}
+- reference: ${booking?.reference || 'MISSING'}
+
+Status: ${booking?.status || 'MISSING'}
+All Fields: ${Object.keys(booking || {}).slice(0, 10).join(', ')}${Object.keys(booking || {}).length > 10 ? '...' : ''}`);
+    }
+    
+    return debugData;
+  };
+
+  // ENHANCED: Get booking reference with fallback priority
+  const getBookingReference = (booking) => {
+    const candidates = [
+      booking?.our_reference,
+      booking?.booking_reference,
+      booking?.magr_reference,
+      booking?.reference,
+      booking?._id,
+      booking?.id
+    ];
+
+    const validRef = candidates.find(ref => ref && ref !== null && ref !== undefined && ref !== '');
+    
+    logDebug('Getting booking reference', {
+      candidates,
+      selected: validRef,
+      booking_keys: Object.keys(booking || {})
+    });
+
+    return validRef;
+  };
+
+  // ENHANCED: Authentication functions with comprehensive token detection
   const getAuthToken = () => {
     try {
       const localStorageKeys = [
@@ -90,7 +168,7 @@ const UserBooking = () => {
 
       return null;
     } catch (error) {
-      console.error('❌ Error accessing browser storage:', error);
+      logDebug('Error accessing browser storage', error);
       return null;
     }
   };
@@ -136,7 +214,7 @@ const UserBooking = () => {
         return `${header}.${payload}.${signature}`;
       }
     } catch (error) {
-      console.error('❌ Token conversion failed:', error);
+      logDebug('Token conversion failed', error);
     }
     
     return token;
@@ -179,7 +257,7 @@ const UserBooking = () => {
       
       return payload;
     } catch (error) {
-      console.error('❌ Error decoding token:', error);
+      logDebug('Error decoding token', error);
       return null;
     }
   };
@@ -191,6 +269,8 @@ const UserBooking = () => {
       const userInfo = getUserInfoFromToken();
       
       const isLoggedIn = !!(token && userInfo);
+      
+      logDebug('Authentication check', { isLoggedIn, hasToken: !!token, hasUserInfo: !!userInfo });
       
       setAuthStatus({
         isLoggedIn: isLoggedIn,
@@ -215,10 +295,73 @@ const UserBooking = () => {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // FIXED: Enhanced Fetch user's bookings
+  // ENHANCED: Debug API endpoints
+  const testDebugEndpoints = async () => {
+    const authToken = getValidJWTToken();
+    if (!authToken) {
+      alert('No auth token found!');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      logDebug('Testing debug endpoints');
+
+      // Test raw bookings endpoint
+      const rawResponse = await fetch(`${API_BASE_URL}/api/parking/debug/user-bookings-raw`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        }
+      });
+
+      if (rawResponse.ok) {
+        const rawData = await rawResponse.json();
+        logDebug('Raw bookings data', rawData);
+        
+        if (rawData.data && rawData.data.length > 0) {
+          // Test specific booking lookup
+          const firstBooking = rawData.data[0];
+          const testReference = getBookingReference(firstBooking);
+          
+          if (testReference) {
+            const lookupResponse = await fetch(`${API_BASE_URL}/api/parking/debug/booking-lookup/${testReference}`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`,
+              }
+            });
+
+            if (lookupResponse.ok) {
+              const lookupData = await lookupResponse.json();
+              logDebug('Booking lookup data', lookupData);
+            }
+          }
+        }
+
+        alert(`Debug Test Results:
+✅ Raw Bookings: ${rawData.data?.length || 0} found
+📋 Sample Structure: ${JSON.stringify(rawData.data?.[0] || {}, null, 2).slice(0, 500)}...
+Check console for full details.`);
+      } else {
+        const errorData = await rawResponse.text();
+        alert(`❌ Debug endpoint failed: ${rawResponse.status}\n${errorData}`);
+      }
+
+    } catch (error) {
+      logDebug('Debug endpoints error', error);
+      alert(`❌ Debug test failed: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ENHANCED: Fetch user's bookings with better error handling
   const fetchUserBookings = async () => {
     if (!authStatus.isLoggedIn) {
-      console.log('❌ Cannot fetch bookings - user not logged in');
+      logDebug('Cannot fetch bookings - user not logged in');
       return;
     }
 
@@ -232,6 +375,8 @@ const UserBooking = () => {
         throw new Error('No authentication token found in storage');
       }
 
+      logDebug('Fetching user bookings', { tokenLength: authToken.length });
+
       const possibleEndpoints = [
         `${API_BASE_URL}/api/parking/my-bookings`,
         `${API_BASE_URL}/api/parking/bookings`,
@@ -243,7 +388,7 @@ const UserBooking = () => {
 
       for (const endpoint of possibleEndpoints) {
         try {
-          console.log(`🌐 Trying endpoint: ${endpoint}`);
+          logDebug(`Trying endpoint: ${endpoint}`);
 
           const response = await fetch(endpoint, {
             method: 'GET',
@@ -261,10 +406,12 @@ const UserBooking = () => {
           } else {
             const errorData = await response.json();
             lastError = new Error(errorData.message || `HTTP ${response.status} from ${endpoint}`);
+            logDebug(`Endpoint failed: ${endpoint}`, { status: response.status, error: errorData });
           }
 
         } catch (networkError) {
           lastError = networkError;
+          logDebug(`Network error for ${endpoint}`, networkError);
           continue;
         }
       }
@@ -274,45 +421,60 @@ const UserBooking = () => {
       }
 
       const data = await successfulResponse.response.json();
+      logDebug('Bookings API response', { endpoint: successfulResponse.endpoint, dataStructure: Object.keys(data) });
       
       if (data.success && data.data) {
         const bookingsArray = Array.isArray(data.data) ? data.data : [];
         
-        // FIXED: Ensure all bookings have the required fields for cancel/amend
-        const enhancedBookings = bookingsArray.map(booking => ({
-          ...booking,
-          // Ensure cancel/amend flags exist with proper defaults
-          is_cancelable: booking.is_cancelable !== false && booking.status === 'confirmed',
-          is_editable: booking.is_editable !== false && booking.status === 'confirmed',
-          // Ensure nested objects exist
-          customer_details: booking.customer_details || {},
-          vehicle_details: booking.vehicle_details || {},
-          travel_details: booking.travel_details || {},
-          // Set default status if missing
-          status: booking.status || 'confirmed'
-        }));
+        // ENHANCED: Process bookings with debug info
+        const enhancedBookings = bookingsArray.map((booking, index) => {
+          logDebug(`Processing booking ${index}`, {
+            original_keys: Object.keys(booking),
+            has_our_reference: !!booking.our_reference,
+            has_booking_reference: !!booking.booking_reference,
+            has_magr_reference: !!booking.magr_reference,
+            status: booking.status
+          });
+
+          return {
+            ...booking,
+            // Ensure cancel/amend flags exist with proper defaults
+            is_cancelable: booking.is_cancelable !== false && booking.status === 'confirmed',
+            is_editable: booking.is_editable !== false && booking.status === 'confirmed',
+            // Ensure nested objects exist
+            customer_details: booking.customer_details || {},
+            vehicle_details: booking.vehicle_details || {},
+            travel_details: booking.travel_details || {},
+            // Set default status if missing
+            status: booking.status || 'confirmed',
+            // Add debug reference
+            _debug_reference: getBookingReference(booking)
+          };
+        });
+        
+        logDebug('Enhanced bookings processed', { count: enhancedBookings.length });
         
         setUserBookings(enhancedBookings);
         setFilteredBookings(enhancedBookings);
         setError(null);
-        
-        console.log('✅ Bookings loaded successfully:', enhancedBookings.length, 'bookings');
       } else {
+        logDebug('No bookings data in response', data);
         setUserBookings([]);
         setFilteredBookings([]);
         setError(null);
       }
 
     } catch (error) {
-      console.error('❌ Error fetching bookings:', error);
+      logDebug('Error fetching bookings', error);
       setError(`Failed to load bookings: ${error.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  // FIXED: Handle Cancel Booking with proper error handling
+  // ENHANCED: Handle Cancel Booking with proper error handling and debugging
   const handleCancelBooking = async (booking) => {
+    debugBookingData(booking, 'Cancel Booking Handler');
     setSelectedBooking(booking);
     setModalType('cancel');
     setShowModal(true);
@@ -320,8 +482,9 @@ const UserBooking = () => {
     setActionResult(null);
   };
 
-  // FIXED: Handle Amend Booking
+  // ENHANCED: Handle Amend Booking with debugging
   const handleAmendBooking = async (booking) => {
+    debugBookingData(booking, 'Amend Booking Handler');
     setSelectedBooking(booking);
     setModalType('amend');
     setShowModal(true);
@@ -350,7 +513,7 @@ const UserBooking = () => {
     }
   };
 
-  // FIXED: Process Cancel/Amend Action with enhanced error handling
+  // ENHANCED: Process Cancel/Amend Action with comprehensive error handling and debugging
   const processBookingAction = async () => {
     if (!selectedBooking || !modalType) return;
 
@@ -363,8 +526,28 @@ const UserBooking = () => {
         throw new Error('Authentication token not found');
       }
 
+      const bookingReference = getBookingReference(selectedBooking);
+      if (!bookingReference) {
+        debugBookingData(selectedBooking, 'No Reference Found');
+        throw new Error('No valid booking reference found. Cannot process action.');
+      }
+
+      logDebug(`Processing ${modalType} action`, {
+        booking_reference: bookingReference,
+        booking_status: selectedBooking.status,
+        modal_type: modalType
+      });
+
       if (modalType === 'cancel') {
-        console.log('🚫 Cancelling booking:', selectedBooking.our_reference);
+        logDebug('Cancelling booking', { reference: bookingReference });
+        
+        const cancelPayload = {
+          booking_reference: bookingReference,
+          refund_amount: selectedBooking.booking_amount,
+          reason: cancelReason || 'User requested cancellation'
+        };
+
+        logDebug('Cancel payload', cancelPayload);
         
         const response = await fetch(`${API_BASE_URL}/api/parking/cancel-booking`, {
           method: 'POST',
@@ -372,22 +555,23 @@ const UserBooking = () => {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${authToken}`,
           },
-        body: JSON.stringify({
-  booking_reference: selectedBooking.our_reference || selectedBooking.magr_reference, // ✅ FIXED
-  refund_amount: selectedBooking.booking_amount,
-  reason: cancelReason || 'User requested cancellation'
-          })
+          body: JSON.stringify(cancelPayload)
         });
 
-        console.log('📡 Cancel response status:', response.status, response.statusText);
+        logDebug('Cancel response received', {
+          status: response.status,
+          statusText: response.statusText,
+          ok: response.ok
+        });
 
         if (!response.ok) {
           const errorData = await response.json();
-          console.error('❌ Cancel API error:', errorData);
+          logDebug('Cancel API error response', errorData);
           throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
         }
 
         const result = await response.json();
+        logDebug('Cancel success response', result);
         
         if (result.success) {
           setActionResult({
@@ -404,10 +588,10 @@ const UserBooking = () => {
         }
 
       } else if (modalType === 'amend') {
-        console.log('✏️ Amending booking:', selectedBooking.our_reference);
+        logDebug('Amending booking', { reference: bookingReference });
         
         const amendData = {
-           booking_reference: selectedBooking.our_reference || selectedBooking.magr_reference,
+          booking_reference: bookingReference,
           ...amendFormData
         };
 
@@ -418,6 +602,8 @@ const UserBooking = () => {
           }
         });
 
+        logDebug('Amend payload', amendData);
+
         const response = await fetch(`${API_BASE_URL}/api/parking/amend-booking`, {
           method: 'POST',
           headers: {
@@ -427,15 +613,20 @@ const UserBooking = () => {
           body: JSON.stringify(amendData)
         });
 
-        console.log('📡 Amend response status:', response.status, response.statusText);
+        logDebug('Amend response received', {
+          status: response.status,
+          statusText: response.statusText,
+          ok: response.ok
+        });
 
         if (!response.ok) {
           const errorData = await response.json();
-          console.error('❌ Amend API error:', errorData);
+          logDebug('Amend API error response', errorData);
           throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
         }
 
         const result = await response.json();
+        logDebug('Amend success response', result);
         
         if (result.success) {
           setActionResult({
@@ -453,7 +644,7 @@ const UserBooking = () => {
       }
 
     } catch (error) {
-      console.error(`❌ Error ${modalType}ing booking:`, error);
+      logDebug(`Error ${modalType}ing booking`, error);
       setActionResult({
         success: false,
         type: modalType,
@@ -472,16 +663,23 @@ const UserBooking = () => {
     }));
   };
 
-  const deleteBooking = async (bookingReference, reason) => {
+  const deleteBooking = async (booking, reason) => {
     try {
       setProcessingAction(true);
       const authToken = getValidJWTToken();
+      const bookingReference = getBookingReference(booking);
 
       if (!authToken) {
         throw new Error('Authentication required');
       }
 
-     const response = await fetch(`${API_BASE_URL}/api/parking/my-bookings/${selectedBooking.our_reference || selectedBooking.magr_reference}`, {
+      if (!bookingReference) {
+        throw new Error('No valid booking reference found');
+      }
+
+      logDebug('Deleting booking', { reference: bookingReference });
+
+      const response = await fetch(`${API_BASE_URL}/api/parking/my-bookings/${bookingReference}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
@@ -499,7 +697,7 @@ const UserBooking = () => {
       
       if (result.success) {
         setUserBookings(prevBookings => 
-          prevBookings.filter(booking => booking.our_reference !== bookingReference)
+          prevBookings.filter(b => getBookingReference(b) !== bookingReference)
         );
         
         await fetchUserBookings();
@@ -513,7 +711,7 @@ const UserBooking = () => {
         throw new Error(result.message || 'Deletion failed');
       }
     } catch (error) {
-      console.error('❌ Error deleting booking:', error);
+      logDebug('Error deleting booking', error);
       alert(`Failed to delete booking: ${error.message}`);
     } finally {
       setProcessingAction(false);
@@ -527,8 +725,7 @@ const UserBooking = () => {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(booking =>
-        booking.our_reference?.toLowerCase().includes(query) ||
-        booking.magr_reference?.toLowerCase().includes(query) ||
+        getBookingReference(booking)?.toLowerCase().includes(query) ||
         booking.product_name?.toLowerCase().includes(query) ||
         booking.vehicle_registration?.toLowerCase().includes(query) ||
         booking.airport_code?.toLowerCase().includes(query)
@@ -619,18 +816,36 @@ const UserBooking = () => {
     window.location.href = '/#/parking';
   };
 
-  // Debug function
+  // Enhanced debug function
   const debugToken = () => {
     const token = getAuthToken();
     const userInfo = getUserInfoFromToken();
     
-    alert(`UserBookings Token Debug:
+    const debugInfo = {
+      token_exists: !!token,
+      token_length: token ? token.length : 0,
+      is_jwt: token ? (token.includes('.') && token.split('.').length === 3) : false,
+      user_info: userInfo,
+      auth_status: authStatus.isLoggedIn,
+      bookings_count: userBookings.length,
+      sample_booking_refs: userBookings.slice(0, 3).map(b => ({
+        booking: getBookingReference(b),
+        status: b.status,
+        keys: Object.keys(b).slice(0, 5)
+      }))
+    };
+
+    logDebug('Token debug info', debugInfo);
+    
+    alert(`🔧 UserBookings Debug Info:
 Token exists: ${!!token}
 Token length: ${token ? token.length : 0}
 Is JWT: ${token ? (token.includes('.') && token.split('.').length === 3) : false}
 User info: ${userInfo ? JSON.stringify(userInfo, null, 2) : 'none'}
 Auth status: ${authStatus.isLoggedIn}
-`);
+Bookings: ${userBookings.length}
+Debug mode: ${debugMode}
+Check console for detailed logs.`);
   };
 
   if (!authStatus.isLoggedIn) {
@@ -653,7 +868,13 @@ Auth status: ${authStatus.isLoggedIn}
             </div>
             <div className="ub-debug-section">
               <button onClick={debugToken} className="ub-debug-btn">
-                🔧 Debug Token
+                <Bug size={16} />
+                Debug Token
+              </button>
+              <button onClick={() => setDebugMode(!debugMode)} 
+                      className={`ub-debug-btn ${debugMode ? 'active' : ''}`}>
+                <Settings size={16} />
+                Debug Mode: {debugMode ? 'ON' : 'OFF'}
               </button>
               <small>Click to check authentication status</small>
             </div>
@@ -692,7 +913,12 @@ Auth status: ${authStatus.isLoggedIn}
               Go Home
             </button>
             <button onClick={debugToken} className="ub-debug-btn">
-              🔧 Debug
+              <Bug size={16} />
+              Debug
+            </button>
+            <button onClick={testDebugEndpoints} className="ub-debug-btn">
+              <Settings size={16} />
+              Test Debug APIs
             </button>
           </div>
         </div>
@@ -702,7 +928,7 @@ Auth status: ${authStatus.isLoggedIn}
 
   return (
     <div className="ub-user-bookings">
-      {/* Header */}
+      {/* Enhanced Header with Debug Controls */}
       <div className="ub-user-header">
         <div className="ub-header-content">
           <div className="ub-header-left">
@@ -710,7 +936,7 @@ Auth status: ${authStatus.isLoggedIn}
               <ArrowLeft size={20} />
             </button>
             <div className="ub-header-title">
-              <h1>My Bookings</h1>
+              <h1>My Bookings {debugMode && <span style={{color: '#ff6b35'}}>(DEBUG)</span>}</h1>
               <p>Welcome back, {authStatus.user?.email || authStatus.user?.username || 'User'}!</p>
             </div>
           </div>
@@ -723,8 +949,46 @@ Auth status: ${authStatus.isLoggedIn}
               <RefreshCw size={16} />
               Refresh
             </button>
+            {debugMode && (
+              <button className="ub-debug-btn" onClick={testDebugEndpoints}>
+                <Bug size={16} />
+                Test APIs
+              </button>
+            )}
           </div>
         </div>
+      </div>
+
+      {/* Debug Panel */}
+      {debugMode && debugInfo && (
+        <div className="ub-debug-panel">
+          <h4>🔧 Debug Log</h4>
+          <div className="ub-debug-log">
+            {debugInfo.slice(-10).map((log, index) => (
+              <div key={index} className="ub-debug-entry">
+                <span className="ub-debug-time">{log.timestamp}</span>
+                <span className="ub-debug-message">{log.message}</span>
+                {log.data && <pre className="ub-debug-data">{JSON.stringify(log.data, null, 2).slice(0, 200)}...</pre>}
+              </div>
+            ))}
+          </div>
+          <button onClick={() => setDebugInfo([])} className="ub-debug-clear">Clear Log</button>
+        </div>
+      )}
+
+      {/* Debug Controls */}
+      <div className="ub-debug-controls">
+        <button onClick={() => setDebugMode(!debugMode)} 
+                className={`ub-debug-toggle ${debugMode ? 'active' : ''}`}>
+          <Bug size={14} />
+          Debug: {debugMode ? 'ON' : 'OFF'}
+        </button>
+        {debugMode && (
+          <>
+            <button onClick={debugToken} className="ub-debug-btn">Token Info</button>
+            <button onClick={testDebugEndpoints} className="ub-debug-btn">Test APIs</button>
+          </>
+        )}
       </div>
 
       {/* Stats Summary */}
@@ -812,18 +1076,24 @@ Auth status: ${authStatus.isLoggedIn}
         ) : (
           <div className="ub-bookings-grid">
             {filteredBookings.map((booking) => (
-              <div key={booking.id} className="ub-booking-card">
+              <div key={booking.id || booking._id || getBookingReference(booking)} className="ub-booking-card">
                 <div className="ub-card-header">
                   <div className="ub-booking-reference">
-                    <strong>#{booking.our_reference}</strong>
+                    <strong>#{getBookingReference(booking)}</strong>
                     <span className={getStatusBadge(booking.status)}>
                       {booking.status}
                     </span>
+                    {debugMode && (
+                      <span className="ub-debug-ref" title="Debug Reference">
+                        🔧 {booking._debug_reference}
+                      </span>
+                    )}
                   </div>
                   <div className="ub-booking-actions">
                     <button
                       className="ub-action-btn ub-view"
                       onClick={() => {
+                        debugBookingData(booking, 'View Action');
                         setSelectedBooking(booking);
                         setModalType('view');
                         setShowModal(true);
@@ -833,7 +1103,7 @@ Auth status: ${authStatus.isLoggedIn}
                       <Eye size={14} />
                     </button>
                     
-                    {/* FIXED: Cancel Button - Now shows for confirmed bookings */}
+                    {/* Enhanced Cancel Button - Now shows for confirmed bookings */}
                     {booking.status === 'confirmed' && booking.is_cancelable && (
                       <button
                         className="ub-action-btn ub-cancel"
@@ -844,7 +1114,7 @@ Auth status: ${authStatus.isLoggedIn}
                       </button>
                     )}
                     
-                    {/* FIXED: Amend Button - Now shows for confirmed bookings */}
+                    {/* Enhanced Amend Button - Now shows for confirmed bookings */}
                     {booking.status === 'confirmed' && booking.is_editable && (
                       <button
                         className="ub-action-btn ub-amend"
@@ -859,6 +1129,7 @@ Auth status: ${authStatus.isLoggedIn}
                       <button
                         className="ub-action-btn ub-delete"
                         onClick={() => {
+                          debugBookingData(booking, 'Delete Action');
                           setSelectedBooking(booking);
                           setModalType('delete');
                           setShowModal(true);
@@ -866,6 +1137,16 @@ Auth status: ${authStatus.isLoggedIn}
                         title="Delete Booking"
                       >
                         <Trash2 size={14} />
+                      </button>
+                    )}
+
+                    {debugMode && (
+                      <button
+                        className="ub-action-btn ub-debug"
+                        onClick={() => debugBookingData(booking, 'Manual Debug')}
+                        title="Debug This Booking"
+                      >
+                        <Bug size={14} />
                       </button>
                     )}
                   </div>
@@ -921,7 +1202,7 @@ Auth status: ${authStatus.isLoggedIn}
                     </div>
                   )}
                   
-                  {/* FIXED: Booking capabilities indicators */}
+                  {/* Enhanced Booking capabilities indicators */}
                   <div className="ub-booking-capabilities">
                     {booking.is_cancelable && booking.status === 'confirmed' && (
                       <span className="ub-capability-badge cancelable" title="Cancellable">
@@ -938,6 +1219,11 @@ Auth status: ${authStatus.isLoggedIn}
                         TEST
                       </span>
                     )}
+                    {debugMode && (
+                      <span className="ub-capability-badge debug-mode" title="Debug Info Available">
+                        🔧
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -946,7 +1232,7 @@ Auth status: ${authStatus.isLoggedIn}
         )}
       </div>
 
-      {/* Enhanced Modal */}
+      {/* Enhanced Modal with better debugging */}
       {showModal && selectedBooking && (
         <div className="ub-modal-overlay" onClick={() => setShowModal(false)}>
           <div className="ub-modal-content" onClick={(e) => e.stopPropagation()}>
@@ -956,6 +1242,11 @@ Auth status: ${authStatus.isLoggedIn}
                 {modalType === 'cancel' && 'Cancel Booking'}
                 {modalType === 'amend' && 'Amend Booking'}
                 {modalType === 'delete' && 'Delete Booking'}
+                {debugMode && (
+                  <span className="ub-debug-modal-info">
+                    (Ref: {getBookingReference(selectedBooking)})
+                  </span>
+                )}
               </h2>
               <button 
                 className="ub-modal-close-btn"
@@ -968,6 +1259,30 @@ Auth status: ${authStatus.isLoggedIn}
             <div className="ub-modal-body">
               {modalType === 'view' ? (
                 <div className="ub-booking-details-modal">
+                  {/* Debug Section */}
+                  {debugMode && (
+                    <div className="ub-detail-section ub-debug-section">
+                      <h3>🔧 Debug Information</h3>
+                      <div className="ub-debug-info">
+                        <pre>{JSON.stringify({
+                          reference: getBookingReference(selectedBooking),
+                          id_fields: {
+                            id: selectedBooking.id,
+                            _id: selectedBooking._id,
+                            our_reference: selectedBooking.our_reference,
+                            magr_reference: selectedBooking.magr_reference,
+                            booking_reference: selectedBooking.booking_reference
+                          },
+                          status: selectedBooking.status,
+                          capabilities: {
+                            is_cancelable: selectedBooking.is_cancelable,
+                            is_editable: selectedBooking.is_editable
+                          }
+                        }, null, 2)}</pre>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Booking Status */}
                   <div className="ub-detail-section">
                     <h3>Booking Status</h3>
@@ -1000,9 +1315,9 @@ Auth status: ${authStatus.isLoggedIn}
                       </div>
                       <div className="ub-detail-item">
                         <label>Reference</label>
-                        <span>{selectedBooking.our_reference}</span>
+                        <span>{getBookingReference(selectedBooking)}</span>
                       </div>
-                      {selectedBooking.magr_reference && (
+                      {selectedBooking.magr_reference && getBookingReference(selectedBooking) !== selectedBooking.magr_reference && (
                         <div className="ub-detail-item">
                           <label>Provider Reference</label>
                           <span>{selectedBooking.magr_reference}</span>
@@ -1175,6 +1490,16 @@ Auth status: ${authStatus.isLoggedIn}
                         Amend Booking
                       </button>
                     )}
+
+                    {debugMode && (
+                      <button 
+                        className="ub-btn-secondary"
+                        onClick={() => debugBookingData(selectedBooking, 'Modal View Debug')}
+                      >
+                        <Bug size={16} />
+                        Debug Booking
+                      </button>
+                    )}
                   </div>
                 </div>
               ) : !actionResult ? (
@@ -1186,6 +1511,11 @@ Auth status: ${authStatus.isLoggedIn}
                         <div>
                           <h4>Cancel Your Booking</h4>
                           <p>Cancelling your booking will process a refund according to the cancellation policy. This action cannot be undone.</p>
+                          {debugMode && (
+                            <small className="ub-debug-info">
+                              🔧 Using reference: {getBookingReference(selectedBooking)}
+                            </small>
+                          )}
                         </div>
                       </div>
 
@@ -1193,6 +1523,10 @@ Auth status: ${authStatus.isLoggedIn}
                         <div className="ub-summary-item">
                           <span>Service:</span>
                           <span>{selectedBooking.product_name}</span>
+                        </div>
+                        <div className="ub-summary-item">
+                          <span>Reference:</span>
+                          <span>{getBookingReference(selectedBooking)}</span>
                         </div>
                         <div className="ub-summary-item">
                           <span>Amount:</span>
@@ -1252,6 +1586,11 @@ Auth status: ${authStatus.isLoggedIn}
                           <h4>Modify Your Booking</h4>
                           <p>Update the details below. Only changed fields will be updated.</p>
                           <small>Note: Dates cannot be changed, only times and other details.</small>
+                          {debugMode && (
+                            <small className="ub-debug-info">
+                              🔧 Using reference: {getBookingReference(selectedBooking)}
+                            </small>
+                          )}
                         </div>
                       </div>
 
@@ -1489,11 +1828,33 @@ Auth status: ${authStatus.isLoggedIn}
                   )}
 
                   {modalType === 'delete' && (
-                    <div className="ub-warning-message">
-                      <AlertCircle size={24} />
-                      <div>
-                        <h4>Delete Booking Record</h4>
-                        <p>This will permanently remove this booking from your history. Only cancelled bookings can be deleted.</p>
+                    <div className="ub-delete-form">
+                      <div className="ub-warning-message">
+                        <AlertCircle size={24} />
+                        <div>
+                          <h4>Delete Booking Record</h4>
+                          <p>This will permanently remove this booking from your history. Only cancelled bookings can be deleted.</p>
+                          {debugMode && (
+                            <small className="ub-debug-info">
+                              🔧 Using reference: {getBookingReference(selectedBooking)}
+                            </small>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="ub-booking-summary">
+                        <div className="ub-summary-item">
+                          <span>Reference:</span>
+                          <span>{getBookingReference(selectedBooking)}</span>
+                        </div>
+                        <div className="ub-summary-item">
+                          <span>Status:</span>
+                          <span>{selectedBooking.status}</span>
+                        </div>
+                        <div className="ub-summary-item">
+                          <span>Service:</span>
+                          <span>{selectedBooking.product_name}</span>
+                        </div>
                       </div>
 
                       <div className="ub-form-group">
@@ -1517,7 +1878,7 @@ Auth status: ${authStatus.isLoggedIn}
                         </button>
                         <button 
                           className="ub-btn-danger"
-                          onClick={() => deleteBooking(selectedBooking.our_reference, cancelReason)}
+                          onClick={() => deleteBooking(selectedBooking, cancelReason)}
                           disabled={processingAction}
                         >
                           {processingAction ? (
@@ -1547,19 +1908,21 @@ Auth status: ${authStatus.isLoggedIn}
                         </div>
                       </div>
                       
-                      <h2>{actionResult.type === 'cancel' ? '✅ Booking Cancelled Successfully!' : '✅ Booking Updated Successfully!'}</h2>
+                      <h2>
+                        {actionResult.type === 'cancel' ? '✅ Booking Cancelled Successfully!' : '✅ Booking Updated Successfully!'}
+                      </h2>
                       <p>{actionResult.message}</p>
                       
                       {actionResult.data && (
                         <div className="ub-result-details">
                           <div className="ub-detail-row">
                             <span>Reference:</span>
-                            <strong>{actionResult.data.our_reference || actionResult.data.reference}</strong>
+                            <strong>{actionResult.data.our_reference || actionResult.data.reference || getBookingReference(selectedBooking)}</strong>
                           </div>
                           {actionResult.data.refund_amount && (
                             <div className="ub-detail-row">
                               <span>Refund Amount:</span>
-                              <strong>£{actionResult.data.refund_amount}</strong>
+                              <strong>{formatCurrency(actionResult.data.refund_amount)}</strong>
                             </div>
                           )}
                           {actionResult.type === 'cancel' && (
@@ -1596,8 +1959,21 @@ Auth status: ${authStatus.isLoggedIn}
                         </div>
                       </div>
                       
-                      <h2>❌ {actionResult.type === 'cancel' ? 'Cancellation Failed' : 'Amendment Failed'}</h2>
+                      <h2>❌ {actionResult.type === 'cancel' ? 'Cancellation Failed' : 
+                              actionResult.type === 'amend' ? 'Amendment Failed' : 'Action Failed'}</h2>
                       <p>{actionResult.message}</p>
+                      
+                      {debugMode && actionResult.error && (
+                        <div className="ub-debug-error">
+                          <h4>🔧 Debug Information:</h4>
+                          <pre>{JSON.stringify({
+                            error: actionResult.error,
+                            reference_used: getBookingReference(selectedBooking),
+                            booking_status: selectedBooking.status,
+                            action_type: actionResult.type
+                          }, null, 2)}</pre>
+                        </div>
+                      )}
                       
                       <div className="ub-error-actions">
                         <button 
@@ -1620,6 +1996,15 @@ Auth status: ${authStatus.isLoggedIn}
                         >
                           Close
                         </button>
+                        {debugMode && (
+                          <button 
+                            className="ub-btn-secondary"
+                            onClick={() => debugBookingData(selectedBooking, 'Error Debug')}
+                          >
+                            <Bug size={16} />
+                            Debug Booking
+                          </button>
+                        )}
                       </div>
                     </>
                   )}
@@ -1629,6 +2014,75 @@ Auth status: ${authStatus.isLoggedIn}
           </div>
         </div>
       )}
+
+      {/* Debug Info Panel */}
+      {debugMode && (
+        <div className="ub-debug-info-panel">
+          <h4>🔧 Debug Information</h4>
+          <div className="ub-debug-stats">
+            <div>Total Bookings: {userBookings.length}</div>
+            <div>Auth Status: {authStatus.isLoggedIn ? '✅' : '❌'}</div>
+            <div>User ID: {authStatus.user?.id || authStatus.user?.user_id || 'N/A'}</div>
+            <div>Token Length: {getAuthToken()?.length || 0}</div>
+          </div>
+          
+          <div className="ub-debug-bookings-sample">
+            <h5>Sample Booking Structure:</h5>
+            {userBookings.length > 0 && (
+              <pre className="ub-debug-json">
+                {JSON.stringify({
+                  sample_booking: {
+                    id: userBookings[0].id,
+                    _id: userBookings[0]._id,
+                    our_reference: userBookings[0].our_reference,
+                    magr_reference: userBookings[0].magr_reference,
+                    booking_reference: userBookings[0].booking_reference,
+                    status: userBookings[0].status,
+                    is_cancelable: userBookings[0].is_cancelable,
+                    is_editable: userBookings[0].is_editable,
+                    _debug_reference: userBookings[0]._debug_reference,
+                    all_keys_count: Object.keys(userBookings[0]).length
+                  }
+                }, null, 2)}
+              </pre>
+            )}
+          </div>
+
+          <div className="ub-debug-actions">
+            <button onClick={testDebugEndpoints} className="ub-debug-btn">
+              <Settings size={14} />
+              Test API Endpoints
+            </button>
+            <button onClick={() => setDebugInfo([])} className="ub-debug-btn">
+              Clear Logs
+            </button>
+            <button onClick={() => console.log('All bookings:', userBookings)} className="ub-debug-btn">
+              Log All Bookings
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Footer with Debug Toggle */}
+      <div className="ub-footer">
+        <div className="ub-footer-content">
+          <div className="ub-footer-links">
+            <button onClick={goToHome}>Home</button>
+            <button onClick={goToNewBooking}>New Booking</button>
+            <button onClick={() => window.location.href = '/#/support'}>Support</button>
+          </div>
+          <div className="ub-footer-debug">
+            <button 
+              onClick={() => setDebugMode(!debugMode)}
+              className={`ub-debug-toggle-footer ${debugMode ? 'active' : ''}`}
+              title="Toggle Debug Mode"
+            >
+              <Bug size={12} />
+              {debugMode ? 'Debug ON' : 'Debug OFF'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
