@@ -1125,10 +1125,10 @@ router.post('/bookings-with-payment',
 
 // ===== USER BOOKING MANAGEMENT ROUTES =====
 
-// Get user's bookings - ENHANCED with service features
+// Get user's bookings - ENHANCED with service features - FIXED USER LOOKUP
 router.get('/my-bookings', authenticateToken, async (req, res) => {
   try {
-    console.log('📋 Fetching bookings for user:', req.user.email);
+    console.log('📋 Fetching bookings for user:', req.user.email, 'ID:', req.user._id);
     
     if (!Booking) {
       // If no booking model, return empty array
@@ -1141,11 +1141,60 @@ router.get('/my-bookings', authenticateToken, async (req, res) => {
       });
     }
 
-    const bookings = await Booking.find({ 
-      user_id: req.user._id 
-    }).sort({ created_at: -1 });
+    // ✅ FIXED: Try multiple lookup strategies to find user's bookings
+    let bookings = [];
+    
+    // Strategy 1: Look up by user_id (new bookings)
+    try {
+      console.log('🔍 Trying lookup by user_id:', req.user._id);
+      bookings = await Booking.find({ 
+        user_id: req.user._id 
+      }).sort({ created_at: -1 });
+      console.log(`📊 Found ${bookings.length} bookings by user_id`);
+    } catch (userIdError) {
+      console.log('⚠️ user_id lookup failed:', userIdError.message);
+    }
+    
+    // Strategy 2: If no bookings found by user_id, try by email (legacy bookings)
+    if (bookings.length === 0) {
+      try {
+        console.log('🔍 Trying lookup by user_email:', req.user.email);
+        bookings = await Booking.find({ 
+          user_email: req.user.email 
+        }).sort({ created_at: -1 });
+        console.log(`📊 Found ${bookings.length} bookings by user_email`);
+      } catch (emailError) {
+        console.log('⚠️ user_email lookup failed:', emailError.message);
+      }
+    }
+    
+    // Strategy 3: If still no bookings, try by created_by field
+    if (bookings.length === 0) {
+      try {
+        console.log('🔍 Trying lookup by created_by:', req.user.email);
+        bookings = await Booking.find({ 
+          created_by: req.user.email 
+        }).sort({ created_at: -1 });
+        console.log(`📊 Found ${bookings.length} bookings by created_by`);
+      } catch (createdByError) {
+        console.log('⚠️ created_by lookup failed:', createdByError.message);
+      }
+    }
+    
+    // Strategy 4: If still no bookings, try customer_email in nested field
+    if (bookings.length === 0) {
+      try {
+        console.log('🔍 Trying lookup by customer_details.customer_email:', req.user.email);
+        bookings = await Booking.find({ 
+          'customer_details.customer_email': req.user.email 
+        }).sort({ created_at: -1 });
+        console.log(`📊 Found ${bookings.length} bookings by customer_details.customer_email`);
+      } catch (customerEmailError) {
+        console.log('⚠️ customer_details.customer_email lookup failed:', customerEmailError.message);
+      }
+    }
 
-    console.log(`✅ Found ${bookings.length} bookings for user`);
+    console.log(`✅ Total found ${bookings.length} bookings for user:`, req.user.email);
     
     // Enhance bookings with proper service features
     const enhancedBookings = bookings.map(booking => {
@@ -1221,7 +1270,7 @@ function formatDateTime(date, time) {
   }
 }
 
-// Get single booking details
+// Get single booking details - FIXED USER LOOKUP
 router.get('/booking/:booking_reference', 
   authenticateToken, 
   param('booking_reference').notEmpty().withMessage('Booking reference is required'),
@@ -1229,7 +1278,7 @@ router.get('/booking/:booking_reference',
   async (req, res) => {
     try {
       const { booking_reference } = req.params;
-      console.log('🔍 Fetching booking details:', booking_reference, 'for user:', req.user.email);
+      console.log('🔍 Fetching booking details:', booking_reference, 'for user:', req.user.email, 'ID:', req.user._id);
 
       if (!Booking) {
         return res.status(404).json({
@@ -1239,17 +1288,100 @@ router.get('/booking/:booking_reference',
         });
       }
 
-      const booking = await Booking.findOne({
-        booking_reference: booking_reference,
-        user_id: req.user._id
-      });
+      // ✅ FIXED: Try multiple lookup strategies to find the booking
+      let booking = null;
+      
+      // Strategy 1: Look up by booking_reference and user_id
+      try {
+        console.log('🔍 Trying lookup by booking_reference + user_id');
+        booking = await Booking.findOne({
+          booking_reference: booking_reference,
+          user_id: req.user._id
+        });
+        
+        // ✅ FIXED: Try alternative lookups if user_id lookup fails
+        if (!booking) {
+          // Try by user_email
+          booking = await Booking.findOne({
+            booking_reference: booking_reference,
+            user_email: req.user.email
+          });
+        }
+        
+        if (!booking) {
+          // Try by created_by
+          booking = await Booking.findOne({
+            booking_reference: booking_reference,
+            created_by: req.user.email
+          });
+        }
+        
+        if (!booking) {
+          // Try by customer email in nested field
+          booking = await Booking.findOne({
+            booking_reference: booking_reference,
+            'customer_details.customer_email': req.user.email
+          });
+        }
+        if (booking) console.log('✅ Found booking by user_id');
+      } catch (error) {
+        console.log('⚠️ user_id lookup failed:', error.message);
+      }
+      
+      // Strategy 2: Look up by booking_reference and user_email
+      if (!booking) {
+        try {
+          console.log('🔍 Trying lookup by booking_reference + user_email');
+          booking = await Booking.findOne({
+            booking_reference: booking_reference,
+            user_email: req.user.email
+          });
+          if (booking) console.log('✅ Found booking by user_email');
+        } catch (error) {
+          console.log('⚠️ user_email lookup failed:', error.message);
+        }
+      }
+      
+      // Strategy 3: Look up by booking_reference and created_by
+      if (!booking) {
+        try {
+          console.log('🔍 Trying lookup by booking_reference + created_by');
+          booking = await Booking.findOne({
+            booking_reference: booking_reference,
+            created_by: req.user.email
+          });
+          if (booking) console.log('✅ Found booking by created_by');
+        } catch (error) {
+          console.log('⚠️ created_by lookup failed:', error.message);
+        }
+      }
+      
+      // Strategy 4: Look up by booking_reference and customer_email in nested field
+      if (!booking) {
+        try {
+          console.log('🔍 Trying lookup by booking_reference + customer_details.customer_email');
+          booking = await Booking.findOne({
+            booking_reference: booking_reference,
+            'customer_details.customer_email': req.user.email
+          });
+          if (booking) console.log('✅ Found booking by customer_details.customer_email');
+        } catch (error) {
+          console.log('⚠️ customer_details.customer_email lookup failed:', error.message);
+        }
+      }
 
       if (!booking) {
-        console.log('❌ Booking not found or access denied');
+        console.log('❌ Booking not found with any lookup strategy');
         return res.status(404).json({
           success: false,
           message: 'Booking not found or access denied',
-          error_code: 'BOOKING_NOT_FOUND'
+          error_code: 'BOOKING_NOT_FOUND',
+          debug: {
+            booking_reference,
+            user_email: req.user.email,
+            user_id: req.user._id,
+            searched_fields: ['user_id', 'user_email', 'created_by', 'customer_details.customer_email']
+          }
         });
       }
 
@@ -1313,6 +1445,120 @@ router.post('/cancel-booking',
           message: 'Booking system not available',
           error_code: 'NO_BOOKING_MODEL'
         });
+      }
+
+      // ✅ FIXED: Try multiple lookup strategies to find the booking for cancellation
+      let booking = null;
+      
+      // Strategy 1: Look up by booking_reference and user_id
+      try {
+        console.log('🔍 Trying lookup by booking_reference + user_id');
+        booking = await Booking.findOne({
+          booking_reference: booking_reference,
+          user_id: req.user._id
+        });
+        if (booking) console.log('✅ Found booking for cancellation by user_id');
+      } catch (error) {
+        console.log('⚠️ user_id lookup failed:', error.message);
+      }
+      
+      // Strategy 2: Look up by booking_reference and user_email
+      if (!booking) {
+        try {
+          console.log('🔍 Trying lookup by booking_reference + user_email');
+          booking = await Booking.findOne({
+            booking_reference: booking_reference,
+            user_email: req.user.email
+          });
+          if (booking) console.log('✅ Found booking for cancellation by user_email');
+        } catch (error) {
+          console.log('⚠️ user_email lookup failed:', error.message);
+        }
+      }
+      
+      // Strategy 3: Look up by booking_reference and created_by
+      if (!booking) {
+        try {
+          console.log('🔍 Trying lookup by booking_reference + created_by');
+          booking = await Booking.findOne({
+            booking_reference: booking_reference,
+            created_by: req.user.email
+          });
+          if (booking) console.log('✅ Found booking for cancellation by created_by');
+        } catch (error) {
+          console.log('⚠️ created_by lookup failed:', error.message);
+        }
+      }
+      
+      // Strategy 4: Look up by booking_reference and customer_email in nested field
+      if (!booking) {
+        try {
+          console.log('🔍 Trying lookup by booking_reference + customer_details.customer_email');
+          booking = await Booking.findOne({
+            booking_reference: booking_reference,
+            'customer_details.customer_email': req.user.email
+          });
+          if (booking) console.log('✅ Found booking for cancellation by customer_details.customer_email');
+        } catch (error) {
+          console.log('⚠️ customer_details.customer_email lookup failed:', error.message);
+        }
+      }
+
+      // ✅ FIXED: Try multiple lookup strategies to find the booking for amendment
+      let booking = null;
+      
+      // Strategy 1: Look up by booking_reference and user_id
+      try {
+        console.log('🔍 Trying lookup by booking_reference + user_id');
+        booking = await Booking.findOne({
+          booking_reference: booking_reference,
+          user_id: req.user._id
+        });
+        if (booking) console.log('✅ Found booking for amendment by user_id');
+      } catch (error) {
+        console.log('⚠️ user_id lookup failed:', error.message);
+      }
+      
+      // Strategy 2: Look up by booking_reference and user_email
+      if (!booking) {
+        try {
+          console.log('🔍 Trying lookup by booking_reference + user_email');
+          booking = await Booking.findOne({
+            booking_reference: booking_reference,
+            user_email: req.user.email
+          });
+          if (booking) console.log('✅ Found booking for amendment by user_email');
+        } catch (error) {
+          console.log('⚠️ user_email lookup failed:', error.message);
+        }
+      }
+      
+      // Strategy 3: Look up by booking_reference and created_by
+      if (!booking) {
+        try {
+          console.log('🔍 Trying lookup by booking_reference + created_by');
+          booking = await Booking.findOne({
+            booking_reference: booking_reference,
+            created_by: req.user.email
+          });
+          if (booking) console.log('✅ Found booking for amendment by created_by');
+        } catch (error) {
+          console.log('⚠️ created_by lookup failed:', error.message);
+        }
+      }
+      
+      // Strategy 4: Look up by booking_reference and customer_email in nested field
+      if (!booking) {
+        try {
+          console.log('🔍 Trying lookup by booking_reference + customer_details.customer_email');
+          booking = await Booking.findOne({
+            booking_reference: booking_reference,
+            'customer_details.customer_email': req.user.email
+          });
+          if (booking) console.log('✅ Found booking for amendment by customer_details.customer_email');
+        } catch (error) {
+          console.log('⚠️ customer_details.customer_email lookup failed:', error.message);
+        }
       }
 
       const booking = await Booking.findOne({
