@@ -1,4 +1,4 @@
-// routes/userparkingroutes.js - COMPLETE WORKING VERSION WITH FIXED AUTHENTICATION
+// routes/userparkingroutes.js - COMPLETE WORKING VERSION WITH CANCEL & AMEND APIs
 const express = require('express');
 const router = express.Router();
 const { body, param, validationResult } = require('express-validator');
@@ -455,7 +455,10 @@ router.post('/search-parking',
           price: parseFloat(product.price) || 0,
           commission_percentage: parseFloat(product.share_percentage) || 0,
           features_list: product.special_features ? product.special_features.split(',') : [],
-          facilities_list: product.facilities ? product.facilities.split(',') : []
+          facilities_list: product.facilities ? product.facilities.split(',') : [],
+          // Add cancelable and editable flags
+          is_cancelable: product.cancelable === 'Yes',
+          is_editable: product.editable === 'Yes'
         };
       });
 
@@ -647,6 +650,9 @@ router.get('/bookings', async (req, res) => {
         car_registration_number: booking.vehicle_details?.car_registration_number,
         car_make: booking.vehicle_details?.car_make,
         car_model: booking.vehicle_details?.car_model,
+        // Flexibility
+        is_cancelable: booking.service_features?.is_cancelable,
+        is_editable: booking.service_features?.is_editable,
         // Metadata
         created_at: booking.created_at,
         updated_at: booking.updated_at
@@ -916,6 +922,521 @@ router.get('/my-bookings-count', authenticateToken, async (req, res) => {
     });
   }
 });
+
+// ===== NEW CANCEL BOOKING API =====
+
+// Validation for cancel booking
+const validateCancelBooking = [
+  body('booking_reference')
+    .notEmpty()
+    .withMessage('Booking reference is required'),
+  body('refund_amount')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Refund amount must be a positive number'),
+  body('reason')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Reason must be a string with max 500 characters')
+];
+
+// Cancel Booking API - WITH AUTHENTICATION
+router.post('/cancel-booking', 
+  authenticateToken,
+  validateCancelBooking, 
+  handleValidationErrors, 
+  async (req, res) => {
+    try {
+      const { booking_reference, refund_amount, reason } = req.body;
+      const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
+
+      console.log(`🚫 CANCEL BOOKING REQUEST (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
+        user: req.user.email,
+        booking_reference: booking_reference,
+        refund_amount: refund_amount,
+        reason: reason || 'No reason provided',
+        timestamp: new Date().toISOString()
+      });
+
+      if (!MagrApiService) {
+        throw new Error('MAGR API Service is not available');
+      }
+
+      // Find the booking in our database
+      let booking = null;
+      if (Booking) {
+        booking = await Booking.findOne({
+          $or: [
+            { our_reference: booking_reference },
+            { magr_reference: booking_reference }
+          ],
+          user_email: req.user.email // Ensure user can only cancel their own bookings
+        });
+
+        if (!booking) {
+          return res.status(404).json({
+            success: false,
+            message: 'Booking not found or not accessible by this user',
+            error_code: 'BOOKING_NOT_FOUND'
+          });
+        }
+
+        if (booking.status === 'cancelled') {
+          return res.status(400).json({
+            success: false,
+            message: 'Booking is already cancelled',
+            error_code: 'ALREADY_CANCELLED'
+          });
+        }
+
+        // Check if booking is cancellable
+        if (booking.service_features && booking.service_features.is_cancelable === false) {
+          return res.status(400).json({
+            success: false,
+            message: 'This booking is non-cancellable',
+            error_code: 'NON_CANCELLABLE'
+          });
+        }
+
+        // Check 48 hours rule
+        const dropoffDateTime = new Date(`${booking.travel_details?.dropoff_date}T${booking.travel_details?.dropoff_time}`);
+        const now = new Date();
+        const hoursUntilDropoff = (dropoffDateTime - now) / (1000 * 60 * 60);
+        
+        if (hoursUntilDropoff < 48) {
+          return res.status(400).json({
+            success: false,
+            message: 'Booking cannot be cancelled within 48 hours of departure',
+            error_code: 'WITHIN_48_HOURS',
+            hours_until_dropoff: hoursUntilDropoff.toFixed(1)
+          });
+        }
+      }
+
+      // Prepare cancellation data for MAGR API
+      const cancelData = {
+        booking_ref: booking ? booking.magr_reference : booking_reference,
+        refund: refund_amount || (booking ? booking.booking_amount : 0),
+        agent_code: process.env.MAGR_AGENT_CODE,
+        user_email: process.env.MAGR_USER_EMAIL,
+        password: process.env.MAGR_PASSWORD
+      };
+
+      console.log(`🚀 Sending cancellation to MAGR API (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
+        booking_ref: cancelData.booking_ref,
+        refund: cancelData.refund
+      });
+
+      // Cancel with MAGR API
+      const magrResult = await MagrApiService.cancelBooking(cancelData);
+
+      if (magrResult.success) {
+        // Process Stripe refund if payment was made via Stripe
+        let refundResult = null;
+        if (booking && booking.payment_details?.stripe_payment_intent_id) {
+          try {
+            console.log(`💰 Processing Stripe refund (${isTestMode ? 'TEST' : 'LIVE'} mode)...`);
+            
+            const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+            const refundAmountInCents = refund_amount 
+              ? Math.round(parseFloat(refund_amount) * 100) 
+              : undefined; // Full refund if not specified
+
+            const refund = await stripe.refunds.create({
+              payment_intent: booking.payment_details.stripe_payment_intent_id,
+              amount: refundAmountInCents,
+              reason: 'requested_by_customer',
+              metadata: {
+                reason: reason || 'booking_cancellation',
+                booking_reference: booking.our_reference,
+                user_email: req.user.email,
+                cancelled_by: 'user',
+                is_test_mode: isTestMode.toString()
+              }
+            });
+            
+            refundResult = {
+              refund_id: refund.id,
+              amount: refund.amount / 100,
+              currency: refund.currency,
+              status: refund.status,
+              reason: refund.reason,
+              is_test_mode: isTestMode
+            };
+            
+            console.log(`✅ Stripe refund processed (${isTestMode ? 'TEST' : 'LIVE'} mode):`, refundResult.refund_id);
+          } catch (refundError) {
+            console.error(`❌ Stripe refund failed (${isTestMode ? 'TEST' : 'LIVE'} mode):`, refundError.message);
+            // Don't fail the entire cancellation if refund fails
+            refundResult = {
+              error: refundError.message,
+              status: 'failed'
+            };
+          }
+        }
+
+        // Update our database
+        if (booking) {
+          booking.status = 'cancelled';
+          booking.cancelled_at = new Date();
+          booking.notes = `${booking.notes || ''}\nCancelled by user: ${reason || 'No reason provided'}`;
+          
+          if (refundResult && refundResult.status !== 'failed') {
+            booking.payment_details.refund_amount = refundResult.amount;
+            booking.payment_details.refund_date = new Date();
+            booking.payment_details.payment_status = 'refunded';
+          }
+
+          await booking.save();
+          console.log(`✅ Booking updated in database (${isTestMode ? 'TEST' : 'LIVE'} mode):`, booking.our_reference);
+        }
+
+        // Return success response
+        const responseData = {
+          our_reference: booking ? booking.our_reference : booking_reference,
+          magr_reference: magrResult.booking_ref || magrResult.reference,
+          status: 'cancelled',
+          cancelled_at: new Date().toISOString(),
+          refund: refundResult,
+          magr_response: {
+            status: magrResult.status,
+            message: magrResult.message
+          },
+          user_email: req.user.email,
+          reason: reason || 'No reason provided',
+          is_test_mode: isTestMode,
+          stripe_mode: isTestMode ? 'test' : 'live'
+        };
+
+        res.json({
+          success: true,
+          message: `Booking cancelled successfully! (${isTestMode ? 'TEST' : 'LIVE'} mode)`,
+          data: responseData
+        });
+
+      } else {
+        // MAGR cancellation failed
+        console.error(`❌ MAGR cancellation failed (${isTestMode ? 'TEST' : 'LIVE'} mode):`, magrResult);
+        
+        res.status(400).json({
+          success: false,
+          message: `Cancellation failed: ${magrResult.message || 'Unknown error'}`,
+          error: magrResult.message,
+          error_code: 'MAGR_CANCELLATION_FAILED',
+          is_test_mode: isTestMode
+        });
+      }
+
+    } catch (error) {
+      const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
+      console.error(`❌ CANCEL BOOKING ERROR (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
+        message: error.message,
+        user: req.user?.email,
+        booking_reference: req.body?.booking_reference,
+        timestamp: new Date().toISOString()
+      });
+      
+      res.status(500).json({
+        success: false,
+        message: `Failed to cancel booking (${isTestMode ? 'TEST' : 'LIVE'} mode)`,
+        error: error.message,
+        error_code: 'CANCELLATION_ERROR',
+        is_test_mode: isTestMode,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
+);
+
+// ===== NEW AMEND BOOKING API =====
+
+// Validation for amend booking
+const validateAmendBooking = [
+  body('booking_reference')
+    .notEmpty()
+    .withMessage('Booking reference is required'),
+  body('dropoff_time')
+    .optional()
+    .matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/)
+    .withMessage('Invalid dropoff time format (use HH:MM)'),
+  body('pickup_time')
+    .optional()
+    .matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/)
+    .withMessage('Invalid pickup time format (use HH:MM)'),
+  body('title')
+    .optional()
+    .isIn(['Mr', 'Mrs', 'Miss', 'Ms', 'Dr'])
+    .withMessage('Invalid title'),
+  body('first_name')
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 50 })
+    .withMessage('First name must be 1-50 characters'),
+  body('last_name')
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 50 })
+    .withMessage('Last name must be 1-50 characters'),
+  body('customer_email')
+    .optional()
+    .isEmail()
+    .withMessage('Invalid email address'),
+  body('phone_number')
+    .optional()
+    .notEmpty()
+    .withMessage('Phone number cannot be empty if provided'),
+  body('departure_flight_number')
+    .optional()
+    .isString(),
+  body('arrival_flight_number')
+    .optional()
+    .isString(),
+  body('departure_terminal')
+    .optional()
+    .notEmpty()
+    .withMessage('Departure terminal cannot be empty if provided'),
+  body('arrival_terminal')
+    .optional()
+    .notEmpty()
+    .withMessage('Arrival terminal cannot be empty if provided'),
+  body('car_registration_number')
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 15 })
+    .withMessage('Car registration must be 1-15 characters'),
+  body('car_make')
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 30 })
+    .withMessage('Car make must be 1-30 characters'),
+  body('car_model')
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 30 })
+    .withMessage('Car model must be 1-30 characters'),
+  body('car_color')
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 20 })
+    .withMessage('Car color must be 1-20 characters')
+];
+
+// Amend Booking API - WITH AUTHENTICATION
+router.post('/amend-booking', 
+  authenticateToken,
+  validateAmendBooking, 
+  handleValidationErrors, 
+  async (req, res) => {
+    try {
+      const amendData = req.body;
+      const { booking_reference } = amendData;
+      const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
+
+      console.log(`✏️ AMEND BOOKING REQUEST (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
+        user: req.user.email,
+        booking_reference: booking_reference,
+        amendments: Object.keys(amendData).filter(key => key !== 'booking_reference'),
+        timestamp: new Date().toISOString()
+      });
+
+      if (!MagrApiService) {
+        throw new Error('MAGR API Service is not available');
+      }
+
+      // Find the booking in our database
+      let booking = null;
+      if (Booking) {
+        booking = await Booking.findOne({
+          $or: [
+            { our_reference: booking_reference },
+            { magr_reference: booking_reference }
+          ],
+          user_email: req.user.email // Ensure user can only amend their own bookings
+        });
+
+        if (!booking) {
+          return res.status(404).json({
+            success: false,
+            message: 'Booking not found or not accessible by this user',
+            error_code: 'BOOKING_NOT_FOUND'
+          });
+        }
+
+        if (booking.status === 'cancelled') {
+          return res.status(400).json({
+            success: false,
+            message: 'Cannot amend a cancelled booking',
+            error_code: 'BOOKING_CANCELLED'
+          });
+        }
+
+        // Check if booking is editable
+        if (booking.service_features && booking.service_features.is_editable === false) {
+          return res.status(400).json({
+            success: false,
+            message: 'This booking is non-editable',
+            error_code: 'NON_EDITABLE'
+          });
+        }
+
+        // Check 48 hours rule
+        const dropoffDateTime = new Date(`${booking.travel_details?.dropoff_date}T${booking.travel_details?.dropoff_time}`);
+        const now = new Date();
+        const hoursUntilDropoff = (dropoffDateTime - now) / (1000 * 60 * 60);
+        
+        if (hoursUntilDropoff < 48) {
+          return res.status(400).json({
+            success: false,
+            message: 'Booking cannot be amended within 48 hours of departure',
+            error_code: 'WITHIN_48_HOURS',
+            hours_until_dropoff: hoursUntilDropoff.toFixed(1)
+          });
+        }
+      }
+
+      // Prepare amendment data for MAGR API
+      // Note: According to API docs, dates cannot be changed in amend
+      const magrAmendData = {
+        agent_code: process.env.MAGR_AGENT_CODE,
+        user_email: process.env.MAGR_USER_EMAIL,
+        password: process.env.MAGR_PASSWORD,
+        company_code: booking ? booking.company_code : amendData.company_code,
+        bookreference: booking ? booking.magr_reference : booking_reference,
+        amend_booking: "amend_booking",
+        // Times can be changed
+        dropoff_time: amendData.dropoff_time || (booking ? booking.travel_details?.dropoff_time : undefined),
+        pickup_time: amendData.pickup_time || (booking ? booking.travel_details?.pickup_time : undefined),
+        // Dates cannot be changed according to API docs
+        dropoff_date: booking ? booking.travel_details?.dropoff_date : undefined,
+        pickup_date: booking ? booking.travel_details?.pickup_date : undefined,
+        // Customer details
+        title: amendData.title || (booking ? booking.customer_details?.title : undefined),
+        first_name: amendData.first_name || (booking ? booking.customer_details?.first_name : undefined),
+        last_name: amendData.last_name || (booking ? booking.customer_details?.last_name : undefined),
+        customer_email: amendData.customer_email || (booking ? booking.customer_details?.customer_email : undefined),
+        phone_number: amendData.phone_number || (booking ? booking.customer_details?.phone_number : undefined),
+        // Flight details
+        departure_flight_number: amendData.departure_flight_number || (booking ? booking.travel_details?.departure_flight_number : 'TBA'),
+        arrival_flight_number: amendData.arrival_flight_number || (booking ? booking.travel_details?.arrival_flight_number : 'TBA'),
+        departure_terminal: amendData.departure_terminal || (booking ? booking.travel_details?.departure_terminal : undefined),
+        arrival_terminal: amendData.arrival_terminal || (booking ? booking.travel_details?.arrival_terminal : undefined),
+        // Vehicle details
+        car_registration_number: amendData.car_registration_number?.toUpperCase() || (booking ? booking.vehicle_details?.car_registration_number : undefined),
+        car_make: amendData.car_make || (booking ? booking.vehicle_details?.car_make : undefined),
+        car_model: amendData.car_model || (booking ? booking.vehicle_details?.car_model : undefined),
+        car_color: amendData.car_color || (booking ? booking.vehicle_details?.car_color : undefined),
+        // Fixed values from original booking
+        park_api: "b2b",
+        passenger: booking ? booking.travel_details?.passenger_count || 1 : 1,
+        paymentgateway: booking ? booking.payment_details?.payment_method || 'Stripe' : 'Stripe',
+        payment_token: booking ? booking.payment_details?.payment_token : undefined,
+        booking_amount: booking ? booking.booking_amount : undefined
+      };
+
+      console.log(`🚀 Sending amendment to MAGR API (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
+        bookreference: magrAmendData.bookreference,
+        company_code: magrAmendData.company_code,
+        changes: Object.keys(amendData).filter(key => key !== 'booking_reference')
+      });
+
+      // Amend with MAGR API
+      const magrResult = await MagrApiService.amendBooking(magrAmendData);
+
+      if (magrResult.success) {
+        // Update our database
+        if (booking) {
+          // Update customer details if provided
+          if (amendData.title) booking.customer_details.title = amendData.title;
+          if (amendData.first_name) booking.customer_details.first_name = amendData.first_name;
+          if (amendData.last_name) booking.customer_details.last_name = amendData.last_name;
+          if (amendData.customer_email) booking.customer_details.customer_email = amendData.customer_email;
+          if (amendData.phone_number) booking.customer_details.phone_number = amendData.phone_number;
+
+          // Update travel details if provided
+          if (amendData.dropoff_time) booking.travel_details.dropoff_time = amendData.dropoff_time;
+          if (amendData.pickup_time) booking.travel_details.pickup_time = amendData.pickup_time;
+          if (amendData.departure_flight_number) booking.travel_details.departure_flight_number = amendData.departure_flight_number;
+          if (amendData.arrival_flight_number) booking.travel_details.arrival_flight_number = amendData.arrival_flight_number;
+          if (amendData.departure_terminal) booking.travel_details.departure_terminal = amendData.departure_terminal;
+          if (amendData.arrival_terminal) booking.travel_details.arrival_terminal = amendData.arrival_terminal;
+
+          // Update vehicle details if provided
+          if (amendData.car_registration_number) booking.vehicle_details.car_registration_number = amendData.car_registration_number.toUpperCase();
+          if (amendData.car_make) booking.vehicle_details.car_make = amendData.car_make;
+          if (amendData.car_model) booking.vehicle_details.car_model = amendData.car_model;
+          if (amendData.car_color) booking.vehicle_details.car_color = amendData.car_color;
+
+          // Update metadata
+          booking.updated_at = new Date();
+          booking.notes = `${booking.notes || ''}\nAmended by user: ${Object.keys(amendData).filter(key => key !== 'booking_reference').join(', ')}`;
+
+          await booking.save();
+          console.log(`✅ Booking updated in database (${isTestMode ? 'TEST' : 'LIVE'} mode):`, booking.our_reference);
+        }
+
+        // Return success response
+        const responseData = {
+          our_reference: booking ? booking.our_reference : booking_reference,
+          magr_reference: magrResult.reference || magrResult.booking_ref,
+          status: 'amended',
+          amended_at: new Date().toISOString(),
+          magr_response: {
+            status: magrResult.status,
+            message: magrResult.message
+          },
+          user_email: req.user.email,
+          amended_fields: Object.keys(amendData).filter(key => key !== 'booking_reference'),
+          is_test_mode: isTestMode,
+          stripe_mode: isTestMode ? 'test' : 'live',
+          // Include updated booking data
+          updated_booking: booking ? {
+            customer_details: booking.customer_details,
+            travel_details: booking.travel_details,
+            vehicle_details: booking.vehicle_details
+          } : null
+        };
+
+        res.json({
+          success: true,
+          message: `Booking amended successfully! (${isTestMode ? 'TEST' : 'LIVE'} mode)`,
+          data: responseData
+        });
+
+      } else {
+        // MAGR amendment failed
+        console.error(`❌ MAGR amendment failed (${isTestMode ? 'TEST' : 'LIVE'} mode):`, magrResult);
+        
+        res.status(400).json({
+          success: false,
+          message: `Amendment failed: ${magrResult.message || 'Unknown error'}`,
+          error: magrResult.message,
+          error_code: 'MAGR_AMENDMENT_FAILED',
+          is_test_mode: isTestMode
+        });
+      }
+
+    } catch (error) {
+      const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
+      console.error(`❌ AMEND BOOKING ERROR (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
+        message: error.message,
+        user: req.user?.email,
+        booking_reference: req.body?.booking_reference,
+        timestamp: new Date().toISOString()
+      });
+      
+      res.status(500).json({
+        success: false,
+        message: `Failed to amend booking (${isTestMode ? 'TEST' : 'LIVE'} mode)`,
+        error: error.message,
+        error_code: 'AMENDMENT_ERROR',
+        is_test_mode: isTestMode,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
+);
 
 // ===== STRIPE PAYMENT ROUTES =====
 
@@ -1681,6 +2202,9 @@ if (Booking) {
           pickup_time: booking.travel_details?.pickup_time,
           // Vehicle details
           vehicle_registration: booking.vehicle_details?.car_registration_number,
+          // Service features
+          is_cancelable: booking.service_features?.is_cancelable,
+          is_editable: booking.service_features?.is_editable,
           // Metadata
           created_at: booking.created_at,
           can_cancel: booking.canBeCancelled && booking.canBeCancelled(),
@@ -1758,6 +2282,7 @@ if (Booking) {
           customer_details: booking.customer_details,
           travel_details: booking.travel_details,
           vehicle_details: booking.vehicle_details,
+          service_features: booking.service_features, // Include cancelable/editable flags
           booking_amount: booking.booking_amount,
           currency: booking.currency,
           created_at: booking.created_at,
@@ -1790,13 +2315,13 @@ if (Booking) {
     }
   });
 
-  // Cancel booking with enhanced refund handling
+  // Cancel booking with enhanced refund handling (LEGACY - kept for backward compatibility)
   router.post('/bookings/:reference/cancel', authenticateToken, async (req, res) => {
     try {
       const { reference } = req.params;
       const { reason } = req.body;
 
-      console.log('❌ Cancellation request for booking:', reference);
+      console.log('❌ Legacy cancellation request for booking:', reference);
 
       const booking = await Booking.findOne({
         $or: [
