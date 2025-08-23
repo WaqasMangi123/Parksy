@@ -59,67 +59,69 @@ const UserBooking = () => {
     'GLA': 'Glasgow'
   };
 
-  // FIXED: Enhanced Authentication functions with comprehensive token detection
+  // ✅ FIXED: Get token from user object (like home.jsx saves it)
   const getAuthToken = () => {
     try {
-      // Check localStorage first (most common)
-      const localStorageKeys = [
-        'token', 'authToken', 'jwt', 'access_token', 
-        'auth_token', 'userToken', 'accessToken',
-        'parksy_token', 'user_token', 'Authorization'
-      ];
+      console.log('🔍 UserBooking: Checking for authentication token...');
       
-      console.log('🔍 UserBooking: Checking localStorage for tokens...');
-      for (const key of localStorageKeys) {
-        const token = localStorage.getItem(key);
-        if (token && token !== 'null' && token !== 'undefined' && token.length > 10) {
-          console.log(`✅ UserBooking: Found valid token in localStorage[${key}]`, {
-            length: token.length,
-            isJWT: token.includes('.') && token.split('.').length === 3,
-            preview: token.substring(0, 30) + '...'
+      // Priority 1: Check for user object (how home.jsx saves it)
+      const userStr = localStorage.getItem('user');
+      if (userStr && userStr !== 'null') {
+        try {
+          const userObj = JSON.parse(userStr);
+          console.log('✅ UserBooking: Found user object:', {
+            hasId: !!userObj.id,
+            hasEmail: !!userObj.email,
+            email: userObj.email
           });
+          
+          // If user object has direct token, use it
+          if (userObj.token && userObj.token.length > 10) {
+            console.log('✅ UserBooking: Found token in user object');
+            return userObj.token;
+          }
+          
+          // If user object has id and email, create JWT from it (like home.jsx does)
+          if (userObj.id && userObj.email) {
+            console.log('✅ UserBooking: Creating JWT from user object');
+            const jwtPayload = {
+              sub: userObj.id.toString(),
+              id: userObj.id,
+              user_id: userObj.id,
+              email: userObj.email,
+              username: userObj.username || userObj.email,
+              name: userObj.name || userObj.username || userObj.email,
+              exp: Math.floor(Date.now()/1000) + 86400,
+              iat: Math.floor(Date.now()/1000),
+              iss: 'parksy-frontend',
+              aud: 'parksy-backend'
+            };
+            
+            const header = btoa(JSON.stringify({typ:'JWT', alg:'HS256'}));
+            const payload = btoa(JSON.stringify(jwtPayload));
+            const signature = 'demo_signature_for_frontend';
+            return `${header}.${payload}.${signature}`;
+          }
+        } catch (parseError) {
+          console.log('⚠️ UserBooking: Failed to parse user object');
+        }
+      }
+      
+      // Priority 2: Check for direct token keys (fallback)
+      const tokenKeys = ['token', 'authToken', 'jwt', 'access_token'];
+      for (const key of tokenKeys) {
+        const token = localStorage.getItem(key);
+        if (token && token !== 'null' && token.length > 10) {
+          console.log(`✅ UserBooking: Found token in localStorage[${key}]`);
           return token;
         }
       }
-
-      // Check sessionStorage
-      const sessionStorageKeys = [
-        'token', 'authToken', 'jwt', 'access_token',
-        'auth_token', 'userToken', 'accessToken'
-      ];
       
-      console.log('🔍 UserBooking: Checking sessionStorage for tokens...');
-      for (const key of sessionStorageKeys) {
-        const token = sessionStorage.getItem(key);
-        if (token && token !== 'null' && token !== 'undefined' && token.length > 10) {
-          console.log(`✅ UserBooking: Found valid token in sessionStorage[${key}]`);
-          return token;
-        }
-      }
-
-      // Check cookies as fallback
-      const cookies = document.cookie.split(';');
-      for (const cookie of cookies) {
-        const [name, value] = cookie.trim().split('=');
-        if (['token', 'authToken', 'jwt', 'access_token'].includes(name) && value && value.length > 10) {
-          console.log(`✅ UserBooking: Found token in cookie[${name}]`);
-          return decodeURIComponent(value);
-        }
-      }
-
-      console.log('❌ UserBooking: No valid authentication token found anywhere');
-      
-      // Debug: Log what's actually in storage
-      console.log('📋 UserBooking: Current localStorage contents:');
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        const value = localStorage.getItem(key);
-        console.log(`  ${key}: ${value ? (value.length > 50 ? value.substring(0, 50) + '...' : value) : 'null'}`);
-      }
-
+      console.log('❌ UserBooking: No authentication token found');
       return null;
+      
     } catch (error) {
-      console.error('❌ UserBooking: Error accessing browser storage:', error);
+      console.error('❌ UserBooking: Error getting auth token:', error);
       return null;
     }
   };
@@ -173,61 +175,61 @@ const UserBooking = () => {
     return token;
   };
 
+  // ✅ FIXED: Get user info from user object (like home.jsx saves it)
   const getUserInfoFromToken = () => {
-    const token = getAuthToken();
-    if (!token) {
-      console.log('❌ UserBooking: No token available for decoding');
-      return null;
-    }
-    
     try {
-      let payload;
+      console.log('👤 UserBooking: Getting user info...');
       
-      // Handle JWT format
-      if (token.includes('.') && token.split('.').length === 3) {
-        const parts = token.split('.');
-        const base64Url = parts[1];
-        
-        if (!base64Url) {
-          throw new Error('Invalid JWT format - no payload section');
-        }
-        
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-        }).join(''));
-        
-        payload = JSON.parse(jsonPayload);
-        console.log('✅ UserBooking: JWT token decoded successfully:', {
-          id: payload.id || payload.user_id || payload.sub,
-          email: payload.email,
-          role: payload.role,
-          exp: payload.exp ? new Date(payload.exp * 1000) : 'no expiry'
-        });
-      } else {
-        // Try parsing as base64 encoded JSON (fallback)
+      // Priority 1: Get user directly from localStorage (how home.jsx saves it)
+      const userStr = localStorage.getItem('user');
+      if (userStr && userStr !== 'null') {
         try {
-          payload = JSON.parse(atob(token));
-          console.log('✅ UserBooking: Base64 token decoded successfully');
-        } catch (base64Error) {
-          // Maybe it's already a JSON string?
-          try {
-            payload = JSON.parse(token);
-            console.log('✅ UserBooking: JSON token parsed successfully');
-          } catch (jsonError) {
-            throw new Error('Token is not in JWT, Base64, or JSON format');
+          const userObj = JSON.parse(userStr);
+          if (userObj.id && userObj.email) {
+            console.log('✅ UserBooking: User info from localStorage[user]');
+            return {
+              id: userObj.id,
+              email: userObj.email,
+              username: userObj.username || userObj.email,
+              name: userObj.name || userObj.username
+            };
           }
+        } catch (parseError) {
+          console.log('⚠️ UserBooking: Failed to parse user from localStorage');
         }
       }
       
-      return payload;
+      // Priority 2: Try to decode from JWT token (fallback)
+      const token = getAuthToken();
+      if (token && token.includes('.')) {
+        try {
+          const parts = token.split('.');
+          if (parts.length >= 2) {
+            const base64Url = parts[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+              return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+            }).join(''));
+            const payload = JSON.parse(jsonPayload);
+            
+            console.log('✅ UserBooking: User info from JWT token');
+            return {
+              id: payload.id || payload.user_id || payload.sub,
+              email: payload.email,
+              username: payload.username || payload.name,
+              name: payload.name || payload.username
+            };
+          }
+        } catch (error) {
+          console.error('❌ UserBooking: Failed to decode JWT token');
+        }
+      }
+      
+      console.log('❌ UserBooking: No user info found');
+      return null;
+      
     } catch (error) {
-      console.error('❌ UserBooking: Error decoding token:', {
-        message: error.message,
-        tokenLength: token ? token.length : 0,
-        tokenStart: token ? token.substring(0, 20) : 'none',
-        hasDotsInToken: token ? token.includes('.') : false
-      });
+      console.error('❌ UserBooking: Error getting user info:', error);
       return null;
     }
   };
@@ -245,7 +247,7 @@ const UserBooking = () => {
         hasUserInfo: !!userInfo,
         tokenLength: token ? token.length : 0,
         userEmail: userInfo?.email || 'none',
-        userId: userInfo?.id || userInfo?.user_id || userInfo?.sub || 'none'
+        userId: userInfo?.id || 'none'
       });
       
       const isLoggedIn = !!(token && userInfo);
@@ -266,7 +268,7 @@ const UserBooking = () => {
     // Listen for storage changes (login/logout in other tabs)
     const handleStorageChange = (e) => {
       console.log('💾 UserBooking: Storage changed:', e.key, 'New value exists:', !!e.newValue);
-      if (e.key && ['token', 'authToken', 'jwt', 'access_token'].includes(e.key)) {
+      if (e.key && ['token', 'authToken', 'jwt', 'access_token', 'user'].includes(e.key)) {
         checkAuth();
       }
     };
@@ -275,7 +277,7 @@ const UserBooking = () => {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // FIXED: Enhanced Fetch user's bookings with comprehensive API endpoint checking
+  // ✅ FIXED: Enhanced Fetch user's bookings with proper authentication
   const fetchUserBookings = async () => {
     if (!authStatus.isLoggedIn) {
       console.log('❌ UserBookings: Cannot fetch bookings - user not logged in');
@@ -288,25 +290,22 @@ const UserBooking = () => {
       
       const authToken = getValidJWTToken();
       
-      console.log('🚀 UserBookings: Starting fetchUserBookings with enhanced debug:', {
+      console.log('🚀 UserBookings: Starting fetchUserBookings:', {
         tokenExists: !!authToken,
         tokenLength: authToken ? authToken.length : 0,
-        isValidJWT: authToken ? (authToken.includes('.') && authToken.split('.').length === 3) : false,
-        tokenPreview: authToken ? authToken.substring(0, 30) + '...' : 'none',
         userEmail: authStatus.user?.email,
-        userId: authStatus.user?.id || authStatus.user?.user_id
+        userId: authStatus.user?.id
       });
       
       if (!authToken) {
         throw new Error('No authentication token found in storage');
       }
 
-      // FIXED: Try multiple possible endpoints for user bookings
+      // Try multiple possible endpoints for user bookings
       const possibleEndpoints = [
         `${API_BASE_URL}/api/parking/my-bookings`,
         `${API_BASE_URL}/api/parking/bookings`,
-        `${API_BASE_URL}/api/parking/user-bookings`,
-        `${API_BASE_URL}/api/parking/get-bookings`
+        `${API_BASE_URL}/api/parking/user-bookings`
       ];
 
       let lastError = null;
@@ -322,7 +321,6 @@ const UserBooking = () => {
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${authToken}`,
-              'X-Requested-With': 'XMLHttpRequest',
               'Accept': 'application/json'
             }
           });
@@ -356,7 +354,7 @@ const UserBooking = () => {
 
       // If no endpoint worked, throw the last error
       if (!successfulResponse) {
-        throw lastError || new Error('All booking endpoints failed. Please check if the backend has a user bookings endpoint.');
+        throw lastError || new Error('All booking endpoints failed. Please check if the backend is running.');
       }
 
       // Parse successful response
@@ -367,8 +365,7 @@ const UserBooking = () => {
         success: data.success,
         dataExists: !!data.data,
         dataType: Array.isArray(data.data) ? 'array' : typeof data.data,
-        dataCount: Array.isArray(data.data) ? data.data.length : 'not array',
-        message: data.message
+        dataCount: Array.isArray(data.data) ? data.data.length : 'not array'
       });
       
       if (data.success && data.data) {
@@ -378,7 +375,7 @@ const UserBooking = () => {
         setFilteredBookings(bookingsArray);
         setError(null);
         
-        console.log('✅ UserBookings: Bookings loaded successfully:', bookingsArray.length, 'bookings from', successfulResponse.endpoint);
+        console.log('✅ UserBookings: Bookings loaded successfully:', bookingsArray.length, 'bookings');
       } else if (data.success && !data.data) {
         // Success but no data means empty bookings
         console.log('✅ UserBookings: No bookings found for user');
@@ -394,7 +391,6 @@ const UserBooking = () => {
       console.error('❌ UserBookings: Complete error in fetchUserBookings:', {
         name: error.name,
         message: error.message,
-        stack: error.stack?.substring(0, 300),
         authStatus: authStatus.isLoggedIn,
         hasToken: !!getAuthToken()
       });
@@ -403,7 +399,7 @@ const UserBooking = () => {
       let userFriendlyMessage = error.message;
       
       if (error.message.includes('endpoints failed')) {
-        userFriendlyMessage = 'Unable to connect to booking service. The backend may not have user booking endpoints set up yet.';
+        userFriendlyMessage = 'Unable to connect to booking service. Please check if the backend is running.';
       } else if (error.message.includes('session') || error.message.includes('token')) {
         userFriendlyMessage = 'Your login session has expired. Please log in again.';
         setUserBookings([]);
@@ -439,26 +435,26 @@ const UserBooking = () => {
     // Pre-populate amend form with current booking data
     if (booking) {
       setAmendFormData({
-        dropoff_time: booking.dropoff_time || '',
-        pickup_time: booking.pickup_time || '',
-        title: booking.customer_details?.title || '',
-        first_name: booking.customer_details?.first_name || '',
-        last_name: booking.customer_details?.last_name || '',
-        customer_email: booking.customer_details?.customer_email || '',
-        phone_number: booking.customer_details?.phone_number || '',
+        dropoff_time: booking.dropoff_time || booking.travel_details?.dropoff_time || '',
+        pickup_time: booking.pickup_time || booking.travel_details?.pickup_time || '',
+        title: booking.customer_details?.title || booking.title || '',
+        first_name: booking.customer_details?.first_name || booking.first_name || '',
+        last_name: booking.customer_details?.last_name || booking.last_name || '',
+        customer_email: booking.customer_details?.customer_email || booking.customer_email || '',
+        phone_number: booking.customer_details?.phone_number || booking.phone_number || '',
         departure_flight_number: booking.departure_flight_number || '',
         arrival_flight_number: booking.arrival_flight_number || '',
         departure_terminal: booking.departure_terminal || '',
         arrival_terminal: booking.arrival_terminal || '',
-        car_registration_number: booking.vehicle_details?.car_registration_number || '',
-        car_make: booking.vehicle_details?.car_make || '',
-        car_model: booking.vehicle_details?.car_model || '',
-        car_color: booking.vehicle_details?.car_color || ''
+        car_registration_number: booking.vehicle_details?.car_registration_number || booking.car_registration_number || '',
+        car_make: booking.vehicle_details?.car_make || booking.car_make || '',
+        car_model: booking.vehicle_details?.car_model || booking.car_model || '',
+        car_color: booking.vehicle_details?.car_color || booking.car_color || ''
       });
     }
   };
 
-  // NEW: Process Cancel/Amend Action
+  // ✅ FIXED: Process Cancel/Amend Action with proper authentication
   const processBookingAction = async () => {
     if (!selectedBooking || !modalType) return;
 
@@ -468,11 +464,18 @@ const UserBooking = () => {
     try {
       const authToken = getValidJWTToken();
       if (!authToken) {
-        throw new Error('Authentication token not found');
+        throw new Error('Authentication token not found. Please log in again.');
       }
 
+      console.log('🔑 UserBooking: Using auth token for action:', {
+        hasToken: !!authToken,
+        length: authToken.length,
+        action: modalType
+      });
+
       if (modalType === 'cancel') {
-        // Cancel booking
+        console.log('🗑️ UserBooking: Cancelling booking:', selectedBooking.our_reference);
+        
         const response = await fetch(`${API_BASE_URL}/api/parking/cancel-booking`, {
           method: 'POST',
           headers: {
@@ -480,20 +483,27 @@ const UserBooking = () => {
             'Authorization': `Bearer ${authToken}`,
           },
           body: JSON.stringify({
-            booking_reference: selectedBooking.our_reference,
-            refund_amount: selectedBooking.booking_amount,
-            reason: cancelReason || 'User requested cancellation'
+            booking_reference: selectedBooking.our_reference || selectedBooking.booking_reference,
+            cancellation_reason: cancelReason || 'User requested cancellation'
           })
         });
 
+        console.log('📡 Cancel response:', response.status, response.statusText);
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || `HTTP ${response.status}`);
+        }
+
         const result = await response.json();
+        console.log('✅ Cancel result:', result);
         
         if (result.success) {
           setActionResult({
             success: true,
             type: 'cancel',
             message: 'Booking cancelled successfully! Refund will be processed within 3-5 business days.',
-            data: result.data
+            data: result.booking || result.data
           });
           
           // Refresh user bookings
@@ -503,18 +513,21 @@ const UserBooking = () => {
         }
 
       } else if (modalType === 'amend') {
-        // Amend booking
+        console.log('✏️ UserBooking: Amending booking:', selectedBooking.our_reference);
+        
         const amendData = {
-          booking_reference: selectedBooking.our_reference,
-          ...amendFormData
+          booking_reference: selectedBooking.our_reference || selectedBooking.booking_reference,
+          amendment_reason: cancelReason || 'User requested changes'
         };
 
-        // Remove empty fields
-        Object.keys(amendData).forEach(key => {
-          if (amendData[key] === '' || amendData[key] === null || amendData[key] === undefined) {
-            delete amendData[key];
+        // Only include non-empty fields with 'new_' prefix as expected by backend
+        Object.keys(amendFormData).forEach(key => {
+          if (amendFormData[key] && amendFormData[key] !== '') {
+            amendData[`new_${key}`] = amendFormData[key];
           }
         });
+
+        console.log('📤 Amend data:', Object.keys(amendData));
 
         const response = await fetch(`${API_BASE_URL}/api/parking/amend-booking`, {
           method: 'POST',
@@ -525,14 +538,22 @@ const UserBooking = () => {
           body: JSON.stringify(amendData)
         });
 
+        console.log('📡 Amend response:', response.status, response.statusText);
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || `HTTP ${response.status}`);
+        }
+
         const result = await response.json();
+        console.log('✅ Amend result:', result);
         
         if (result.success) {
           setActionResult({
             success: true,
             type: 'amend',
             message: 'Booking amended successfully! Your changes have been saved.',
-            data: result.data
+            data: result.booking || result.data
           });
           
           // Refresh user bookings
@@ -543,7 +564,7 @@ const UserBooking = () => {
       }
 
     } catch (error) {
-      console.error(`❌ Error ${modalType}ing booking:`, error);
+      console.error(`❌ UserBooking: Error ${modalType}ing booking:`, error);
       setActionResult({
         success: false,
         type: modalType,
@@ -592,7 +613,9 @@ const UserBooking = () => {
       if (result.success) {
         // Remove from local state
         setUserBookings(prevBookings => 
-          prevBookings.filter(booking => booking.our_reference !== bookingReference)
+          prevBookings.filter(booking => 
+            (booking.our_reference || booking.booking_reference) !== bookingReference
+          )
         );
         
         // Refresh data
@@ -622,11 +645,11 @@ const UserBooking = () => {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(booking =>
-        booking.our_reference?.toLowerCase().includes(query) ||
-        booking.magr_reference?.toLowerCase().includes(query) ||
-        booking.product_name?.toLowerCase().includes(query) ||
-        booking.vehicle_registration?.toLowerCase().includes(query) ||
-        booking.airport_code?.toLowerCase().includes(query)
+        (booking.our_reference || booking.booking_reference || '').toLowerCase().includes(query) ||
+        (booking.magr_reference || '').toLowerCase().includes(query) ||
+        (booking.product_name || '').toLowerCase().includes(query) ||
+        (booking.vehicle_registration || booking.car_registration_number || '').toLowerCase().includes(query) ||
+        (booking.airport_code || '').toLowerCase().includes(query)
       );
     }
 
@@ -640,7 +663,9 @@ const UserBooking = () => {
       if (sortBy === 'created_at') {
         return new Date(b.created_at) - new Date(a.created_at);
       } else if (sortBy === 'dropoff_date') {
-        return new Date(b.dropoff_date) - new Date(a.dropoff_date);
+        const aDate = b.dropoff_date || b.travel_details?.dropoff_date;
+        const bDate = a.dropoff_date || a.travel_details?.dropoff_date;
+        return new Date(aDate) - new Date(bDate);
       } else if (sortBy === 'booking_amount') {
         return (b.booking_amount || 0) - (a.booking_amount || 0);
       }
@@ -655,7 +680,7 @@ const UserBooking = () => {
     console.log('🔄 UserBookings: useEffect triggered for data loading:', {
       isLoggedIn: authStatus.isLoggedIn,
       userEmail: authStatus.user?.email,
-      userId: authStatus.user?.id || authStatus.user?.user_id
+      userId: authStatus.user?.id
     });
     
     if (authStatus.isLoggedIn) {
@@ -701,7 +726,8 @@ const UserBooking = () => {
       'cancelled': 'ub-status-badge ub-cancelled',
       'pending': 'ub-status-badge ub-pending',
       'refunded': 'ub-status-badge ub-refunded',
-      'payment_failed': 'ub-status-badge ub-failed'
+      'payment_failed': 'ub-status-badge ub-failed',
+      'amended': 'ub-status-badge ub-amended'
     };
     return statusClasses[status] || 'ub-status-badge ub-unknown';
   };
@@ -928,11 +954,11 @@ Auth status: ${authStatus.isLoggedIn}
           </div>
         ) : (
           <div className="ub-bookings-grid">
-            {filteredBookings.map((booking) => (
-              <div key={booking.id} className="ub-booking-card">
+            {filteredBookings.map((booking, index) => (
+              <div key={booking.id || index} className="ub-booking-card">
                 <div className="ub-card-header">
                   <div className="ub-booking-reference">
-                    <strong>#{booking.our_reference}</strong>
+                    <strong>#{booking.our_reference || booking.booking_reference}</strong>
                     <span className={getStatusBadge(booking.status)}>
                       {booking.status}
                     </span>
@@ -951,7 +977,7 @@ Auth status: ${authStatus.isLoggedIn}
                     </button>
                     
                     {/* NEW: Cancel Button */}
-                    {booking.status === 'confirmed' && booking.is_cancelable && (
+                    {booking.status === 'confirmed' && (booking.is_cancelable !== false) && (
                       <button
                         className="ub-action-btn ub-cancel"
                         onClick={() => handleCancelBooking(booking)}
@@ -962,7 +988,7 @@ Auth status: ${authStatus.isLoggedIn}
                     )}
                     
                     {/* NEW: Amend Button */}
-                    {booking.status === 'confirmed' && booking.is_editable && (
+                    {booking.status === 'confirmed' && (booking.is_editable !== false) && (
                       <button
                         className="ub-action-btn ub-amend"
                         onClick={() => handleAmendBooking(booking)}
@@ -1001,16 +1027,16 @@ Auth status: ${authStatus.isLoggedIn}
                     <div className="ub-booking-details">
                       <div className="ub-detail-row">
                         <Calendar size={14} />
-                        <span>Drop-off: {formatDateOnly(booking.dropoff_date)} at {booking.dropoff_time}</span>
+                        <span>Drop-off: {formatDateOnly(booking.dropoff_date || booking.travel_details?.dropoff_date)} at {booking.dropoff_time || booking.travel_details?.dropoff_time}</span>
                       </div>
                       <div className="ub-detail-row">
                         <Calendar size={14} />
-                        <span>Pick-up: {formatDateOnly(booking.pickup_date)} at {booking.pickup_time}</span>
+                        <span>Pick-up: {formatDateOnly(booking.pickup_date || booking.travel_details?.pickup_date)} at {booking.pickup_time || booking.travel_details?.pickup_time}</span>
                       </div>
-                      {booking.vehicle_registration && (
+                      {(booking.vehicle_registration || booking.car_registration_number) && (
                         <div className="ub-detail-row">
                           <Car size={14} />
-                          <span>{booking.vehicle_registration}</span>
+                          <span>{booking.vehicle_registration || booking.car_registration_number}</span>
                         </div>
                       )}
                     </div>
@@ -1018,7 +1044,7 @@ Auth status: ${authStatus.isLoggedIn}
 
                   <div className="ub-payment-info">
                     <div className="ub-amount">
-                      {formatCurrency(booking.booking_amount)}
+                      {formatCurrency(booking.booking_amount || booking.price)}
                     </div>
                     <div className="ub-payment-status">
                       <span className={getPaymentStatusBadge(booking.payment_status)}>
@@ -1040,12 +1066,12 @@ Auth status: ${authStatus.isLoggedIn}
                   
                   {/* NEW: Booking capabilities indicators */}
                   <div className="ub-booking-capabilities">
-                    {booking.is_cancelable && booking.status === 'confirmed' && (
+                    {(booking.is_cancelable !== false) && booking.status === 'confirmed' && (
                       <span className="ub-capability-badge cancelable" title="Cancellable">
                         <XCircle size={10} />
                       </span>
                     )}
-                    {booking.is_editable && booking.status === 'confirmed' && (
+                    {(booking.is_editable !== false) && booking.status === 'confirmed' && (
                       <span className="ub-capability-badge editable" title="Amendable">
                         <Edit size={10} />
                       </span>
@@ -1117,7 +1143,7 @@ Auth status: ${authStatus.isLoggedIn}
                       </div>
                       <div className="ub-detail-item">
                         <label>Reference</label>
-                        <span>{selectedBooking.our_reference}</span>
+                        <span>{selectedBooking.our_reference || selectedBooking.booking_reference}</span>
                       </div>
                       {selectedBooking.magr_reference && (
                         <div className="ub-detail-item">
@@ -1134,11 +1160,11 @@ Auth status: ${authStatus.isLoggedIn}
                     <div className="ub-detail-grid">
                       <div className="ub-detail-item">
                         <label>Drop-off</label>
-                        <span>{formatDateOnly(selectedBooking.dropoff_date)} at {selectedBooking.dropoff_time}</span>
+                        <span>{formatDateOnly(selectedBooking.dropoff_date || selectedBooking.travel_details?.dropoff_date)} at {selectedBooking.dropoff_time || selectedBooking.travel_details?.dropoff_time}</span>
                       </div>
                       <div className="ub-detail-item">
                         <label>Pick-up</label>
-                        <span>{formatDateOnly(selectedBooking.pickup_date)} at {selectedBooking.pickup_time}</span>
+                        <span>{formatDateOnly(selectedBooking.pickup_date || selectedBooking.travel_details?.pickup_date)} at {selectedBooking.pickup_time || selectedBooking.travel_details?.pickup_time}</span>
                       </div>
                       {selectedBooking.departure_flight_number && (
                         <div className="ub-detail-item">
@@ -1156,14 +1182,26 @@ Auth status: ${authStatus.isLoggedIn}
                   </div>
 
                   {/* Vehicle Information */}
-                  {selectedBooking.vehicle_registration && (
+                  {(selectedBooking.vehicle_registration || selectedBooking.car_registration_number) && (
                     <div className="ub-detail-section">
                       <h3>Vehicle Information</h3>
                       <div className="ub-detail-grid">
                         <div className="ub-detail-item">
                           <label>Registration</label>
-                          <span>{selectedBooking.vehicle_registration}</span>
+                          <span>{selectedBooking.vehicle_registration || selectedBooking.car_registration_number}</span>
                         </div>
+                        {(selectedBooking.car_make || selectedBooking.vehicle_details?.car_make) && (
+                          <div className="ub-detail-item">
+                            <label>Make</label>
+                            <span>{selectedBooking.car_make || selectedBooking.vehicle_details?.car_make}</span>
+                          </div>
+                        )}
+                        {(selectedBooking.car_model || selectedBooking.vehicle_details?.car_model) && (
+                          <div className="ub-detail-item">
+                            <label>Model</label>
+                            <span>{selectedBooking.car_model || selectedBooking.vehicle_details?.car_model}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1174,7 +1212,7 @@ Auth status: ${authStatus.isLoggedIn}
                     <div className="ub-detail-grid">
                       <div className="ub-detail-item">
                         <label>Total Amount</label>
-                        <span className="ub-amount-highlight">{formatCurrency(selectedBooking.booking_amount)}</span>
+                        <span className="ub-amount-highlight">{formatCurrency(selectedBooking.booking_amount || selectedBooking.price)}</span>
                       </div>
                       <div className="ub-detail-item">
                         <label>Payment Method</label>
@@ -1203,13 +1241,13 @@ Auth status: ${authStatus.isLoggedIn}
                   <div className="ub-detail-section">
                     <h3>Service Features</h3>
                     <div className="ub-features-grid">
-                      {selectedBooking.is_cancelable && (
+                      {(selectedBooking.is_cancelable !== false) && (
                         <div className="ub-feature-item">
                           <XCircle size={16} />
                           <span>Cancellable</span>
                         </div>
                       )}
-                      {selectedBooking.is_editable && (
+                      {(selectedBooking.is_editable !== false) && (
                         <div className="ub-feature-item">
                           <Edit size={16} />
                           <span>Amendable</span>
@@ -1234,7 +1272,7 @@ Auth status: ${authStatus.isLoggedIn}
 
                   {/* Action Buttons in View Mode */}
                   <div className="ub-view-actions">
-                    {selectedBooking.status === 'confirmed' && selectedBooking.is_cancelable && (
+                    {selectedBooking.status === 'confirmed' && (selectedBooking.is_cancelable !== false) && (
                       <button 
                         className="ub-btn-warning"
                         onClick={() => {
@@ -1248,7 +1286,7 @@ Auth status: ${authStatus.isLoggedIn}
                       </button>
                     )}
                     
-                    {selectedBooking.status === 'confirmed' && selectedBooking.is_editable && (
+                    {selectedBooking.status === 'confirmed' && (selectedBooking.is_editable !== false) && (
                       <button 
                         className="ub-btn-primary"
                         onClick={() => {
@@ -1258,21 +1296,21 @@ Auth status: ${authStatus.isLoggedIn}
                           
                           // Pre-populate amend form
                           setAmendFormData({
-                            dropoff_time: selectedBooking.dropoff_time || '',
-                            pickup_time: selectedBooking.pickup_time || '',
-                            title: selectedBooking.customer_details?.title || '',
-                            first_name: selectedBooking.customer_details?.first_name || '',
-                            last_name: selectedBooking.customer_details?.last_name || '',
-                            customer_email: selectedBooking.customer_details?.customer_email || '',
-                            phone_number: selectedBooking.customer_details?.phone_number || '',
+                            dropoff_time: selectedBooking.dropoff_time || selectedBooking.travel_details?.dropoff_time || '',
+                            pickup_time: selectedBooking.pickup_time || selectedBooking.travel_details?.pickup_time || '',
+                            title: selectedBooking.customer_details?.title || selectedBooking.title || '',
+                            first_name: selectedBooking.customer_details?.first_name || selectedBooking.first_name || '',
+                            last_name: selectedBooking.customer_details?.last_name || selectedBooking.last_name || '',
+                            customer_email: selectedBooking.customer_details?.customer_email || selectedBooking.customer_email || '',
+                            phone_number: selectedBooking.customer_details?.phone_number || selectedBooking.phone_number || '',
                             departure_flight_number: selectedBooking.departure_flight_number || '',
                             arrival_flight_number: selectedBooking.arrival_flight_number || '',
                             departure_terminal: selectedBooking.departure_terminal || '',
                             arrival_terminal: selectedBooking.arrival_terminal || '',
-                            car_registration_number: selectedBooking.vehicle_details?.car_registration_number || '',
-                            car_make: selectedBooking.vehicle_details?.car_make || '',
-                            car_model: selectedBooking.vehicle_details?.car_model || '',
-                            car_color: selectedBooking.vehicle_details?.car_color || ''
+                            car_registration_number: selectedBooking.vehicle_details?.car_registration_number || selectedBooking.car_registration_number || '',
+                            car_make: selectedBooking.vehicle_details?.car_make || selectedBooking.car_make || '',
+                            car_model: selectedBooking.vehicle_details?.car_model || selectedBooking.car_model || '',
+                            car_color: selectedBooking.vehicle_details?.car_color || selectedBooking.car_color || ''
                           });
                         }}
                       >
@@ -1301,11 +1339,11 @@ Auth status: ${authStatus.isLoggedIn}
                         </div>
                         <div className="ub-summary-item">
                           <span>Amount:</span>
-                          <span>{formatCurrency(selectedBooking.booking_amount)}</span>
+                          <span>{formatCurrency(selectedBooking.booking_amount || selectedBooking.price)}</span>
                         </div>
                         <div className="ub-summary-item">
                           <span>Refund Amount:</span>
-                          <span>{formatCurrency(selectedBooking.booking_amount)}</span>
+                          <span>{formatCurrency(selectedBooking.booking_amount || selectedBooking.price)}</span>
                         </div>
                       </div>
 
@@ -1372,7 +1410,7 @@ Auth status: ${authStatus.isLoggedIn}
                                 value={amendFormData.dropoff_time}
                                 onChange={(e) => handleAmendFormChange('dropoff_time', e.target.value)}
                               />
-                              <small>Current: {selectedBooking.dropoff_time}</small>
+                              <small>Current: {selectedBooking.dropoff_time || selectedBooking.travel_details?.dropoff_time}</small>
                             </div>
                             <div className="ub-form-group">
                               <label>Pick-up Time</label>
@@ -1381,7 +1419,7 @@ Auth status: ${authStatus.isLoggedIn}
                                 value={amendFormData.pickup_time}
                                 onChange={(e) => handleAmendFormChange('pickup_time', e.target.value)}
                               />
-                              <small>Current: {selectedBooking.pickup_time}</small>
+                              <small>Current: {selectedBooking.pickup_time || selectedBooking.travel_details?.pickup_time}</small>
                             </div>
                           </div>
                         </div>
@@ -1403,7 +1441,7 @@ Auth status: ${authStatus.isLoggedIn}
                                 <option value="Ms">Ms</option>
                                 <option value="Dr">Dr</option>
                               </select>
-                              <small>Current: {selectedBooking.customer_details?.title}</small>
+                              <small>Current: {selectedBooking.customer_details?.title || selectedBooking.title}</small>
                             </div>
                             <div className="ub-form-group">
                               <label>First Name</label>
@@ -1411,9 +1449,9 @@ Auth status: ${authStatus.isLoggedIn}
                                 type="text"
                                 value={amendFormData.first_name}
                                 onChange={(e) => handleAmendFormChange('first_name', e.target.value)}
-                                placeholder={selectedBooking.customer_details?.first_name}
+                                placeholder={selectedBooking.customer_details?.first_name || selectedBooking.first_name}
                               />
-                              <small>Current: {selectedBooking.customer_details?.first_name}</small>
+                              <small>Current: {selectedBooking.customer_details?.first_name || selectedBooking.first_name}</small>
                             </div>
                             <div className="ub-form-group">
                               <label>Last Name</label>
@@ -1421,9 +1459,9 @@ Auth status: ${authStatus.isLoggedIn}
                                 type="text"
                                 value={amendFormData.last_name}
                                 onChange={(e) => handleAmendFormChange('last_name', e.target.value)}
-                                placeholder={selectedBooking.customer_details?.last_name}
+                                placeholder={selectedBooking.customer_details?.last_name || selectedBooking.last_name}
                               />
-                              <small>Current: {selectedBooking.customer_details?.last_name}</small>
+                              <small>Current: {selectedBooking.customer_details?.last_name || selectedBooking.last_name}</small>
                             </div>
                             <div className="ub-form-group">
                               <label>Email</label>
@@ -1431,9 +1469,9 @@ Auth status: ${authStatus.isLoggedIn}
                                 type="email"
                                 value={amendFormData.customer_email}
                                 onChange={(e) => handleAmendFormChange('customer_email', e.target.value)}
-                                placeholder={selectedBooking.customer_details?.customer_email}
+                                placeholder={selectedBooking.customer_details?.customer_email || selectedBooking.customer_email}
                               />
-                              <small>Current: {selectedBooking.customer_details?.customer_email}</small>
+                              <small>Current: {selectedBooking.customer_details?.customer_email || selectedBooking.customer_email}</small>
                             </div>
                             <div className="ub-form-group">
                               <label>Phone</label>
@@ -1441,9 +1479,9 @@ Auth status: ${authStatus.isLoggedIn}
                                 type="tel"
                                 value={amendFormData.phone_number}
                                 onChange={(e) => handleAmendFormChange('phone_number', e.target.value)}
-                                placeholder={selectedBooking.customer_details?.phone_number}
+                                placeholder={selectedBooking.customer_details?.phone_number || selectedBooking.phone_number}
                               />
-                              <small>Current: {selectedBooking.customer_details?.phone_number}</small>
+                              <small>Current: {selectedBooking.customer_details?.phone_number || selectedBooking.phone_number}</small>
                             </div>
                           </div>
                         </div>
@@ -1515,9 +1553,9 @@ Auth status: ${authStatus.isLoggedIn}
                                 type="text"
                                 value={amendFormData.car_registration_number}
                                 onChange={(e) => handleAmendFormChange('car_registration_number', e.target.value)}
-                                placeholder={selectedBooking.vehicle_details?.car_registration_number}
+                                placeholder={selectedBooking.vehicle_details?.car_registration_number || selectedBooking.car_registration_number}
                               />
-                              <small>Current: {selectedBooking.vehicle_details?.car_registration_number}</small>
+                              <small>Current: {selectedBooking.vehicle_details?.car_registration_number || selectedBooking.car_registration_number}</small>
                             </div>
                             <div className="ub-form-group">
                               <label>Make</label>
@@ -1525,9 +1563,9 @@ Auth status: ${authStatus.isLoggedIn}
                                 type="text"
                                 value={amendFormData.car_make}
                                 onChange={(e) => handleAmendFormChange('car_make', e.target.value)}
-                                placeholder={selectedBooking.vehicle_details?.car_make}
+                                placeholder={selectedBooking.vehicle_details?.car_make || selectedBooking.car_make}
                               />
-                              <small>Current: {selectedBooking.vehicle_details?.car_make}</small>
+                              <small>Current: {selectedBooking.vehicle_details?.car_make || selectedBooking.car_make}</small>
                             </div>
                             <div className="ub-form-group">
                               <label>Model</label>
@@ -1535,9 +1573,9 @@ Auth status: ${authStatus.isLoggedIn}
                                 type="text"
                                 value={amendFormData.car_model}
                                 onChange={(e) => handleAmendFormChange('car_model', e.target.value)}
-                                placeholder={selectedBooking.vehicle_details?.car_model}
+                                placeholder={selectedBooking.vehicle_details?.car_model || selectedBooking.car_model}
                               />
-                              <small>Current: {selectedBooking.vehicle_details?.car_model}</small>
+                              <small>Current: {selectedBooking.vehicle_details?.car_model || selectedBooking.car_model}</small>
                             </div>
                             <div className="ub-form-group">
                               <label>Color</label>
@@ -1545,9 +1583,9 @@ Auth status: ${authStatus.isLoggedIn}
                                 type="text"
                                 value={amendFormData.car_color}
                                 onChange={(e) => handleAmendFormChange('car_color', e.target.value)}
-                                placeholder={selectedBooking.vehicle_details?.car_color}
+                                placeholder={selectedBooking.vehicle_details?.car_color || selectedBooking.car_color}
                               />
-                              <small>Current: {selectedBooking.vehicle_details?.car_color}</small>
+                              <small>Current: {selectedBooking.vehicle_details?.car_color || selectedBooking.car_color}</small>
                             </div>
                           </div>
                         </div>
@@ -1622,7 +1660,7 @@ Auth status: ${authStatus.isLoggedIn}
                         </button>
                         <button 
                           className="ub-btn-danger"
-                          onClick={() => deleteBooking(selectedBooking.our_reference, cancelReason)}
+                          onClick={() => deleteBooking(selectedBooking.our_reference || selectedBooking.booking_reference, cancelReason)}
                           disabled={processingAction}
                         >
                           {processingAction ? (
@@ -1659,7 +1697,7 @@ Auth status: ${authStatus.isLoggedIn}
                         <div className="ub-result-details">
                           <div className="ub-detail-row">
                             <span>Reference:</span>
-                            <strong>{actionResult.data.our_reference || actionResult.data.reference}</strong>
+                            <strong>{actionResult.data.our_reference || actionResult.data.booking_reference || actionResult.data.reference}</strong>
                           </div>
                           {actionResult.data.refund_amount && (
                             <div className="ub-detail-row">
