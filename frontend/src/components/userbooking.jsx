@@ -59,12 +59,36 @@ const UserBooking = () => {
     'GLA': 'Glasgow'
   };
 
-  // ✅ COMPLETELY FIXED: Get token from user object (exactly like home.jsx saves it)
+  // ✅ COMPLETELY FIXED: Get authentication token that matches backend expectations
   const getAuthToken = () => {
     try {
       console.log('🔍 UserBooking: Checking for authentication token...');
       
-      // Priority 1: Check for user object (how home.jsx saves it)
+      // Priority 1: Check for real JWT tokens first (backend-generated)
+      const tokenKeys = ['token', 'authToken', 'jwt', 'access_token', 'auth_token'];
+      for (const key of tokenKeys) {
+        const token = localStorage.getItem(key);
+        if (token && token !== 'null' && token !== 'undefined' && token.length > 10) {
+          // Check if it's a real JWT (3 parts separated by dots)
+          if (token.includes('.') && token.split('.').length === 3) {
+            try {
+              // Try to decode the JWT to verify it's valid
+              const parts = token.split('.');
+              const payload = JSON.parse(atob(parts[1]));
+              
+              // Verify it has the required fields that backend expects
+              if (payload.id || payload.user_id || payload.sub) {
+                console.log(`✅ UserBooking: Found valid backend JWT token in localStorage[${key}]`);
+                return token;
+              }
+            } catch (decodeError) {
+              console.log(`⚠️ Failed to decode token from ${key}:`, decodeError.message);
+            }
+          }
+        }
+      }
+      
+      // Priority 2: Check for user object with embedded token
       const userStr = localStorage.getItem('user');
       if (userStr && userStr !== 'null') {
         try {
@@ -73,63 +97,64 @@ const UserBooking = () => {
             hasId: !!userObj.id,
             hasEmail: !!userObj.email,
             email: userObj.email,
-            hasUsername: !!userObj.username
+            hasToken: !!userObj.token,
+            hasAccessToken: !!userObj.access_token
           });
           
-          // If user object has direct token, use it
-          if (userObj.token && userObj.token.length > 10) {
-            console.log('✅ UserBooking: Found direct token in user object');
-            return userObj.token;
+          // If user object has direct token from backend, use it
+          if (userObj.token && userObj.token.length > 10 && userObj.token.includes('.')) {
+            try {
+              // Verify it's a proper JWT
+              const parts = userObj.token.split('.');
+              if (parts.length === 3) {
+                const payload = JSON.parse(atob(parts[1]));
+                if (payload.id || payload.user_id || payload.sub) {
+                  console.log('✅ UserBooking: Found backend token in user object');
+                  return userObj.token;
+                }
+              }
+            } catch (error) {
+              console.log('⚠️ Token in user object is not valid JWT');
+            }
           }
           
-          // If user object has access_token, use it
-          if (userObj.access_token && userObj.access_token.length > 10) {
-            console.log('✅ UserBooking: Found access_token in user object');
-            return userObj.access_token;
+          // If user object has access_token from backend, use it
+          if (userObj.access_token && userObj.access_token.length > 10 && userObj.access_token.includes('.')) {
+            try {
+              const parts = userObj.access_token.split('.');
+              if (parts.length === 3) {
+                const payload = JSON.parse(atob(parts[1]));
+                if (payload.id || payload.user_id || payload.sub) {
+                  console.log('✅ UserBooking: Found backend access_token in user object');
+                  return userObj.access_token;
+                }
+              }
+            } catch (error) {
+              console.log('⚠️ access_token in user object is not valid JWT');
+            }
           }
           
-          // If user object has id and email, create JWT from it (exactly like home.jsx does)
-          if (userObj.id && userObj.email) {
-            console.log('✅ UserBooking: Creating JWT from user object (like home.jsx)');
-            const jwtPayload = {
-              sub: userObj.id.toString(),
-              id: userObj.id,
-              user_id: userObj.id,
-              email: userObj.email,
-              username: userObj.username || userObj.email,
-              name: userObj.name || userObj.username || userObj.email,
-              exp: Math.floor(Date.now()/1000) + 86400, // 24 hours
-              iat: Math.floor(Date.now()/1000),
-              iss: 'parksy-frontend',
-              aud: 'parksy-backend'
-            };
+          // ❌ NO FRONTEND JWT GENERATION - Backend expects real tokens only
+          if (userObj.id && userObj.email && !userObj.token && !userObj.access_token) {
+            console.log('⚠️ UserBooking: User exists but no backend token found');
+            console.log('⚠️ UserBooking: Backend requires server-signed JWT tokens');
+            console.log('⚠️ UserBooking: User needs to log in again to get proper token');
             
-            const header = btoa(JSON.stringify({typ:'JWT', alg:'HS256'}));
-            const payload = btoa(JSON.stringify(jwtPayload));
-            const signature = 'demo_signature_for_frontend';
-            const jwt = `${header}.${payload}.${signature}`;
+            // Clear invalid user data to force re-login
+            localStorage.removeItem('user');
+            localStorage.removeItem('jwt');
+            localStorage.removeItem('token');
             
-            // Cache the created JWT for future use
-            localStorage.setItem('jwt', jwt);
-            
-            return jwt;
+            return null; // Force re-login to get proper backend token
           }
         } catch (parseError) {
           console.log('⚠️ UserBooking: Failed to parse user object:', parseError.message);
         }
       }
       
-      // Priority 2: Check for direct token keys (fallback)
-      const tokenKeys = ['jwt', 'token', 'authToken', 'access_token', 'auth_token'];
-      for (const key of tokenKeys) {
-        const token = localStorage.getItem(key);
-        if (token && token !== 'null' && token !== 'undefined' && token.length > 10) {
-          console.log(`✅ UserBooking: Found fallback token in localStorage[${key}]`);
-          return token;
-        }
-      }
-      
-      console.log('❌ UserBooking: No authentication token found anywhere');
+      console.log('❌ UserBooking: No valid backend authentication token found');
+      console.log('❌ UserBooking: Frontend-generated JWTs will not work with backend');
+      console.log('❌ UserBooking: User must log in through proper login API to get backend token');
       
       // Debug: Show what's actually in localStorage
       console.log('📋 UserBooking: Current localStorage contents:');
@@ -196,12 +221,12 @@ const UserBooking = () => {
     return token;
   };
 
-  // ✅ COMPLETELY FIXED: Get user info from user object (exactly like home.jsx saves it)
+  // ✅ COMPLETELY FIXED: Get user info from backend token or user object
   const getUserInfoFromToken = () => {
     try {
       console.log('👤 UserBooking: Getting user info...');
       
-      // Priority 1: Get user directly from localStorage (exactly how home.jsx saves it)
+      // Priority 1: Get user directly from localStorage (exactly how auth login saves it)
       const userStr = localStorage.getItem('user');
       if (userStr && userStr !== 'null') {
         try {
@@ -218,6 +243,7 @@ const UserBooking = () => {
             console.log('✅ UserBooking: User info from localStorage[user]');
             return {
               id: userObj.id,
+              _id: userObj.id, // Backend expects _id
               email: userObj.email,
               username: userObj.username || userObj.email,
               name: userObj.name || userObj.username || userObj.first_name || userObj.email,
@@ -229,7 +255,7 @@ const UserBooking = () => {
         }
       }
       
-      // Priority 2: Try to decode from JWT token (fallback)
+      // Priority 2: Try to decode from JWT token if available
       const token = getAuthToken();
       if (token && token.includes('.') && token.split('.').length === 3) {
         try {
@@ -241,9 +267,10 @@ const UserBooking = () => {
           }).join(''));
           const payload = JSON.parse(jsonPayload);
           
-          console.log('✅ UserBooking: User info from JWT token');
+          console.log('✅ UserBooking: User info from JWT token payload');
           return {
             id: payload.id || payload.user_id || payload.sub,
+            _id: payload.id || payload.user_id || payload.sub, // Backend expects _id
             email: payload.email,
             username: payload.username || payload.name,
             name: payload.name || payload.username,
@@ -287,8 +314,11 @@ const UserBooking = () => {
       });
 
       if (!isLoggedIn) {
-        setError('Please log in to view your bookings. No valid authentication token found.');
+        setError('Please log in to view your bookings. You must log in through the login page to get a valid authentication token.');
         setLoading(false);
+      } else {
+        // Clear any invalid stored data
+        localStorage.removeItem('jwt');
       }
     };
 
@@ -909,7 +939,7 @@ Auth status: ${authStatus.isLoggedIn}
           <div className="ub-auth-message">
             <AlertCircle size={64} />
             <h2>Authentication Required</h2>
-            <p>Please log in to view your booking history</p>
+            <p>Please log in through the login page to get a valid authentication token</p>
             <div className="ub-auth-actions">
               <button className="ub-login-btn" onClick={() => window.location.href = '/#/login'}>
                 <User size={16} />
