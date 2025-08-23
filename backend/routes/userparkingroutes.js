@@ -981,102 +981,31 @@ router.post('/bookings-with-payment',
       const bookingReference = magrResult.booking_reference || 
         `${isTestMode ? 'TEST-' : ''}${bookingData.company_code}-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-      // Prepare booking record for database - FIXED SCHEMA FIELD MAPPING
+      // Prepare booking record for database
       const finalBooking = {
-        // ✅ FIXED: Use correct schema field names
-        our_reference: bookingReference, // Primary reference field in schema
-        magr_reference: magrResult.booking_reference || bookingReference, // Secondary reference
-        booking_id: magrResult.magr_booking_id || null,
+        ...bookingData,
+        booking_reference: bookingReference,
+        magr_booking_id: magrResult.magr_booking_id || null,
+        status: magrResult.success ? 'confirmed' : 'payment_received',
+        magr_status: magrResult.success ? 'confirmed' : 'failed',
+        booking_date: new Date(),
         
-        // User information
-        user_email: req.user.email,
-        user_id: req.user._id,
-        
-        // Service details
-        company_code: bookingData.company_code,
-        product_name: bookingData.service_name,
-        product_code: bookingData.company_code,
-        airport_code: bookingData.airport_code,
-        parking_type: 'Meet & Greet',
-        
-        // Financial details
-        booking_amount: bookingData.price,
-        commission_percentage: bookingData.commission_percentage,
-        commission_amount: parseFloat(((bookingData.price * bookingData.commission_percentage) / 100).toFixed(2)),
-        currency: bookingData.payment_currency?.toUpperCase() || 'GBP',
-        
-        // Customer details (nested object per schema)
-        customer_details: {
-          title: bookingData.customer_name.split(' ')[0] || 'Mr', // Extract title if possible
-          first_name: bookingData.customer_name.split(' ')[1] || bookingData.customer_name,
-          last_name: bookingData.customer_name.split(' ').slice(2).join(' ') || 'Customer',
-          customer_email: bookingData.customer_email,
-          phone_number: bookingData.customer_phone
-        },
-        
-        // Travel details (nested object per schema)
-        travel_details: {
-          dropoff_date: bookingData.dropoff_date,
-          dropoff_time: bookingData.dropoff_time,
-          pickup_date: bookingData.pickup_date,
-          pickup_time: bookingData.pickup_time,
-          departure_flight_number: 'TBA',
-          arrival_flight_number: 'TBA',
-          departure_terminal: 'Terminal 1',
-          arrival_terminal: 'Terminal 1',
-          passenger_count: 1
-        },
-        
-        // Vehicle details (nested object per schema)
-        vehicle_details: {
-          car_registration_number: bookingData.vehicle_registration,
-          car_make: bookingData.vehicle_make,
-          car_model: bookingData.vehicle_model,
-          car_color: bookingData.vehicle_color
-        },
-        
-        // Booking status
-        status: magrResult.success ? 'confirmed' : 'pending',
-        
-        // Payment details (nested object per schema)
-        payment_details: {
-          payment_method: 'Stripe',
-          payment_token: bookingData.payment_intent_id,
-          payment_status: 'paid',
-          payment_reference: bookingData.payment_intent_id,
-          stripe_payment_intent_id: bookingData.payment_intent_id,
-          stripe_amount: bookingData.payment_amount,
-          stripe_currency: bookingData.payment_currency?.toUpperCase() || 'GBP',
-          payment_date: new Date(),
-          payment_confirmed_at: new Date()
-        },
-        
-        // Service features (nested object per schema)
-        service_features: {
-          is_cancelable: true, // Default to true for better UX
-          is_editable: true,   // Default to true for better UX
-          special_features: bookingData.special_requests ? [bookingData.special_requests] : []
-        },
+        // Service features - DEFAULT TO CANCELABLE AND EDITABLE
+        is_cancelable: true,  // Default to true for better UX
+        is_editable: true,    // Default to true for better UX
         
         // Additional metadata
+        api_errors: magrResult.success ? null : magrResult.error,
         created_at: new Date(),
-        updated_at: new Date(),
-        
-        // MAGR API response data for debugging
-        magr_response: magrResult.success ? magrResult : null,
-        
-        // Notes
-        notes: bookingData.special_requests || null
+        updated_at: new Date()
       };
 
-      console.log('💾 Final booking object prepared with correct schema fields:', {
-        our_reference: finalBooking.our_reference,
-        magr_reference: finalBooking.magr_reference,
+      console.log('💾 Final booking object prepared:', {
+        booking_reference: finalBooking.booking_reference,
         status: finalBooking.status,
-        user_email: finalBooking.user_email,
-        customer_email: finalBooking.customer_details.customer_email,
-        is_cancelable: finalBooking.service_features.is_cancelable,
-        is_editable: finalBooking.service_features.is_editable
+        magr_status: finalBooking.magr_status,
+        is_cancelable: finalBooking.is_cancelable,
+        is_editable: finalBooking.is_editable
       });
 
       // Save to database if Booking model is available
@@ -1102,42 +1031,41 @@ router.post('/bookings-with-payment',
           : 'Payment processed successfully. Booking confirmation pending.',
         booking: {
           booking_reference: bookingReference,
-          our_reference: finalBooking.our_reference, // ✅ ADDED: Include schema field
-          magr_reference: finalBooking.magr_reference, // ✅ ADDED: Include schema field
           status: finalBooking.status,
+          magr_status: finalBooking.magr_status,
           
           // Core booking details
           airport_code: finalBooking.airport_code,
-          service_name: finalBooking.product_name,
-          dropoff_date: finalBooking.travel_details.dropoff_date,
-          dropoff_time: finalBooking.travel_details.dropoff_time,
-          pickup_date: finalBooking.travel_details.pickup_date,
-          pickup_time: finalBooking.travel_details.pickup_time,
+          service_name: finalBooking.service_name,
+          dropoff_date: finalBooking.dropoff_date,
+          dropoff_time: finalBooking.dropoff_time,
+          pickup_date: finalBooking.pickup_date,
+          pickup_time: finalBooking.pickup_time,
           
           // Customer details
-          customer_name: `${finalBooking.customer_details.first_name} ${finalBooking.customer_details.last_name}`,
-          customer_email: finalBooking.customer_details.customer_email,
-          customer_phone: finalBooking.customer_details.phone_number,
+          customer_name: finalBooking.customer_name,
+          customer_email: finalBooking.customer_email,
+          customer_phone: finalBooking.customer_phone,
           
           // Vehicle details
-          vehicle_registration: finalBooking.vehicle_details.car_registration_number,
-          vehicle_make: finalBooking.vehicle_details.car_make,
-          vehicle_model: finalBooking.vehicle_details.car_model,
-          vehicle_color: finalBooking.vehicle_details.car_color,
+          vehicle_registration: finalBooking.vehicle_registration,
+          vehicle_make: finalBooking.vehicle_make,
+          vehicle_model: finalBooking.vehicle_model,
+          vehicle_color: finalBooking.vehicle_color,
           
           // Financial details
-          price: finalBooking.booking_amount,
-          payment_amount: finalBooking.payment_details.stripe_amount,
-          payment_currency: finalBooking.payment_details.stripe_currency,
-          payment_status: finalBooking.payment_details.payment_status,
+          price: finalBooking.price,
+          payment_amount: finalBooking.payment_amount,
+          payment_currency: finalBooking.payment_currency,
+          payment_status: finalBooking.payment_status,
           
-          // Service features - ✅ FIXED: Use nested schema fields
-          is_cancelable: finalBooking.service_features.is_cancelable,
-          is_editable: finalBooking.service_features.is_editable,
+          // Service features
+          is_cancelable: finalBooking.is_cancelable,
+          is_editable: finalBooking.is_editable,
           
           // Metadata
-          booking_date: finalBooking.created_at,
-          is_test_booking: isTestMode
+          booking_date: finalBooking.booking_date,
+          is_test_booking: finalBooking.is_test_booking
         },
         payment: {
           payment_intent_id: payment_intent_id,
@@ -1213,7 +1141,7 @@ router.get('/my-bookings', authenticateToken, async (req, res) => {
       });
     }
 
-    // ✅ FIXED: Try multiple lookup strategies using CORRECT SCHEMA FIELDS
+    // ✅ FIXED: Try multiple lookup strategies to find user's bookings
     let bookings = [];
     
     // Strategy 1: Look up by user_id (new bookings)
@@ -1240,7 +1168,20 @@ router.get('/my-bookings', authenticateToken, async (req, res) => {
       }
     }
     
-    // Strategy 3: If still no bookings, try by customer email in nested field
+    // Strategy 3: If still no bookings, try by created_by field
+    if (bookings.length === 0) {
+      try {
+        console.log('🔍 Trying lookup by created_by:', req.user.email);
+        bookings = await Booking.find({ 
+          created_by: req.user.email 
+        }).sort({ created_at: -1 });
+        console.log(`📊 Found ${bookings.length} bookings by created_by`);
+      } catch (createdByError) {
+        console.log('⚠️ created_by lookup failed:', createdByError.message);
+      }
+    }
+    
+    // Strategy 4: If still no bookings, try customer_email in nested field
     if (bookings.length === 0) {
       try {
         console.log('🔍 Trying lookup by customer_details.customer_email:', req.user.email);
@@ -1255,52 +1196,18 @@ router.get('/my-bookings', authenticateToken, async (req, res) => {
 
     console.log(`✅ Total found ${bookings.length} bookings for user:`, req.user.email);
     
-    // ✅ FIXED: Enhance bookings with proper schema field mapping
+    // Enhance bookings with proper service features
     const enhancedBookings = bookings.map(booking => {
       const bookingObj = booking.toObject ? booking.toObject() : booking;
       
       return {
         ...bookingObj,
-        
-        // ✅ FIXED: Map schema fields to frontend-expected fields
-        booking_reference: bookingObj.our_reference, // Map primary field
-        our_reference: bookingObj.our_reference, // Keep original
-        magr_reference: bookingObj.magr_reference, // Keep original
-        
-        // Flatten customer details for frontend compatibility
-        customer_name: bookingObj.customer_details?.first_name && bookingObj.customer_details?.last_name 
-          ? `${bookingObj.customer_details.first_name} ${bookingObj.customer_details.last_name}`
-          : 'Unknown Customer',
-        customer_email: bookingObj.customer_details?.customer_email || bookingObj.user_email,
-        customer_phone: bookingObj.customer_details?.phone_number,
-        
-        // Flatten travel details
-        dropoff_date: bookingObj.travel_details?.dropoff_date,
-        dropoff_time: bookingObj.travel_details?.dropoff_time,
-        pickup_date: bookingObj.travel_details?.pickup_date,
-        pickup_time: bookingObj.travel_details?.pickup_time,
-        departure_flight_number: bookingObj.travel_details?.departure_flight_number,
-        arrival_flight_number: bookingObj.travel_details?.arrival_flight_number,
-        
-        // Flatten vehicle details
-        vehicle_registration: bookingObj.vehicle_details?.car_registration_number,
-        car_registration_number: bookingObj.vehicle_details?.car_registration_number,
-        vehicle_make: bookingObj.vehicle_details?.car_make,
-        vehicle_model: bookingObj.vehicle_details?.car_model,
-        vehicle_color: bookingObj.vehicle_details?.car_color,
-        
-        // Flatten payment details
-        payment_method: bookingObj.payment_details?.payment_method,
-        payment_status: bookingObj.payment_details?.payment_status,
-        stripe_payment_intent_id: bookingObj.payment_details?.stripe_payment_intent_id,
-        payment_amount: bookingObj.payment_details?.stripe_amount || bookingObj.booking_amount,
-        
-        // ✅ FIXED: Flatten service features with proper defaults
-        is_cancelable: bookingObj.service_features?.is_cancelable !== false && bookingObj.status === 'confirmed',
-        is_editable: bookingObj.service_features?.is_editable !== false && bookingObj.status === 'confirmed',
+        // Ensure service features are properly set (default to true for better UX)
+        is_cancelable: bookingObj.is_cancelable !== false, // Default to true unless explicitly false
+        is_editable: bookingObj.is_editable !== false,     // Default to true unless explicitly false
         
         // Add display-friendly status
-        display_status: getDisplayStatus(bookingObj.status, bookingObj.magr_status || 'confirmed'),
+        display_status: getDisplayStatus(bookingObj.status, bookingObj.magr_status),
         
         // Test mode indication
         is_test_booking: bookingObj.is_test_booking || false,
@@ -1309,8 +1216,8 @@ router.get('/my-bookings', authenticateToken, async (req, res) => {
         days_since_booking: Math.floor((new Date() - new Date(bookingObj.created_at)) / (1000 * 60 * 60 * 24)),
         
         // Add formatted dates for display
-        formatted_dropoff: formatDateTime(bookingObj.travel_details?.dropoff_date, bookingObj.travel_details?.dropoff_time),
-        formatted_pickup: formatDateTime(bookingObj.travel_details?.pickup_date, bookingObj.travel_details?.pickup_time)
+        formatted_dropoff: formatDateTime(bookingObj.dropoff_date, bookingObj.dropoff_time),
+        formatted_pickup: formatDateTime(bookingObj.pickup_date, bookingObj.pickup_time)
       };
     });
 
@@ -1363,7 +1270,7 @@ function formatDateTime(date, time) {
   }
 }
 
-// Get single booking details - FIXED USER LOOKUP WITH CORRECT SCHEMA FIELDS
+// Get single booking details - FIXED USER LOOKUP
 router.get('/booking/:booking_reference', 
   authenticateToken, 
   param('booking_reference').notEmpty().withMessage('Booking reference is required'),
@@ -1381,69 +1288,80 @@ router.get('/booking/:booking_reference',
         });
       }
 
-      // ✅ FIXED: Try multiple lookup strategies using CORRECT SCHEMA FIELDS
+      // ✅ FIXED: Try multiple lookup strategies to find the booking
       let booking = null;
       
-      // Strategy 1: Look up by our_reference (primary field) and user_id
+      // Strategy 1: Look up by booking_reference and user_id
       try {
-        console.log('🔍 Trying lookup by our_reference + user_id');
+        console.log('🔍 Trying lookup by booking_reference + user_id');
         booking = await Booking.findOne({
-          our_reference: booking_reference,
+          booking_reference: booking_reference,
           user_id: req.user._id
         });
-        if (booking) console.log('✅ Found booking by our_reference + user_id');
+        
+        // ✅ FIXED: Try alternative lookups if user_id lookup fails
+        if (!booking) {
+          // Try by user_email
+          booking = await Booking.findOne({
+            booking_reference: booking_reference,
+            user_email: req.user.email
+          });
+        }
+        
+        if (!booking) {
+          // Try by created_by
+          booking = await Booking.findOne({
+            booking_reference: booking_reference,
+            created_by: req.user.email
+          });
+        }
+        
+        if (!booking) {
+          // Try by customer email in nested field
+          booking = await Booking.findOne({
+            booking_reference: booking_reference,
+            'customer_details.customer_email': req.user.email
+          });
+        }
+        if (booking) console.log('✅ Found booking by user_id');
       } catch (error) {
-        console.log('⚠️ our_reference + user_id lookup failed:', error.message);
+        console.log('⚠️ user_id lookup failed:', error.message);
       }
       
-      // Strategy 2: Look up by our_reference and user_email
+      // Strategy 2: Look up by booking_reference and user_email
       if (!booking) {
         try {
-          console.log('🔍 Trying lookup by our_reference + user_email');
+          console.log('🔍 Trying lookup by booking_reference + user_email');
           booking = await Booking.findOne({
-            our_reference: booking_reference,
+            booking_reference: booking_reference,
             user_email: req.user.email
           });
-          if (booking) console.log('✅ Found booking by our_reference + user_email');
+          if (booking) console.log('✅ Found booking by user_email');
         } catch (error) {
-          console.log('⚠️ our_reference + user_email lookup failed:', error.message);
+          console.log('⚠️ user_email lookup failed:', error.message);
         }
       }
       
-      // Strategy 3: Look up by magr_reference (secondary field) and user_id
+      // Strategy 3: Look up by booking_reference and created_by
       if (!booking) {
         try {
-          console.log('🔍 Trying lookup by magr_reference + user_id');
+          console.log('🔍 Trying lookup by booking_reference + created_by');
           booking = await Booking.findOne({
-            magr_reference: booking_reference,
-            user_id: req.user._id
+            booking_reference: booking_reference,
+            created_by: req.user.email
           });
-          if (booking) console.log('✅ Found booking by magr_reference + user_id');
+          if (booking) console.log('✅ Found booking by created_by');
         } catch (error) {
-          console.log('⚠️ magr_reference + user_id lookup failed:', error.message);
+          console.log('⚠️ created_by lookup failed:', error.message);
         }
       }
       
-      // Strategy 4: Look up by magr_reference and user_email
+      // Strategy 4: Look up by booking_reference and customer_email in nested field
       if (!booking) {
         try {
-          console.log('🔍 Trying lookup by magr_reference + user_email');
+          console.log('🔍 Trying lookup by booking_reference + customer_details.customer_email');
           booking = await Booking.findOne({
-            magr_reference: booking_reference,
-            user_email: req.user.email
-          });
-          if (booking) console.log('✅ Found booking by magr_reference + user_email');
-        } catch (error) {
-          console.log('⚠️ magr_reference + user_email lookup failed:', error.message);
-        }
-      }
-      
-      // Strategy 5: Look up by our_reference and customer email in nested field (last resort)
-      if (!booking) {
-        try {
-          console.log('🔍 Trying lookup by our_reference + customer_details.customer_email');
-          booking = await Booking.findOne({
-            our_reference: booking_reference,
+            booking_reference: booking_reference,
             'customer_details.customer_email': req.user.email
           });
           if (booking) console.log('✅ Found booking by customer_details.customer_email');
@@ -1462,8 +1380,7 @@ router.get('/booking/:booking_reference',
             booking_reference,
             user_email: req.user.email,
             user_id: req.user._id,
-            searched_fields: ['our_reference', 'magr_reference', 'customer_details.customer_email'],
-            note: 'Using correct schema field names'
+            searched_fields: ['user_id', 'user_email', 'created_by', 'customer_details.customer_email']
           }
         });
       }
@@ -1533,66 +1450,52 @@ router.post('/cancel-booking',
       // ✅ FIXED: Try multiple lookup strategies to find the booking for cancellation
       let booking = null;
       
-      // Strategy 1: Look up by our_reference and user_id (PRIMARY FIELD)
+      // Strategy 1: Look up by booking_reference and user_id
       try {
-        console.log('🔍 Trying lookup by our_reference + user_id');
+        console.log('🔍 Trying lookup by booking_reference + user_id');
         booking = await Booking.findOne({
-          our_reference: booking_reference,
+          booking_reference: booking_reference,
           user_id: req.user._id
         });
-        if (booking) console.log('✅ Found booking for cancellation by our_reference + user_id');
+        if (booking) console.log('✅ Found booking for cancellation by user_id');
       } catch (error) {
-        console.log('⚠️ our_reference + user_id lookup failed:', error.message);
+        console.log('⚠️ user_id lookup failed:', error.message);
       }
       
-      // Strategy 2: Look up by our_reference and user_email
+      // Strategy 2: Look up by booking_reference and user_email
       if (!booking) {
         try {
-          console.log('🔍 Trying lookup by our_reference + user_email');
+          console.log('🔍 Trying lookup by booking_reference + user_email');
           booking = await Booking.findOne({
-            our_reference: booking_reference,
+            booking_reference: booking_reference,
             user_email: req.user.email
           });
-          if (booking) console.log('✅ Found booking for cancellation by our_reference + user_email');
+          if (booking) console.log('✅ Found booking for cancellation by user_email');
         } catch (error) {
-          console.log('⚠️ our_reference + user_email lookup failed:', error.message);
+          console.log('⚠️ user_email lookup failed:', error.message);
         }
       }
       
-      // Strategy 3: Look up by magr_reference (secondary field)
+      // Strategy 3: Look up by booking_reference and created_by
       if (!booking) {
         try {
-          console.log('🔍 Trying lookup by magr_reference + user_id');
+          console.log('🔍 Trying lookup by booking_reference + created_by');
           booking = await Booking.findOne({
-            magr_reference: booking_reference,
-            user_id: req.user._id
+            booking_reference: booking_reference,
+            created_by: req.user.email
           });
-          if (booking) console.log('✅ Found booking for cancellation by magr_reference + user_id');
+          if (booking) console.log('✅ Found booking for cancellation by created_by');
         } catch (error) {
-          console.log('⚠️ magr_reference + user_id lookup failed:', error.message);
+          console.log('⚠️ created_by lookup failed:', error.message);
         }
       }
       
-      // Strategy 4: Look up by magr_reference and user_email
+      // Strategy 4: Look up by booking_reference and customer_email in nested field
       if (!booking) {
         try {
-          console.log('🔍 Trying lookup by magr_reference + user_email');
+          console.log('🔍 Trying lookup by booking_reference + customer_details.customer_email');
           booking = await Booking.findOne({
-            magr_reference: booking_reference,
-            user_email: req.user.email
-          });
-          if (booking) console.log('✅ Found booking for cancellation by magr_reference + user_email');
-        } catch (error) {
-          console.log('⚠️ magr_reference + user_email lookup failed:', error.message);
-        }
-      }
-      
-      // Strategy 5: Look up by customer_email in nested field as last resort
-      if (!booking) {
-        try {
-          console.log('🔍 Trying lookup by our_reference + customer_details.customer_email');
-          booking = await Booking.findOne({
-            our_reference: booking_reference,
+            booking_reference: booking_reference,
             'customer_details.customer_email': req.user.email
           });
           if (booking) console.log('✅ Found booking for cancellation by customer_details.customer_email');
@@ -1851,66 +1754,52 @@ router.post('/amend-booking',
       // ✅ FIXED: Try multiple lookup strategies to find the booking for amendment
       let amendBooking = null;
       
-      // Strategy 1: Look up by our_reference and user_id (PRIMARY FIELD)
+      // Strategy 1: Look up by booking_reference and user_id
       try {
-        console.log('🔍 Trying lookup by our_reference + user_id');
+        console.log('🔍 Trying lookup by booking_reference + user_id');
         amendBooking = await Booking.findOne({
-          our_reference: booking_reference,
+          booking_reference: booking_reference,
           user_id: req.user._id
         });
-        if (amendBooking) console.log('✅ Found booking for amendment by our_reference + user_id');
+        if (amendBooking) console.log('✅ Found booking for amendment by user_id');
       } catch (error) {
-        console.log('⚠️ our_reference + user_id lookup failed:', error.message);
+        console.log('⚠️ user_id lookup failed:', error.message);
       }
       
-      // Strategy 2: Look up by our_reference and user_email
+      // Strategy 2: Look up by booking_reference and user_email
       if (!amendBooking) {
         try {
-          console.log('🔍 Trying lookup by our_reference + user_email');
+          console.log('🔍 Trying lookup by booking_reference + user_email');
           amendBooking = await Booking.findOne({
-            our_reference: booking_reference,
+            booking_reference: booking_reference,
             user_email: req.user.email
           });
-          if (amendBooking) console.log('✅ Found booking for amendment by our_reference + user_email');
+          if (amendBooking) console.log('✅ Found booking for amendment by user_email');
         } catch (error) {
-          console.log('⚠️ our_reference + user_email lookup failed:', error.message);
+          console.log('⚠️ user_email lookup failed:', error.message);
         }
       }
       
-      // Strategy 3: Look up by magr_reference (secondary field)
+      // Strategy 3: Look up by booking_reference and created_by
       if (!amendBooking) {
         try {
-          console.log('🔍 Trying lookup by magr_reference + user_id');
+          console.log('🔍 Trying lookup by booking_reference + created_by');
           amendBooking = await Booking.findOne({
-            magr_reference: booking_reference,
-            user_id: req.user._id
+            booking_reference: booking_reference,
+            created_by: req.user.email
           });
-          if (amendBooking) console.log('✅ Found booking for amendment by magr_reference + user_id');
+          if (amendBooking) console.log('✅ Found booking for amendment by created_by');
         } catch (error) {
-          console.log('⚠️ magr_reference + user_id lookup failed:', error.message);
+          console.log('⚠️ created_by lookup failed:', error.message);
         }
       }
       
-      // Strategy 4: Look up by magr_reference and user_email
+      // Strategy 4: Look up by booking_reference and customer_email in nested field
       if (!amendBooking) {
         try {
-          console.log('🔍 Trying lookup by magr_reference + user_email');
+          console.log('🔍 Trying lookup by booking_reference + customer_details.customer_email');
           amendBooking = await Booking.findOne({
-            magr_reference: booking_reference,
-            user_email: req.user.email
-          });
-          if (amendBooking) console.log('✅ Found booking for amendment by magr_reference + user_email');
-        } catch (error) {
-          console.log('⚠️ magr_reference + user_email lookup failed:', error.message);
-        }
-      }
-      
-      // Strategy 5: Look up by customer_email in nested field as last resort
-      if (!amendBooking) {
-        try {
-          console.log('🔍 Trying lookup by our_reference + customer_details.customer_email');
-          amendBooking = await Booking.findOne({
-            our_reference: booking_reference,
+            booking_reference: booking_reference,
             'customer_details.customer_email': req.user.email
           });
           if (amendBooking) console.log('✅ Found booking for amendment by customer_details.customer_email');
@@ -2361,164 +2250,6 @@ async function handleChargeDispute(charge) {
     console.error('❌ Error handling charge dispute webhook:', error);
   }
 }
-
-// ===== DEBUG ROUTES =====
-
-// Debug route to inspect actual booking structure in database
-router.get('/debug/user-bookings-raw', authenticateToken, async (req, res) => {
-  try {
-    if (!Booking) {
-      return res.json({
-        success: false,
-        message: 'Booking model not available'
-      });
-    }
-
-    console.log('🔧 Debug: Raw user bookings requested for:', req.user.email);
-
-    const bookings = await Booking.find({ 
-      $or: [
-        { user_id: req.user._id },
-        { user_email: req.user.email },
-        { 'customer_details.customer_email': req.user.email }
-      ]
-    }).sort({ created_at: -1 }).limit(5);
-
-    console.log('🔧 Debug: Found', bookings.length, 'bookings');
-
-    const debugData = bookings.map((booking, index) => {
-      const bookingObj = booking.toObject ? booking.toObject() : booking;
-      return {
-        index: index,
-        _id: bookingObj._id,
-        
-        // Reference fields
-        our_reference: bookingObj.our_reference,
-        magr_reference: bookingObj.magr_reference,
-        booking_id: bookingObj.booking_id,
-        
-        // User fields
-        user_id: bookingObj.user_id,
-        user_email: bookingObj.user_email,
-        
-        // Status
-        status: bookingObj.status,
-        
-        // Service features
-        service_features: bookingObj.service_features,
-        is_cancelable: bookingObj.is_cancelable, // Direct field (if exists)
-        is_editable: bookingObj.is_editable,     // Direct field (if exists)
-        
-        // Nested objects structure
-        has_customer_details: !!bookingObj.customer_details,
-        has_travel_details: !!bookingObj.travel_details,
-        has_vehicle_details: !!bookingObj.vehicle_details,
-        has_payment_details: !!bookingObj.payment_details,
-        
-        // All top-level fields
-        all_fields: Object.keys(bookingObj),
-        
-        // Created date
-        created_at: bookingObj.created_at
-      };
-    });
-
-    res.json({
-      success: true,
-      debug: true,
-      user: {
-        id: req.user._id,
-        email: req.user.email
-      },
-      bookings_found: bookings.length,
-      raw_data: debugData,
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('❌ Debug route error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      debug: true
-    });
-  }
-});
-
-// Debug route to check specific booking by reference
-router.get('/debug/booking-lookup/:reference', authenticateToken, async (req, res) => {
-  try {
-    if (!Booking) {
-      return res.json({
-        success: false,
-        message: 'Booking model not available'
-      });
-    }
-
-    const { reference } = req.params;
-    console.log('🔧 Debug: Looking up booking with reference:', reference);
-
-    const lookupResults = {};
-
-    // Try all possible lookups
-    try {
-      lookupResults.by_our_reference = await Booking.findOne({ our_reference: reference });
-    } catch (e) {
-      lookupResults.by_our_reference_error = e.message;
-    }
-
-    try {
-      lookupResults.by_magr_reference = await Booking.findOne({ magr_reference: reference });
-    } catch (e) {
-      lookupResults.by_magr_reference_error = e.message;
-    }
-
-    try {
-      lookupResults.by_booking_id = await Booking.findOne({ booking_id: reference });
-    } catch (e) {
-      lookupResults.by_booking_id_error = e.message;
-    }
-
-    // Check if any booking was found
-    const foundBooking = lookupResults.by_our_reference || lookupResults.by_magr_reference || lookupResults.by_booking_id;
-
-    if (foundBooking) {
-      const bookingObj = foundBooking.toObject();
-      lookupResults.found_booking = {
-        _id: bookingObj._id,
-        our_reference: bookingObj.our_reference,
-        magr_reference: bookingObj.magr_reference,
-        booking_id: bookingObj.booking_id,
-        user_id: bookingObj.user_id,
-        user_email: bookingObj.user_email,
-        status: bookingObj.status,
-        service_features: bookingObj.service_features,
-        all_fields: Object.keys(bookingObj)
-      };
-    }
-
-    res.json({
-      success: true,
-      debug: true,
-      reference: reference,
-      user: {
-        id: req.user._id,
-        email: req.user.email
-      },
-      lookup_results: lookupResults,
-      found_any: !!foundBooking,
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('❌ Debug lookup error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      debug: true
-    });
-  }
-});
 
 // ===== ADMIN/DEBUG ROUTES =====
 
