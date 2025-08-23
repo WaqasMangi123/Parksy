@@ -1450,52 +1450,66 @@ router.post('/cancel-booking',
       // ✅ FIXED: Try multiple lookup strategies to find the booking for cancellation
       let booking = null;
       
-      // Strategy 1: Look up by booking_reference and user_id
+      // Strategy 1: Look up by our_reference and user_id (PRIMARY FIELD)
       try {
-        console.log('🔍 Trying lookup by booking_reference + user_id');
+        console.log('🔍 Trying lookup by our_reference + user_id');
         booking = await Booking.findOne({
-          booking_reference: booking_reference,
+          our_reference: booking_reference,
           user_id: req.user._id
         });
-        if (booking) console.log('✅ Found booking for cancellation by user_id');
+        if (booking) console.log('✅ Found booking for cancellation by our_reference + user_id');
       } catch (error) {
-        console.log('⚠️ user_id lookup failed:', error.message);
+        console.log('⚠️ our_reference + user_id lookup failed:', error.message);
       }
       
-      // Strategy 2: Look up by booking_reference and user_email
+      // Strategy 2: Look up by our_reference and user_email
       if (!booking) {
         try {
-          console.log('🔍 Trying lookup by booking_reference + user_email');
+          console.log('🔍 Trying lookup by our_reference + user_email');
           booking = await Booking.findOne({
-            booking_reference: booking_reference,
+            our_reference: booking_reference,
             user_email: req.user.email
           });
-          if (booking) console.log('✅ Found booking for cancellation by user_email');
+          if (booking) console.log('✅ Found booking for cancellation by our_reference + user_email');
         } catch (error) {
-          console.log('⚠️ user_email lookup failed:', error.message);
+          console.log('⚠️ our_reference + user_email lookup failed:', error.message);
         }
       }
       
-      // Strategy 3: Look up by booking_reference and created_by
+      // Strategy 3: Look up by magr_reference (secondary field)
       if (!booking) {
         try {
-          console.log('🔍 Trying lookup by booking_reference + created_by');
+          console.log('🔍 Trying lookup by magr_reference + user_id');
           booking = await Booking.findOne({
-            booking_reference: booking_reference,
-            created_by: req.user.email
+            magr_reference: booking_reference,
+            user_id: req.user._id
           });
-          if (booking) console.log('✅ Found booking for cancellation by created_by');
+          if (booking) console.log('✅ Found booking for cancellation by magr_reference + user_id');
         } catch (error) {
-          console.log('⚠️ created_by lookup failed:', error.message);
+          console.log('⚠️ magr_reference + user_id lookup failed:', error.message);
         }
       }
       
-      // Strategy 4: Look up by booking_reference and customer_email in nested field
+      // Strategy 4: Look up by magr_reference and user_email
       if (!booking) {
         try {
-          console.log('🔍 Trying lookup by booking_reference + customer_details.customer_email');
+          console.log('🔍 Trying lookup by magr_reference + user_email');
           booking = await Booking.findOne({
-            booking_reference: booking_reference,
+            magr_reference: booking_reference,
+            user_email: req.user.email
+          });
+          if (booking) console.log('✅ Found booking for cancellation by magr_reference + user_email');
+        } catch (error) {
+          console.log('⚠️ magr_reference + user_email lookup failed:', error.message);
+        }
+      }
+      
+      // Strategy 5: Look up by customer_email in nested field as last resort
+      if (!booking) {
+        try {
+          console.log('🔍 Trying lookup by our_reference + customer_details.customer_email');
+          booking = await Booking.findOne({
+            our_reference: booking_reference,
             'customer_details.customer_email': req.user.email
           });
           if (booking) console.log('✅ Found booking for cancellation by customer_details.customer_email');
@@ -1754,52 +1768,66 @@ router.post('/amend-booking',
       // ✅ FIXED: Try multiple lookup strategies to find the booking for amendment
       let amendBooking = null;
       
-      // Strategy 1: Look up by booking_reference and user_id
+      // Strategy 1: Look up by our_reference and user_id (PRIMARY FIELD)
       try {
-        console.log('🔍 Trying lookup by booking_reference + user_id');
+        console.log('🔍 Trying lookup by our_reference + user_id');
         amendBooking = await Booking.findOne({
-          booking_reference: booking_reference,
+          our_reference: booking_reference,
           user_id: req.user._id
         });
-        if (amendBooking) console.log('✅ Found booking for amendment by user_id');
+        if (amendBooking) console.log('✅ Found booking for amendment by our_reference + user_id');
       } catch (error) {
-        console.log('⚠️ user_id lookup failed:', error.message);
+        console.log('⚠️ our_reference + user_id lookup failed:', error.message);
       }
       
-      // Strategy 2: Look up by booking_reference and user_email
+      // Strategy 2: Look up by our_reference and user_email
       if (!amendBooking) {
         try {
-          console.log('🔍 Trying lookup by booking_reference + user_email');
+          console.log('🔍 Trying lookup by our_reference + user_email');
           amendBooking = await Booking.findOne({
-            booking_reference: booking_reference,
+            our_reference: booking_reference,
             user_email: req.user.email
           });
-          if (amendBooking) console.log('✅ Found booking for amendment by user_email');
+          if (amendBooking) console.log('✅ Found booking for amendment by our_reference + user_email');
         } catch (error) {
-          console.log('⚠️ user_email lookup failed:', error.message);
+          console.log('⚠️ our_reference + user_email lookup failed:', error.message);
         }
       }
       
-      // Strategy 3: Look up by booking_reference and created_by
+      // Strategy 3: Look up by magr_reference (secondary field)
       if (!amendBooking) {
         try {
-          console.log('🔍 Trying lookup by booking_reference + created_by');
+          console.log('🔍 Trying lookup by magr_reference + user_id');
           amendBooking = await Booking.findOne({
-            booking_reference: booking_reference,
-            created_by: req.user.email
+            magr_reference: booking_reference,
+            user_id: req.user._id
           });
-          if (amendBooking) console.log('✅ Found booking for amendment by created_by');
+          if (amendBooking) console.log('✅ Found booking for amendment by magr_reference + user_id');
         } catch (error) {
-          console.log('⚠️ created_by lookup failed:', error.message);
+          console.log('⚠️ magr_reference + user_id lookup failed:', error.message);
         }
       }
       
-      // Strategy 4: Look up by booking_reference and customer_email in nested field
+      // Strategy 4: Look up by magr_reference and user_email
       if (!amendBooking) {
         try {
-          console.log('🔍 Trying lookup by booking_reference + customer_details.customer_email');
+          console.log('🔍 Trying lookup by magr_reference + user_email');
           amendBooking = await Booking.findOne({
-            booking_reference: booking_reference,
+            magr_reference: booking_reference,
+            user_email: req.user.email
+          });
+          if (amendBooking) console.log('✅ Found booking for amendment by magr_reference + user_email');
+        } catch (error) {
+          console.log('⚠️ magr_reference + user_email lookup failed:', error.message);
+        }
+      }
+      
+      // Strategy 5: Look up by customer_email in nested field as last resort
+      if (!amendBooking) {
+        try {
+          console.log('🔍 Trying lookup by our_reference + customer_details.customer_email');
+          amendBooking = await Booking.findOne({
+            our_reference: booking_reference,
             'customer_details.customer_email': req.user.email
           });
           if (amendBooking) console.log('✅ Found booking for amendment by customer_details.customer_email');
