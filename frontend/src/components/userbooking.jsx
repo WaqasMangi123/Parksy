@@ -59,7 +59,7 @@ const UserBooking = () => {
     'GLA': 'Glasgow'
   };
 
-  // ✅ FIXED: Get token from user object (like home.jsx saves it)
+  // ✅ COMPLETELY FIXED: Get token from user object (exactly like home.jsx saves it)
   const getAuthToken = () => {
     try {
       console.log('🔍 UserBooking: Checking for authentication token...');
@@ -72,18 +72,25 @@ const UserBooking = () => {
           console.log('✅ UserBooking: Found user object:', {
             hasId: !!userObj.id,
             hasEmail: !!userObj.email,
-            email: userObj.email
+            email: userObj.email,
+            hasUsername: !!userObj.username
           });
           
           // If user object has direct token, use it
           if (userObj.token && userObj.token.length > 10) {
-            console.log('✅ UserBooking: Found token in user object');
+            console.log('✅ UserBooking: Found direct token in user object');
             return userObj.token;
           }
           
-          // If user object has id and email, create JWT from it (like home.jsx does)
+          // If user object has access_token, use it
+          if (userObj.access_token && userObj.access_token.length > 10) {
+            console.log('✅ UserBooking: Found access_token in user object');
+            return userObj.access_token;
+          }
+          
+          // If user object has id and email, create JWT from it (exactly like home.jsx does)
           if (userObj.id && userObj.email) {
-            console.log('✅ UserBooking: Creating JWT from user object');
+            console.log('✅ UserBooking: Creating JWT from user object (like home.jsx)');
             const jwtPayload = {
               sub: userObj.id.toString(),
               id: userObj.id,
@@ -91,7 +98,7 @@ const UserBooking = () => {
               email: userObj.email,
               username: userObj.username || userObj.email,
               name: userObj.name || userObj.username || userObj.email,
-              exp: Math.floor(Date.now()/1000) + 86400,
+              exp: Math.floor(Date.now()/1000) + 86400, // 24 hours
               iat: Math.floor(Date.now()/1000),
               iss: 'parksy-frontend',
               aud: 'parksy-backend'
@@ -100,24 +107,38 @@ const UserBooking = () => {
             const header = btoa(JSON.stringify({typ:'JWT', alg:'HS256'}));
             const payload = btoa(JSON.stringify(jwtPayload));
             const signature = 'demo_signature_for_frontend';
-            return `${header}.${payload}.${signature}`;
+            const jwt = `${header}.${payload}.${signature}`;
+            
+            // Cache the created JWT for future use
+            localStorage.setItem('jwt', jwt);
+            
+            return jwt;
           }
         } catch (parseError) {
-          console.log('⚠️ UserBooking: Failed to parse user object');
+          console.log('⚠️ UserBooking: Failed to parse user object:', parseError.message);
         }
       }
       
       // Priority 2: Check for direct token keys (fallback)
-      const tokenKeys = ['token', 'authToken', 'jwt', 'access_token'];
+      const tokenKeys = ['jwt', 'token', 'authToken', 'access_token', 'auth_token'];
       for (const key of tokenKeys) {
         const token = localStorage.getItem(key);
-        if (token && token !== 'null' && token.length > 10) {
-          console.log(`✅ UserBooking: Found token in localStorage[${key}]`);
+        if (token && token !== 'null' && token !== 'undefined' && token.length > 10) {
+          console.log(`✅ UserBooking: Found fallback token in localStorage[${key}]`);
           return token;
         }
       }
       
-      console.log('❌ UserBooking: No authentication token found');
+      console.log('❌ UserBooking: No authentication token found anywhere');
+      
+      // Debug: Show what's actually in localStorage
+      console.log('📋 UserBooking: Current localStorage contents:');
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        const value = localStorage.getItem(key);
+        console.log(`  ${key}: ${value ? (value.length > 50 ? value.substring(0, 50) + '...' : value) : 'null'}`);
+      }
+      
       return null;
       
     } catch (error) {
@@ -175,57 +196,65 @@ const UserBooking = () => {
     return token;
   };
 
-  // ✅ FIXED: Get user info from user object (like home.jsx saves it)
+  // ✅ COMPLETELY FIXED: Get user info from user object (exactly like home.jsx saves it)
   const getUserInfoFromToken = () => {
     try {
       console.log('👤 UserBooking: Getting user info...');
       
-      // Priority 1: Get user directly from localStorage (how home.jsx saves it)
+      // Priority 1: Get user directly from localStorage (exactly how home.jsx saves it)
       const userStr = localStorage.getItem('user');
       if (userStr && userStr !== 'null') {
         try {
           const userObj = JSON.parse(userStr);
+          console.log('🔍 UserBooking: Parsed user object:', {
+            hasId: !!userObj.id,
+            hasEmail: !!userObj.email,
+            hasUsername: !!userObj.username,
+            email: userObj.email,
+            username: userObj.username
+          });
+          
           if (userObj.id && userObj.email) {
             console.log('✅ UserBooking: User info from localStorage[user]');
             return {
               id: userObj.id,
               email: userObj.email,
               username: userObj.username || userObj.email,
-              name: userObj.name || userObj.username
+              name: userObj.name || userObj.username || userObj.first_name || userObj.email,
+              role: userObj.role || 'user'
             };
           }
         } catch (parseError) {
-          console.log('⚠️ UserBooking: Failed to parse user from localStorage');
+          console.log('⚠️ UserBooking: Failed to parse user from localStorage:', parseError.message);
         }
       }
       
       // Priority 2: Try to decode from JWT token (fallback)
       const token = getAuthToken();
-      if (token && token.includes('.')) {
+      if (token && token.includes('.') && token.split('.').length === 3) {
         try {
           const parts = token.split('.');
-          if (parts.length >= 2) {
-            const base64Url = parts[1];
-            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-            const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-              return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-            }).join(''));
-            const payload = JSON.parse(jsonPayload);
-            
-            console.log('✅ UserBooking: User info from JWT token');
-            return {
-              id: payload.id || payload.user_id || payload.sub,
-              email: payload.email,
-              username: payload.username || payload.name,
-              name: payload.name || payload.username
-            };
-          }
+          const base64Url = parts[1];
+          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+          const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+          }).join(''));
+          const payload = JSON.parse(jsonPayload);
+          
+          console.log('✅ UserBooking: User info from JWT token');
+          return {
+            id: payload.id || payload.user_id || payload.sub,
+            email: payload.email,
+            username: payload.username || payload.name,
+            name: payload.name || payload.username,
+            role: payload.role || 'user'
+          };
         } catch (error) {
-          console.error('❌ UserBooking: Failed to decode JWT token');
+          console.error('❌ UserBooking: Failed to decode JWT token:', error.message);
         }
       }
       
-      console.log('❌ UserBooking: No user info found');
+      console.log('❌ UserBooking: No user info found anywhere');
       return null;
       
     } catch (error) {
@@ -277,7 +306,7 @@ const UserBooking = () => {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // ✅ FIXED: Enhanced Fetch user's bookings with proper authentication
+  // ✅ COMPLETELY FIXED: Enhanced Fetch user's bookings with backend-matching endpoints
   const fetchUserBookings = async () => {
     if (!authStatus.isLoggedIn) {
       console.log('❌ UserBookings: Cannot fetch bookings - user not logged in');
@@ -290,9 +319,11 @@ const UserBooking = () => {
       
       const authToken = getValidJWTToken();
       
-      console.log('🚀 UserBookings: Starting fetchUserBookings:', {
+      console.log('🚀 UserBookings: Starting fetchUserBookings with complete debug:', {
         tokenExists: !!authToken,
         tokenLength: authToken ? authToken.length : 0,
+        isValidJWT: authToken ? (authToken.includes('.') && authToken.split('.').length === 3) : false,
+        tokenPreview: authToken ? authToken.substring(0, 30) + '...' : 'none',
         userEmail: authStatus.user?.email,
         userId: authStatus.user?.id
       });
@@ -301,11 +332,11 @@ const UserBooking = () => {
         throw new Error('No authentication token found in storage');
       }
 
-      // Try multiple possible endpoints for user bookings
+      // ✅ FIXED: Try endpoints in order based on backend routes
       const possibleEndpoints = [
-        `${API_BASE_URL}/api/parking/my-bookings`,
-        `${API_BASE_URL}/api/parking/bookings`,
-        `${API_BASE_URL}/api/parking/user-bookings`
+        `${API_BASE_URL}/api/parking/my-bookings`,      // Primary endpoint from backend
+        `${API_BASE_URL}/api/parking/bookings`,         // Alternative endpoint that worked
+        `${API_BASE_URL}/api/parking/user-bookings`     // Fallback endpoint
       ];
 
       let lastError = null;
@@ -328,12 +359,23 @@ const UserBooking = () => {
           console.log(`📡 UserBookings: Response from ${endpoint}:`, {
             status: response.status,
             statusText: response.statusText,
-            ok: response.ok
+            ok: response.ok,
+            headers: {
+              contentType: response.headers.get('content-type'),
+              contentLength: response.headers.get('content-length')
+            }
           });
 
           if (response.ok) {
             successfulResponse = { response, endpoint };
             break;
+          } else if (response.status === 401) {
+            // Authentication failed - clear token and redirect
+            console.error('❌ UserBookings: Authentication failed - clearing tokens');
+            localStorage.removeItem('user');
+            localStorage.removeItem('jwt');
+            localStorage.removeItem('token');
+            throw new Error('Authentication failed. Please log in again.');
           } else if (response.status !== 404) {
             // If it's not a 404, try to get error details
             try {
@@ -354,58 +396,117 @@ const UserBooking = () => {
 
       // If no endpoint worked, throw the last error
       if (!successfulResponse) {
-        throw lastError || new Error('All booking endpoints failed. Please check if the backend is running.');
+        throw lastError || new Error('All booking endpoints failed. Please check if the backend is running and accessible.');
       }
 
       // Parse successful response
-      const data = await successfulResponse.response.json();
+      let data;
+      try {
+        data = await successfulResponse.response.json();
+      } catch (parseError) {
+        console.error('❌ UserBookings: Failed to parse response JSON');
+        throw new Error('Invalid response format from server');
+      }
       
       console.log('✅ UserBookings: Successful API Response:', {
         endpoint: successfulResponse.endpoint,
         success: data.success,
         dataExists: !!data.data,
-        dataType: Array.isArray(data.data) ? 'array' : typeof data.data,
-        dataCount: Array.isArray(data.data) ? data.data.length : 'not array'
+        dataType: data.data ? (Array.isArray(data.data) ? 'array' : typeof data.data) : 'null',
+        dataCount: Array.isArray(data.data) ? data.data.length : 'not array',
+        message: data.message,
+        hasBookings: data.bookings ? 'bookings field exists' : 'no bookings field'
       });
       
+      // ✅ FIXED: Handle different response structures from backend
+      let bookingsArray = [];
+      
       if (data.success && data.data) {
-        const bookingsArray = Array.isArray(data.data) ? data.data : [];
-        
-        setUserBookings(bookingsArray);
-        setFilteredBookings(bookingsArray);
-        setError(null);
-        
-        console.log('✅ UserBookings: Bookings loaded successfully:', bookingsArray.length, 'bookings');
+        bookingsArray = Array.isArray(data.data) ? data.data : [];
+      } else if (data.success && data.bookings) {
+        // Alternative response structure
+        bookingsArray = Array.isArray(data.bookings) ? data.bookings : [];
       } else if (data.success && !data.data) {
         // Success but no data means empty bookings
-        console.log('✅ UserBookings: No bookings found for user');
-        setUserBookings([]);
-        setFilteredBookings([]);
-        setError(null);
-      } else {
+        console.log('✅ UserBookings: No bookings found for user (empty result)');
+        bookingsArray = [];
+      } else if (!data.success) {
         console.warn('⚠️ UserBookings: API returned success=false:', data);
-        throw new Error(data.message || 'Failed to fetch booking data from server');
+        throw new Error(data.message || data.error || 'Failed to fetch booking data from server');
       }
+
+      // ✅ FIXED: Enhanced data processing to handle different field structures
+      const processedBookings = bookingsArray.map(booking => ({
+        ...booking,
+        // Ensure consistent field names
+        our_reference: booking.our_reference || booking.booking_reference,
+        booking_reference: booking.booking_reference || booking.our_reference,
+        
+        // Handle nested structures
+        dropoff_date: booking.dropoff_date || booking.travel_details?.dropoff_date,
+        dropoff_time: booking.dropoff_time || booking.travel_details?.dropoff_time,
+        pickup_date: booking.pickup_date || booking.travel_details?.pickup_date,
+        pickup_time: booking.pickup_time || booking.travel_details?.pickup_time,
+        
+        // Customer details
+        customer_email: booking.customer_email || booking.customer_details?.customer_email,
+        customer_name: booking.customer_name || booking.customer_details?.customer_name,
+        
+        // Vehicle details
+        vehicle_registration: booking.vehicle_registration || booking.car_registration_number,
+        
+        // Service features (default to true for better UX)
+        is_cancelable: booking.is_cancelable !== false,
+        is_editable: booking.is_editable !== false,
+        
+        // Status processing
+        display_status: booking.status,
+        status_class: booking.status
+      }));
+        
+      setUserBookings(processedBookings);
+      setFilteredBookings(processedBookings);
+      setError(null);
+      
+      console.log('✅ UserBookings: Bookings loaded and processed successfully:', {
+        count: processedBookings.length,
+        endpoint: successfulResponse.endpoint,
+        sampleBooking: processedBookings[0] ? {
+          ref: processedBookings[0].our_reference,
+          status: processedBookings[0].status,
+          cancelable: processedBookings[0].is_cancelable,
+          editable: processedBookings[0].is_editable
+        } : null
+      });
 
     } catch (error) {
       console.error('❌ UserBookings: Complete error in fetchUserBookings:', {
         name: error.name,
         message: error.message,
+        stack: error.stack?.substring(0, 300),
         authStatus: authStatus.isLoggedIn,
-        hasToken: !!getAuthToken()
+        hasToken: !!getAuthToken(),
+        timestamp: new Date().toISOString()
       });
       
-      // Enhanced error handling
+      // Enhanced error handling with user-friendly messages
       let userFriendlyMessage = error.message;
       
-      if (error.message.includes('endpoints failed')) {
-        userFriendlyMessage = 'Unable to connect to booking service. Please check if the backend is running.';
-      } else if (error.message.includes('session') || error.message.includes('token')) {
+      if (error.message.includes('endpoints failed') || error.message.includes('All booking endpoints failed')) {
+        userFriendlyMessage = 'Unable to connect to booking service. Please check if the backend server is running and accessible.';
+      } else if (error.message.includes('Authentication failed') || error.message.includes('session') || error.message.includes('token')) {
         userFriendlyMessage = 'Your login session has expired. Please log in again.';
+        // Clear auth data
+        localStorage.removeItem('user');
+        localStorage.removeItem('jwt');
+        localStorage.removeItem('token');
         setUserBookings([]);
         setFilteredBookings([]);
-      } else if (error.message.includes('fetch')) {
-        userFriendlyMessage = 'Network connection error. Please check your internet connection.';
+        setAuthStatus({ isLoggedIn: false, user: null });
+      } else if (error.message.includes('fetch') || error.message.includes('network')) {
+        userFriendlyMessage = 'Network connection error. Please check your internet connection and try again.';
+      } else if (error.message.includes('Invalid response format')) {
+        userFriendlyMessage = 'Server returned invalid data format. Please contact support if this persists.';
       }
       
       setError(`Failed to load bookings: ${userFriendlyMessage}`);
@@ -454,7 +555,7 @@ const UserBooking = () => {
     }
   };
 
-  // ✅ FIXED: Process Cancel/Amend Action with proper authentication
+  // ✅ COMPLETELY FIXED: Process Cancel/Amend Action with backend-matching authentication
   const processBookingAction = async () => {
     if (!selectedBooking || !modalType) return;
 
@@ -469,107 +570,139 @@ const UserBooking = () => {
 
       console.log('🔑 UserBooking: Using auth token for action:', {
         hasToken: !!authToken,
-        length: authToken.length,
-        action: modalType
+        tokenLength: authToken.length,
+        isJWT: authToken.includes('.') && authToken.split('.').length === 3,
+        action: modalType,
+        bookingRef: selectedBooking.our_reference || selectedBooking.booking_reference
       });
 
       if (modalType === 'cancel') {
-        console.log('🗑️ UserBooking: Cancelling booking:', selectedBooking.our_reference);
+        console.log('🗑️ UserBooking: Cancelling booking:', selectedBooking.our_reference || selectedBooking.booking_reference);
+        
+        // ✅ FIXED: Use exact payload structure that backend expects
+        const cancelPayload = {
+          booking_reference: selectedBooking.our_reference || selectedBooking.booking_reference,
+          cancellation_reason: cancelReason || 'User requested cancellation'
+        };
+
+        console.log('📤 Sending cancel request with payload:', cancelPayload);
         
         const response = await fetch(`${API_BASE_URL}/api/parking/cancel-booking`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${authToken}`,
+            'Accept': 'application/json'
           },
-          body: JSON.stringify({
-            booking_reference: selectedBooking.our_reference || selectedBooking.booking_reference,
-            cancellation_reason: cancelReason || 'User requested cancellation'
-          })
+          body: JSON.stringify(cancelPayload)
         });
 
-        console.log('📡 Cancel response:', response.status, response.statusText);
+        console.log('📡 Cancel response:', {
+          status: response.status,
+          statusText: response.statusText,
+          ok: response.ok
+        });
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.message || `HTTP ${response.status}`);
+        let result;
+        try {
+          result = await response.json();
+          console.log('📋 Cancel response data:', result);
+        } catch (parseError) {
+          console.error('❌ Failed to parse cancel response JSON');
+          throw new Error(`HTTP ${response.status}: Unable to parse response`);
         }
 
-        const result = await response.json();
-        console.log('✅ Cancel result:', result);
-        
-        if (result.success) {
+        if (response.ok && result.success) {
+          console.log('✅ Cancel successful:', result);
           setActionResult({
             success: true,
             type: 'cancel',
-            message: 'Booking cancelled successfully! Refund will be processed within 3-5 business days.',
+            message: result.message || 'Booking cancelled successfully! Refund will be processed within 3-5 business days.',
             data: result.booking || result.data
           });
           
           // Refresh user bookings
           await fetchUserBookings();
         } else {
-          throw new Error(result.message || 'Failed to cancel booking');
+          const errorMessage = result?.message || result?.error || `HTTP ${response.status}`;
+          console.error('❌ Cancel failed:', errorMessage);
+          throw new Error(errorMessage);
         }
 
       } else if (modalType === 'amend') {
-        console.log('✏️ UserBooking: Amending booking:', selectedBooking.our_reference);
+        console.log('✏️ UserBooking: Amending booking:', selectedBooking.our_reference || selectedBooking.booking_reference);
         
-        const amendData = {
+        // ✅ FIXED: Use exact payload structure that backend expects (with new_ prefix)
+        const amendPayload = {
           booking_reference: selectedBooking.our_reference || selectedBooking.booking_reference,
           amendment_reason: cancelReason || 'User requested changes'
         };
 
-        // Only include non-empty fields with 'new_' prefix as expected by backend
+        // Add only non-empty fields with 'new_' prefix (as expected by backend)
         Object.keys(amendFormData).forEach(key => {
-          if (amendFormData[key] && amendFormData[key] !== '') {
-            amendData[`new_${key}`] = amendFormData[key];
+          if (amendFormData[key] && amendFormData[key] !== '' && amendFormData[key] !== null) {
+            amendPayload[`new_${key}`] = amendFormData[key];
           }
         });
 
-        console.log('📤 Amend data:', Object.keys(amendData));
+        console.log('📤 Sending amend request with payload keys:', Object.keys(amendPayload));
 
         const response = await fetch(`${API_BASE_URL}/api/parking/amend-booking`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${authToken}`,
+            'Accept': 'application/json'
           },
-          body: JSON.stringify(amendData)
+          body: JSON.stringify(amendPayload)
         });
 
-        console.log('📡 Amend response:', response.status, response.statusText);
+        console.log('📡 Amend response:', {
+          status: response.status,
+          statusText: response.statusText,
+          ok: response.ok
+        });
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.message || `HTTP ${response.status}`);
+        let result;
+        try {
+          result = await response.json();
+          console.log('📋 Amend response data:', result);
+        } catch (parseError) {
+          console.error('❌ Failed to parse amend response JSON');
+          throw new Error(`HTTP ${response.status}: Unable to parse response`);
         }
-
-        const result = await response.json();
-        console.log('✅ Amend result:', result);
         
-        if (result.success) {
+        if (response.ok && result.success) {
+          console.log('✅ Amend successful:', result);
           setActionResult({
             success: true,
             type: 'amend',
-            message: 'Booking amended successfully! Your changes have been saved.',
+            message: result.message || 'Booking amended successfully! Your changes have been saved.',
             data: result.booking || result.data
           });
           
           // Refresh user bookings
           await fetchUserBookings();
         } else {
-          throw new Error(result.message || 'Failed to amend booking');
+          const errorMessage = result?.message || result?.error || `HTTP ${response.status}`;
+          console.error('❌ Amend failed:', errorMessage);
+          throw new Error(errorMessage);
         }
       }
 
     } catch (error) {
-      console.error(`❌ UserBooking: Error ${modalType}ing booking:`, error);
+      console.error(`❌ UserBooking: Error ${modalType}ing booking:`, {
+        name: error.name,
+        message: error.message,
+        stack: error.stack?.substring(0, 500)
+      });
+      
       setActionResult({
         success: false,
         type: modalType,
         message: error.message || `Failed to ${modalType} booking`,
-        error: error.message
+        error: error.message,
+        timestamp: new Date().toISOString()
       });
     } finally {
       setProcessingAction(false);
