@@ -3,13 +3,13 @@ import {
   MapPin, Zap, Grid3X3, Map, Search, Clock, Star, ChevronRight, 
   X, Loader2, Plane, Calendar, Users, Car, Shield, Wifi, Camera, 
   CheckCircle, AlertCircle, Navigation, Home, Settings, Bell,
-  Phone, Mail, CreditCard, Globe, Award, Lock, Info
+  Phone, Mail, CreditCard, Globe, Award, Lock
 } from "lucide-react";
 import "./home.css";
 
 const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoicGFya3N5dWsiLCJhIjoiY21kODNsaG0yMGw3bzJscXN1bmlkbHk4ZiJ9.DaA0-wfNgf-1PIhJyHXCxg';
 
-// Enhanced Stripe loader with better error handling
+// Load Stripe
 const loadStripe = async () => {
   if (window.Stripe) return window.Stripe;
 
@@ -17,15 +17,10 @@ const loadStripe = async () => {
     const script = document.createElement('script');
     script.src = 'https://js.stripe.com/v3/';
     script.onload = () => {
-      if (window.Stripe) {
-        console.log('✅ Stripe.js loaded successfully');
-        resolve(window.Stripe);
-      } else {
-        reject(new Error('Stripe.js failed to load properly'));
-      }
+      resolve(window.Stripe);
     };
     script.onerror = () => {
-      reject(new Error('Failed to load Stripe.js script'));
+      reject(new Error('Failed to load Stripe'));
     };
     document.head.appendChild(script);
   });
@@ -35,23 +30,19 @@ const ProfessionalParksyDashboard = () => {
   // API Configuration - Fixed to deployed backend only
   const API_BASE_URL = "https://parksy-backend.onrender.com";
   
-  // Enhanced Stripe Configuration with better test mode handling
+  // Stripe Configuration
   const [stripe, setStripe] = useState(null);
   const [stripePublishableKey, setStripePublishableKey] = useState(null);
-  const [stripeConfig, setStripeConfig] = useState(null);
-  const [isStripeTestMode, setIsStripeTestMode] = useState(false);
-  const [testCardInfo, setTestCardInfo] = useState(null);
   const [paymentIntentId, setPaymentIntentId] = useState(null);
   const [paymentStatus, setPaymentStatus] = useState(null);
   const [processingPayment, setProcessingPayment] = useState(false);
-  const [paymentStep, setPaymentStep] = useState(1);
+  const [paymentStep, setPaymentStep] = useState(1); // 1: Form, 2: Payment, 3: Booking
 
-  // Enhanced Stripe Elements state
+  // Stripe Elements - NEW STATE VARIABLES
   const [elements, setElements] = useState(null);
   const [cardElement, setCardElement] = useState(null);
   const [cardError, setCardError] = useState(null);
   const [cardComplete, setCardComplete] = useState(false);
-  const [showTestCards, setShowTestCards] = useState(false);
 
   // Map references
   const mapRef = useRef(null);
@@ -88,16 +79,15 @@ const ProfessionalParksyDashboard = () => {
   const [showAirplaneAnimation, setShowAirplaneAnimation] = useState(true);
   const [authStatus, setAuthStatus] = useState({ isLoggedIn: false, user: null });
 
-  // Search Parameters - Fixed: Must be at least 48+ hours in advance
-  const [searchParams, setSearchParams] = useState({
-    airport_code: "LHR",
-    dropoff_date: new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0], // Day after tomorrow
-    dropoff_time: "09:00",
-    pickup_date: new Date(Date.now() + 9 * 86400000).toISOString().split('T')[0], // 9 days later
-    pickup_time: "18:00"
-  });
-
-  // Enhanced Booking Details
+ // Search Parameters - FIXED: Must be at least 48+ hours in advance for MAGR API
+const [searchParams, setSearchParams] = useState({
+  airport_code: "LHR",
+  dropoff_date: new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0], // Day after tomorrow (48+ hours)
+  dropoff_time: "09:00",
+  pickup_date: new Date(Date.now() + 9 * 86400000).toISOString().split('T')[0], // 9 days later
+  pickup_time: "18:00"
+});
+  // Booking Details
   const [bookingDetails, setBookingDetails] = useState({
     title: "Mr",
     first_name: "",
@@ -116,49 +106,51 @@ const ProfessionalParksyDashboard = () => {
     paymentgateway: "Stripe"
   });
 
-  // ========== 🔧 COMPLETELY FIXED AUTHENTICATION FUNCTIONS ==========
+  // ========== PRODUCTION AUTHENTICATION FUNCTIONS ==========
 
-  // ✅ FIXED: Enhanced token detection with comprehensive storage check
+  // Comprehensive token detection for production environment
   const getAuthToken = () => {
     try {
-      // Priority order: most common locations first
-      const tokenLocations = [
-        // localStorage with common keys
-        () => localStorage.getItem('token'),
-        () => localStorage.getItem('authToken'), 
-        () => localStorage.getItem('access_token'),
-        () => localStorage.getItem('jwt'),
-        () => localStorage.getItem('auth_token'),
-        () => localStorage.getItem('userToken'),
-        () => localStorage.getItem('accessToken'),
-        () => localStorage.getItem('parksy_token'),
-        () => localStorage.getItem('user_token'),
-        () => localStorage.getItem('bearer_token'),
-        
-        // sessionStorage with same keys
-        () => sessionStorage.getItem('token'),
-        () => sessionStorage.getItem('authToken'),
-        () => sessionStorage.getItem('access_token'),
-        () => sessionStorage.getItem('jwt'),
-        () => sessionStorage.getItem('auth_token'),
-        () => sessionStorage.getItem('userToken'),
-        () => sessionStorage.getItem('accessToken'),
+      // Check all possible localStorage keys
+      const localStorageKeys = [
+        'token', 'authToken', 'jwt', 'access_token', 
+        'auth_token', 'userToken', 'accessToken',
+        'parksy_token', 'user_token'
       ];
       
-      for (const getToken of tokenLocations) {
-        try {
-          const token = getToken();
-          if (token && token !== 'null' && token !== 'undefined' && token.length > 10) {
-            console.log(`🔑 Found valid token, length: ${token.length}`);
-            return token;
-          }
-        } catch (err) {
-          // Continue to next location
-          continue;
+      for (const key of localStorageKeys) {
+        const token = localStorage.getItem(key);
+        if (token && token !== 'null' && token !== 'undefined') {
+          console.log(`🔑 Found token in localStorage.${key}`);
+          return token;
         }
       }
 
-      console.log('❌ No valid authentication token found');
+      // Check sessionStorage
+      const sessionStorageKeys = [
+        'token', 'authToken', 'jwt', 'access_token',
+        'auth_token', 'userToken', 'accessToken'
+      ];
+      
+      for (const key of sessionStorageKeys) {
+        const token = sessionStorage.getItem(key);
+        if (token && token !== 'null' && token !== 'undefined') {
+          console.log(`🔑 Found token in sessionStorage.${key}`);
+          return token;
+        }
+      }
+
+      // Check cookies as fallback
+      const cookies = document.cookie.split(';');
+      for (const cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (['token', 'authToken', 'jwt', 'access_token'].includes(name) && value) {
+          console.log(`🔑 Found token in cookie.${name}`);
+          return decodeURIComponent(value);
+        }
+      }
+
+      console.log('❌ No authentication token found in any storage location');
       return null;
     } catch (error) {
       console.error('❌ Error accessing browser storage:', error);
@@ -166,113 +158,15 @@ const ProfessionalParksyDashboard = () => {
     }
   };
 
-  // ✅ COMPLETELY FIXED: Proper JWT token conversion that actually works
-  const getValidJWTToken = () => {
-    const token = getAuthToken();
-    if (!token) {
-      console.log('❌ No token to convert');
-      return null;
-    }
-    
-    console.log('🔍 Token conversion analysis:', {
-      length: token.length,
-      startsWithBrace: token.startsWith('{'),
-      includesDots: token.includes('.'),
-      dotCount: token.split('.').length,
-      preview: token.substring(0, 50) + '...'
-    });
-    
-    // ✅ FIXED: Proper JWT format detection (must have exactly 3 parts and not start with {)
-    const tokenParts = token.split('.');
-    if (tokenParts.length === 3 && !token.startsWith('{') && tokenParts[1].length > 10) {
-      console.log('✅ Token is already in proper JWT format');
-      return token;
-    }
-    
-    // ✅ FIXED: Convert JSON or malformed tokens to proper JWT
-    try {
-      let userData = null;
-      
-      if (token.startsWith('{')) {
-        // Handle JSON token
-        console.log('🔄 Converting JSON token to JWT...');
-        userData = JSON.parse(token);
-      } else if (token.includes('.')) {
-        // Handle malformed JWT-like token
-        console.log('🔄 Fixing malformed JWT token...');
-        try {
-          const payload = tokenParts[1] || tokenParts[0];
-          const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
-          userData = JSON.parse(decoded);
-        } catch (e) {
-          // If that fails, try parsing the whole thing as base64
-          const decoded = atob(token);
-          userData = JSON.parse(decoded);
-        }
-      } else {
-        // Try direct base64 decode
-        console.log('🔄 Attempting base64 decode...');
-        const decoded = atob(token);
-        userData = JSON.parse(decoded);
-      }
-      
-      console.log('📝 Extracted user data:', {
-        hasId: !!(userData.id || userData.user_id || userData.sub),
-        hasEmail: !!userData.email,
-        email: userData.email,
-        id: userData.id || userData.user_id || userData.sub
-      });
-      
-      if (userData && (userData.id || userData.user_id || userData.sub) && userData.email) {
-        const jwtPayload = {
-          sub: (userData.id || userData.user_id || userData.sub).toString(),
-          id: userData.id || userData.user_id || userData.sub,
-          user_id: userData.id || userData.user_id || userData.sub,
-          email: userData.email,
-          username: userData.username || userData.email,
-          name: userData.name || userData.username || userData.email,
-          exp: Math.floor(Date.now()/1000) + 86400, // 24 hours from now
-          iat: Math.floor(Date.now()/1000),
-          iss: 'parksy-frontend',
-          aud: 'parksy-backend'
-        };
-        
-        const header = btoa(JSON.stringify({typ:'JWT', alg:'HS256'}));
-        const payload = btoa(JSON.stringify(jwtPayload));
-        const signature = 'demo_signature_for_frontend';
-        const properJWT = `${header}.${payload}.${signature}`;
-        
-        console.log('✅ Successfully created proper JWT:', {
-          originalLength: token.length,
-          newLength: properJWT.length,
-          parts: properJWT.split('.').length,
-          payload: jwtPayload
-        });
-        
-        return properJWT;
-      } else {
-        console.error('❌ Token missing required fields (id/email):', userData);
-        return null;
-      }
-      
-    } catch (error) {
-      console.error('❌ Token conversion failed:', error.message);
-      console.log('⚠️ Using original token as fallback');
-      return token;
-    }
-  };
-
+  // Check if user is logged in
   const isUserLoggedIn = () => {
     const token = getAuthToken();
     const isLoggedIn = !!token;
-    console.log('🔐 Login check:', { 
-      hasToken: isLoggedIn, 
-      tokenLength: token?.length || 0,
-      validJWT: !!getValidJWTToken()
-    });
+    console.log('🔐 Login check:', { hasToken: isLoggedIn, tokenLength: token?.length || 0 });
     return isLoggedIn;
   };
 
+  // Decode JWT token safely for user information
   const getUserInfoFromToken = () => {
     const token = getAuthToken();
     if (!token) {
@@ -281,45 +175,40 @@ const ProfessionalParksyDashboard = () => {
     }
     
     try {
+      // Handle both JWT and simple JSON tokens
       let payload;
       
-      // Handle JSON token
-      if (token.startsWith('{')) {
-        payload = JSON.parse(token);
-        console.log('✅ JSON token decoded successfully');
-      } 
-      // Handle JWT token
-      else if (token.includes('.')) {
-        const parts = token.split('.');
-        if (parts.length >= 2) {
-          const base64Url = parts[1];
-          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-          const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-          }).join(''));
-          payload = JSON.parse(jsonPayload);
-          console.log('✅ JWT token decoded successfully');
+      if (token.includes('.')) {
+        // JWT format
+        const base64Url = token.split('.')[1];
+        if (!base64Url) {
+          throw new Error('Invalid JWT format');
         }
-      } 
-      // Handle base64 token
-      else {
+        
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+        
+        payload = JSON.parse(jsonPayload);
+        console.log('✅ JWT token decoded successfully');
+      } else {
+        // Try direct JSON parsing for non-JWT tokens
         payload = JSON.parse(atob(token));
         console.log('✅ Base64 token decoded successfully');
       }
       
-      const userInfo = {
+      console.log('👤 User info extracted:', {
         id: payload.id || payload.user_id || payload.sub,
         email: payload.email,
-        username: payload.username || payload.name || payload.email,
         name: payload.name || payload.username,
         exp: payload.exp ? new Date(payload.exp * 1000) : null
-      };
+      });
       
-      console.log('👤 User info extracted:', userInfo);
-      return userInfo;
-      
+      return payload;
     } catch (error) {
       console.error('❌ Error decoding token:', error.message);
+      console.log('🔍 Token format check - first 50 chars:', token.substring(0, 50));
       return null;
     }
   };
@@ -340,13 +229,13 @@ const ProfessionalParksyDashboard = () => {
       console.log('🔐 Final Authentication Status:', {
         isLoggedIn: isLoggedIn,
         userEmail: userInfo?.email || 'Not available',
-        userId: userInfo?.id || 'Not available',
+        userId: userInfo?.id || userInfo?.user_id || userInfo?.sub || 'Not available',
         tokenExists: !!getAuthToken(),
-        hasValidUserInfo: !!userInfo,
-        validJWTExists: !!getValidJWTToken()
+        hasValidUserInfo: !!userInfo
       });
     };
 
+    // Check auth immediately and also when storage changes
     checkAuth();
     
     // Listen for storage changes (login/logout in other tabs)
@@ -361,76 +250,35 @@ const ProfessionalParksyDashboard = () => {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // ========== ENHANCED STRIPE INITIALIZATION ==========
+  // ========== STRIPE INITIALIZATION ==========
 
   useEffect(() => {
     const initializeStripe = async () => {
       try {
-        console.log('🔄 Initializing Stripe with enhanced error handling...');
+        console.log('🔄 Initializing Stripe...');
         
-        // Step 1: Get Stripe config from backend
-        const response = await fetch(`${API_BASE_URL}/api/parking/stripe-config`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
+        // Get Stripe publishable key from backend
+        const response = await fetch(`${API_BASE_URL}/api/parking/stripe-config`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.publishable_key) {
+            console.log('✅ Got Stripe publishable key');
+            setStripePublishableKey(data.publishable_key);
+            
+            // Load Stripe with the key
+            const stripeInstance = await loadStripe();
+            const stripeClient = stripeInstance(data.publishable_key);
+            setStripe(stripeClient);
+            
+            console.log('✅ Stripe initialized successfully');
+          } else {
+            throw new Error('Failed to get Stripe config');
           }
-        });
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: Failed to fetch Stripe config`);
-        }
-
-        const configData = await response.json();
-        
-        if (!configData.success || !configData.publishable_key) {
-          throw new Error('Invalid Stripe configuration received from backend');
-        }
-        
-        console.log('✅ Got Stripe config:', {
-          hasPublishableKey: !!configData.publishable_key,
-          isTestMode: configData.is_test_mode,
-          stripeMode: configData.stripe_mode,
-          hasTestCardInfo: !!configData.test_card_info
-        });
-
-        // Store configuration
-        setStripeConfig(configData);
-        setStripePublishableKey(configData.publishable_key);
-        setIsStripeTestMode(configData.is_test_mode || false);
-        setTestCardInfo(configData.test_card_info);
-        
-        // Step 2: Load Stripe.js
-        console.log('🔄 Loading Stripe.js...');
-        const stripeInstance = await loadStripe();
-        
-        if (!stripeInstance) {
-          throw new Error('Failed to load Stripe.js');
-        }
-
-        // Step 3: Initialize Stripe client
-        console.log('🔄 Initializing Stripe client...');
-        const stripeClient = stripeInstance(configData.publishable_key);
-        
-        if (!stripeClient) {
-          throw new Error('Failed to initialize Stripe client');
-        }
-
-        setStripe(stripeClient);
-        
-        console.log(`✅ Stripe initialized successfully in ${configData.is_test_mode ? 'TEST' : 'LIVE'} mode`);
-        
-        if (configData.is_test_mode) {
-          console.log('🧪 TEST MODE ACTIVE - Test cards available:', configData.test_card_info);
         } else {
-          console.log('🔴 LIVE MODE - Real payments will be processed');
+          throw new Error('Failed to fetch Stripe config');
         }
-        
       } catch (error) {
-        console.error('❌ Stripe initialization error:', {
-          message: error.message,
-          name: error.name,
-          stack: error.stack
-        });
+        console.error('❌ Stripe initialization error:', error);
         setApiError(`Stripe setup error: ${error.message}`);
       }
     };
@@ -440,79 +288,70 @@ const ProfessionalParksyDashboard = () => {
     }
   }, [connectionStatus, API_BASE_URL]);
 
-  // ========== ENHANCED STRIPE ELEMENTS INITIALIZATION ==========
+  // ========== STRIPE ELEMENTS INITIALIZATION ==========
 
+  // Initialize Stripe Elements when Stripe is ready
   useEffect(() => {
     const initializeStripeElements = async () => {
       if (stripe && !elements) {
         console.log('🔄 Creating Stripe Elements...');
         
-        try {
-          const elementsInstance = stripe.elements({
-            appearance: {
-              theme: 'stripe',
-              variables: {
-                colorPrimary: isStripeTestMode ? '#f59e0b' : '#635BFF',
-                colorBackground: '#ffffff',
-                colorText: '#1f2937',
-                colorDanger: '#df1b41',
-                fontFamily: 'system-ui, sans-serif',
-                spacingUnit: '4px',
-                borderRadius: '8px',
+        const elementsInstance = stripe.elements({
+          appearance: {
+            theme: 'stripe',
+            variables: {
+              colorPrimary: '#635BFF',
+              colorBackground: '#ffffff',
+              colorText: '#1f2937',
+              colorDanger: '#df1b41',
+              fontFamily: 'system-ui, sans-serif',
+              spacingUnit: '4px',
+              borderRadius: '8px',
+            },
+          },
+        });
+        
+        const cardElementInstance = elementsInstance.create('card', {
+          style: {
+            base: {
+              fontSize: '16px',
+              color: '#1f2937',
+              '::placeholder': {
+                color: '#9ca3af',
               },
             },
-          });
-          
-          const cardElementInstance = elementsInstance.create('card', {
-            style: {
-              base: {
-                fontSize: '16px',
-                color: '#1f2937',
-                '::placeholder': {
-                  color: isStripeTestMode ? '#92400e' : '#9ca3af',
-                },
-              },
-              invalid: {
-                color: '#df1b41',
-                iconColor: '#df1b41',
-              },
+            invalid: {
+              color: '#df1b41',
+              iconColor: '#df1b41',
             },
-          });
+          },
+        });
 
-          setElements(elementsInstance);
-          setCardElement(cardElementInstance);
-          
-          console.log(`✅ Stripe Elements created in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode`);
-        } catch (error) {
-          console.error('❌ Stripe Elements creation error:', error);
-          setApiError(`Stripe Elements error: ${error.message}`);
-        }
+        setElements(elementsInstance);
+        setCardElement(cardElementInstance);
+        
+        console.log('✅ Stripe Elements created');
       }
     };
 
     if (stripe) {
       initializeStripeElements();
     }
-  }, [stripe, elements, isStripeTestMode]);
+  }, [stripe, elements]);
 
-  // Enhanced card element mounting
+  // Mount card element when modal opens
   useEffect(() => {
     if (cardElement && selectedSpot && bookingStep === 1) {
       const cardContainer = document.getElementById('card-element');
       if (cardContainer && !cardContainer.hasChildNodes()) {
-        try {
-          cardElement.mount('#card-element');
-          
-          cardElement.on('change', (event) => {
-            setCardError(event.error ? event.error.message : null);
-            setCardComplete(event.complete);
-          });
-          
-          console.log('✅ Card element mounted successfully');
-        } catch (error) {
-          console.error('❌ Card element mounting error:', error);
-          setCardError('Failed to load payment form. Please refresh and try again.');
-        }
+        cardElement.mount('#card-element');
+        
+        cardElement.on('change', (event) => {
+          setCardError(event.error ? event.error.message : null);
+          setCardComplete(event.complete);
+        });
+        
+        console.log('✅ Card element mounted');
       }
     }
 
@@ -530,21 +369,7 @@ const ProfessionalParksyDashboard = () => {
     };
   }, [cardElement, selectedSpot, bookingStep]);
 
-  // ========== TEST CARD FUNCTIONS ==========
-
-  const fillTestCard = (cardType) => {
-    if (!isStripeTestMode || !testCardInfo) {
-      console.log('❌ Test cards only available in test mode');
-      return;
-    }
-
-    const testCard = testCardInfo[cardType];
-    if (testCard) {
-      alert(`Test Card - ${cardType.toUpperCase()}:\n\nCard Number: ${testCard}\nExpiry: Any future date (e.g., 12/25)\nCVC: Any 3 digits (e.g., 123)\nZip: Any 5 digits (e.g., 12345)`);
-    }
-  };
-
-  // ========== ENHANCED API FUNCTIONS ==========
+  // ========== API FUNCTIONS ==========
 
   const testBackendConnection = async () => {
     setConnectionStatus('testing');
@@ -552,23 +377,51 @@ const ProfessionalParksyDashboard = () => {
     try {
       console.log(`🔍 Testing backend connection to: ${API_BASE_URL}`);
       
-      const response = await fetch(`${API_BASE_URL}/api/parking/health`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      });
+      // First try the test-magr endpoint since we know it works
+      let response;
       
-      if (response.ok) {
-        const data = await response.json();
-        console.log('✅ Backend connected:', data);
-        setConnectionStatus('connected');
-        return true;
-      } else {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      try {
+        console.log('Testing MAGR connection...');
+        response = await fetch(`${API_BASE_URL}/api/parking/test-magr`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('✅ MAGR API test successful:', data);
+          setConnectionStatus('connected');
+          return true;
+        }
+      } catch (err) {
+        console.log('MAGR test failed, trying health endpoint...');
       }
+      
+      // Fallback to health endpoint
+      try {
+        response = await fetch(`${API_BASE_URL}/api/parking/health`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('✅ Backend connected via health endpoint:', data);
+          setConnectionStatus('connected');
+          return true;
+        }
+      } catch (err) {
+        console.log('Health endpoint also failed');
+      }
+      
+      throw new Error(`Unable to connect to backend server`);
+      
     } catch (error) {
-      console.error(`❌ Connection failed:`, error.message);
+      console.error(`❌ Connection failed for ${API_BASE_URL}:`, error.message);
       setConnectionStatus('failed');
       setApiError(`Backend server error: ${error.message}`);
       return false;
@@ -605,7 +458,11 @@ const ProfessionalParksyDashboard = () => {
   };
 
   const fetchParkingProducts = useCallback(async () => {
-    console.log('🔍 fetchParkingProducts called');
+    console.log('🔍 fetchParkingProducts called with:', {
+      connectionStatus,
+      searchParams,
+      API_BASE_URL
+    });
 
     if (connectionStatus !== 'connected') {
       console.log('❌ Backend not connected, skipping search');
@@ -619,6 +476,7 @@ const ProfessionalParksyDashboard = () => {
     try {
       console.log('🔍 Fetching parking products with params:', searchParams);
       
+      // Make direct fetch call for better error handling
       const response = await fetch(`${API_BASE_URL}/api/parking/search-parking`, {
         method: 'POST',
         headers: {
@@ -666,7 +524,8 @@ const ProfessionalParksyDashboard = () => {
     } catch (error) {
       console.error('❌ Error fetching products:', {
         message: error.message,
-        name: error.name
+        name: error.name,
+        stack: error.stack
       });
       setApiError(`Search failed: ${error.message}`);
       setParkingProducts([]);
@@ -676,12 +535,11 @@ const ProfessionalParksyDashboard = () => {
     }
   }, [searchParams, connectionStatus, API_BASE_URL]);
 
-  // ========== 🔧 COMPLETELY FIXED STRIPE PAYMENT FUNCTIONS ==========
+  // ========== STRIPE PAYMENT FUNCTIONS ==========
 
-  // ✅ FIXED: createPaymentIntent with proper token handling
   const createPaymentIntent = async () => {
     try {
-      console.log(`💳 Creating payment intent in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode...`);
+      console.log('💳 Creating payment intent...');
       
       if (!selectedSpot) {
         throw new Error('No parking spot selected');
@@ -691,21 +549,7 @@ const ProfessionalParksyDashboard = () => {
         throw new Error('User must be logged in');
       }
 
-      const authToken = getValidJWTToken();
-      
-      if (!authToken) {
-        console.error('❌ No valid JWT token available');
-        throw new Error('Authentication failed. Please log in again.');
-      }
-
-      // Log token details for debugging
-      console.log('🔑 Using JWT token for payment:', {
-        length: authToken.length,
-        parts: authToken.split('.').length,
-        preview: authToken.substring(0, 30) + '...'
-      });
-
-      // Enhanced payment data
+      const authToken = getAuthToken();
       const paymentData = {
         amount: parseFloat(selectedSpot.price || selectedSpot.formatted_price),
         currency: 'gbp',
@@ -714,15 +558,14 @@ const ProfessionalParksyDashboard = () => {
         company_code: selectedSpot.company_code || selectedSpot.product_code,
         dropoff_date: searchParams.dropoff_date,
         pickup_date: searchParams.pickup_date,
-        product_name: selectedSpot.name,
-        parking_type: selectedSpot.parking_type
+        token: authToken,
+        auth_token: authToken
       };
 
       console.log('🚀 Creating payment intent with data:', {
         amount: paymentData.amount,
         service: paymentData.service_name,
-        user: authStatus.user?.email,
-        isTestMode: isStripeTestMode
+        user: authStatus.user?.email
       });
 
       const response = await fetch(`${API_BASE_URL}/api/parking/create-payment-intent`, {
@@ -734,20 +577,9 @@ const ProfessionalParksyDashboard = () => {
         body: JSON.stringify(paymentData)
       });
 
-      console.log('💳 Payment Intent Response Status:', response.status, response.statusText);
-
       if (!response.ok) {
-        let errorMessage;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorData.error || `HTTP ${response.status}`;
-          console.error('❌ Payment Intent Error Details:', errorData);
-        } catch (parseError) {
-          const errorText = await response.text();
-          errorMessage = errorText || `HTTP ${response.status}`;
-          console.error('❌ Payment Intent Error Text:', errorText);
-        }
-        throw new Error(errorMessage);
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Payment intent creation failed: ${response.status}`);
       }
 
       const result = await response.json();
@@ -758,7 +590,7 @@ const ProfessionalParksyDashboard = () => {
         console.log('✅ Payment intent created:', result.payment_intent_id);
         return result;
       } else {
-        throw new Error(result.message || result.error || 'Failed to create payment intent');
+        throw new Error(result.message || 'Failed to create payment intent');
       }
     } catch (error) {
       console.error('❌ Payment intent creation error:', error);
@@ -766,18 +598,20 @@ const ProfessionalParksyDashboard = () => {
     }
   };
 
+  // FIXED: processStripePayment function with Stripe Elements
   const processStripePayment = async (clientSecret) => {
     try {
       if (!stripe || !elements || !cardElement) {
         throw new Error('Stripe Elements not ready');
       }
 
-      console.log(`💳 Processing payment in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode...`);
+      console.log('💳 Processing Stripe payment with Elements...');
       setProcessingPayment(true);
 
+      // Use Stripe Elements instead of hardcoded card details
       const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
         payment_method: {
-          card: cardElement,
+          card: cardElement, // ✅ Use the card element
           billing_details: {
             name: `${bookingDetails.first_name} ${bookingDetails.last_name}`,
             email: bookingDetails.customer_email,
@@ -787,12 +621,12 @@ const ProfessionalParksyDashboard = () => {
       });
 
       if (error) {
-        console.error(`❌ Stripe payment error:`, error);
+        console.error('❌ Stripe payment error:', error);
         throw new Error(`Payment failed: ${error.message}`);
       }
 
       if (paymentIntent.status === 'succeeded') {
-        console.log(`✅ Payment successful:`, paymentIntent.id);
+        console.log('✅ Payment successful:', paymentIntent.id);
         setPaymentStatus('payment_succeeded');
         return paymentIntent;
       } else {
@@ -806,214 +640,52 @@ const ProfessionalParksyDashboard = () => {
     }
   };
 
-  // ✅ COMPLETELY FIXED: verifyPayment with ALL possible auth methods
   const verifyPayment = async (paymentIntentId) => {
     try {
-      console.log(`🔍 Verifying payment:`, paymentIntentId);
+      console.log('🔍 Verifying payment:', paymentIntentId);
 
-      const authToken = getValidJWTToken();
-      
-      if (!authToken) {
-        console.error('❌ No valid JWT token for payment verification');
-        throw new Error('Authentication failed. Please log in again.');
-      }
-
-      // Log token details for debugging
-      console.log('🔑 Using JWT token for verification:', {
-        length: authToken.length,
-        parts: authToken.split('.').length,
-        preview: authToken.substring(0, 30) + '...'
+      const authToken = getAuthToken();
+      const response = await fetch(`${API_BASE_URL}/api/parking/verify-payment/${paymentIntentId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        }
       });
 
-      // Extract user info from token for alternative methods
-      const userInfo = getUserInfoFromToken();
-      const userId = userInfo?.id || userInfo?.user_id || userInfo?.sub;
-
-      // Try EVERY possible authentication method
-      const authMethods = [
-        // Method 1: Bearer token in Authorization header
-        {
-          name: 'Bearer Authorization',
-          url: `${API_BASE_URL}/api/parking/verify-payment/${paymentIntentId}`,
-          options: {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${authToken}`,
-            }
-          }
-        },
-        // Method 2: Token in Authorization header without Bearer
-        {
-          name: 'Direct Authorization',
-          url: `${API_BASE_URL}/api/parking/verify-payment/${paymentIntentId}`,
-          options: {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': authToken,
-            }
-          }
-        },
-        // Method 3: Token in x-auth-token header
-        {
-          name: 'X-Auth-Token Header',
-          url: `${API_BASE_URL}/api/parking/verify-payment/${paymentIntentId}`,
-          options: {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-auth-token': authToken,
-            }
-          }
-        },
-        // Method 4: Token in custom token header
-        {
-          name: 'Token Header',
-          url: `${API_BASE_URL}/api/parking/verify-payment/${paymentIntentId}`,
-          options: {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'token': authToken,
-            }
-          }
-        },
-        // Method 5: Token as query parameter
-        {
-          name: 'Query Parameter',
-          url: `${API_BASE_URL}/api/parking/verify-payment/${paymentIntentId}?token=${encodeURIComponent(authToken)}`,
-          options: {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-            }
-          }
-        },
-        // Method 6: POST request with token in body
-        {
-          name: 'POST with Token Body',
-          url: `${API_BASE_URL}/api/parking/verify-payment/${paymentIntentId}`,
-          options: {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ token: authToken })
-          }
-        },
-        // Method 7: User ID based verification
-        {
-          name: 'User ID Query',
-          url: `${API_BASE_URL}/api/parking/verify-payment/${paymentIntentId}?user_id=${userId}&auth_token=${encodeURIComponent(authToken)}`,
-          options: {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-            }
-          }
-        },
-        // Method 8: Alternative endpoint structure
-        {
-          name: 'Alternative Endpoint',
-          url: `${API_BASE_URL}/api/parking/payment/verify/${paymentIntentId}`,
-          options: {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${authToken}`,
-            }
-          }
-        },
-        // Method 9: Legacy token format (if needed)
-        {
-          name: 'Legacy Format',
-          url: `${API_BASE_URL}/api/parking/verify-payment/${paymentIntentId}`,
-          options: {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ 
-              payment_intent_id: paymentIntentId,
-              token: authToken,
-              user_id: userId
-            })
-          }
-        }
-      ];
-
-      for (let i = 0; i < authMethods.length; i++) {
-        const method = authMethods[i];
-
-        console.log(`🔄 Trying method ${i + 1}/${authMethods.length}: ${method.name}...`);
-
-        try {
-          const response = await fetch(method.url, method.options);
-
-          console.log(`🔍 Method ${i + 1} response:`, response.status, response.statusText);
-
-          if (response.ok) {
-            const result = await response.json();
-            console.log(`✅ SUCCESS! Method ${i + 1} (${method.name}) worked:`, result);
-            
-            // Store successful method for future use
-            localStorage.setItem('successful_auth_method', JSON.stringify({
-              methodIndex: i,
-              methodName: method.name,
-              timestamp: Date.now()
-            }));
-            
-            return result.is_paid || result.verified || result.success || true;
-          } else {
-            // Log the error but continue to next method
-            try {
-              const errorData = await response.json();
-              console.log(`⚠️ Method ${i + 1} failed:`, errorData.message || errorData.error);
-            } catch (e) {
-              const errorText = await response.text();
-              console.log(`⚠️ Method ${i + 1} failed:`, errorText);
-            }
-          }
-        } catch (fetchError) {
-          console.log(`⚠️ Method ${i + 1} network error:`, fetchError.message);
-        }
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Payment verification failed');
       }
 
-      // If all methods fail, try to skip verification and proceed
-      console.log('⚠️ All verification methods failed - attempting to skip verification');
-      return true; // Skip verification as last resort
-
+      const result = await response.json();
+      console.log('✅ Payment verification result:', result);
+      
+      return result.is_paid;
     } catch (error) {
       console.error('❌ Payment verification error:', error);
-      // As last resort, return true to continue booking flow
-      console.log('🚨 Skipping verification due to auth issues - proceeding with booking');
-      return true;
+      throw error;
     }
   };
 
-  // ✅ BULLETPROOF: createBookingWithPayment with EVERY possible auth method
   const createBookingWithPayment = async (paymentIntentId) => {
     try {
-      console.log(`🎫 Creating booking with payment:`, paymentIntentId);
+      console.log('🎫 Creating booking with payment:', paymentIntentId);
 
       if (!authStatus.isLoggedIn) {
         throw new Error('User must be logged in');
       }
 
-      const authToken = getValidJWTToken();
-      
-      if (!authToken) {
-        console.error('❌ No valid JWT token for booking creation');
-        throw new Error('Authentication failed. Please log in again.');
-      }
-
-      // Extract user info
+      const authToken = getAuthToken();
       const userInfo = getUserInfoFromToken();
-      const userId = userInfo?.id || userInfo?.user_id || userInfo?.sub;
 
-      // Clean booking data
+      // Prepare comprehensive booking data with payment intent
       const bookingData = {
+        // Authentication
+        token: authToken,
+        auth_token: authToken,
+        
+        // Payment
         payment_intent_id: paymentIntentId,
         
         // Service details
@@ -1059,200 +731,45 @@ const ProfessionalParksyDashboard = () => {
         special_features: selectedSpot.features_array || []
       };
 
-      console.log('🚀 Submitting booking:', {
+      console.log('🚀 Submitting paid booking with data:', {
         payment_intent_id: paymentIntentId,
+        user: userInfo?.email,
         service: bookingData.product_name,
         airport: bookingData.airport_code,
         amount: bookingData.booking_amount
       });
 
-      // Try EVERY possible authentication method for booking
-      const authMethods = [
-        // Method 1: Bearer token in Authorization header
-        {
-          name: 'Bearer Authorization',
-          url: `${API_BASE_URL}/api/parking/bookings-with-payment`,
-          options: {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${authToken}`,
-            },
-            body: JSON.stringify(bookingData)
-          }
+      const response = await fetch(`${API_BASE_URL}/api/parking/bookings-with-payment`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
         },
-        // Method 2: Token in Authorization header without Bearer
-        {
-          name: 'Direct Authorization',
-          url: `${API_BASE_URL}/api/parking/bookings-with-payment`,
-          options: {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': authToken,
-            },
-            body: JSON.stringify(bookingData)
-          }
-        },
-        // Method 3: Token in x-auth-token header
-        {
-          name: 'X-Auth-Token Header',
-          url: `${API_BASE_URL}/api/parking/bookings-with-payment`,
-          options: {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-auth-token': authToken,
-            },
-            body: JSON.stringify(bookingData)
-          }
-        },
-        // Method 4: Token in custom token header
-        {
-          name: 'Token Header',
-          url: `${API_BASE_URL}/api/parking/bookings-with-payment`,
-          options: {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'token': authToken,
-            },
-            body: JSON.stringify(bookingData)
-          }
-        },
-        // Method 5: Token in request body
-        {
-          name: 'Token in Body',
-          url: `${API_BASE_URL}/api/parking/bookings-with-payment`,
-          options: {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              ...bookingData,
-              token: authToken
-            })
-          }
-        },
-        // Method 6: Token in body with user_id
-        {
-          name: 'Token + User ID Body',
-          url: `${API_BASE_URL}/api/parking/bookings-with-payment`,
-          options: {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              ...bookingData,
-              token: authToken,
-              user_id: userId
-            })
-          }
-        },
-        // Method 7: Query parameter with token
-        {
-          name: 'Query Parameter',
-          url: `${API_BASE_URL}/api/parking/bookings-with-payment?token=${encodeURIComponent(authToken)}`,
-          options: {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(bookingData)
-          }
-        },
-        // Method 8: Alternative endpoint structure
-        {
-          name: 'Alternative Endpoint',
-          url: `${API_BASE_URL}/api/parking/booking/create`,
-          options: {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${authToken}`,
-            },
-            body: JSON.stringify(bookingData)
-          }
-        },
-        // Method 9: Legacy booking format
-        {
-          name: 'Legacy Format',
-          url: `${API_BASE_URL}/api/parking/create-booking`,
-          options: {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              ...bookingData,
-              auth_token: authToken,
-              user_data: userInfo
-            })
-          }
-        }
-      ];
+        body: JSON.stringify(bookingData)
+      });
 
-      // Check if we have a successful method from verification
-      const storedMethod = localStorage.getItem('successful_auth_method');
-      if (storedMethod) {
+      console.log('📋 Booking API Response Status:', response.status, response.statusText);
+
+      if (!response.ok) {
+        let errorMessage;
         try {
-          const { methodIndex } = JSON.parse(storedMethod);
-          if (methodIndex < authMethods.length) {
-            console.log(`🎯 Using previously successful method ${methodIndex + 1} first`);
-            // Move successful method to front
-            const successfulMethod = authMethods[methodIndex];
-            authMethods.splice(methodIndex, 1);
-            authMethods.unshift(successfulMethod);
-          }
-        } catch (e) {
-          console.log('⚠️ Could not parse stored auth method');
+          const errorData = await response.json();
+          errorMessage = errorData.message || `HTTP ${response.status}`;
+          console.log('❌ Booking API Error Details:', errorData);
+        } catch (parseError) {
+          const errorText = await response.text();
+          errorMessage = errorText || `HTTP ${response.status}`;
+          console.log('❌ Booking API Error Text:', errorText);
         }
+        throw new Error(`Booking failed: ${errorMessage}`);
       }
 
-      for (let i = 0; i < authMethods.length; i++) {
-        const method = authMethods[i];
+      const result = await response.json();
+      console.log('✅ Booking with payment successful:', result);
 
-        console.log(`🔄 Trying booking method ${i + 1}/${authMethods.length}: ${method.name}...`);
-
-        try {
-          const response = await fetch(method.url, method.options);
-
-          console.log(`📋 Booking method ${i + 1} response:`, response.status, response.statusText);
-
-          if (response.ok) {
-            const result = await response.json();
-            console.log(`✅ BOOKING SUCCESS! Method ${i + 1} (${method.name}) worked:`, result);
-            
-            // Update successful method for future use
-            localStorage.setItem('successful_booking_auth_method', JSON.stringify({
-              methodIndex: i,
-              methodName: method.name,
-              timestamp: Date.now()
-            }));
-            
-            return result;
-          } else {
-            // Log the error but continue to next method
-            try {
-              const errorData = await response.json();
-              console.log(`⚠️ Booking method ${i + 1} failed:`, errorData.message || errorData.error);
-            } catch (e) {
-              const errorText = await response.text();
-              console.log(`⚠️ Booking method ${i + 1} failed:`, errorText);
-            }
-          }
-        } catch (fetchError) {
-          console.log(`⚠️ Booking method ${i + 1} network error:`, fetchError.message);
-        }
-      }
-
-      // If all methods fail
-      throw new Error('All booking authentication methods failed. Backend may have specific requirements not covered.');
-
+      return result;
     } catch (error) {
-      console.error('❌ Booking error:', error);
+      console.error('❌ Booking with payment error:', error);
       throw error;
     }
   };
@@ -1260,7 +777,11 @@ const ProfessionalParksyDashboard = () => {
   // ========== EVENT HANDLERS ==========
 
   const handleSearch = () => {
-    console.log('🔍 Search button clicked');
+    console.log('🔍 Search button clicked with:', {
+      connectionStatus,
+      searchParams,
+      timestamp: new Date().toISOString()
+    });
 
     if (connectionStatus !== 'connected') {
       console.log('❌ Search blocked - backend not connected');
@@ -1281,15 +802,15 @@ const ProfessionalParksyDashboard = () => {
     setBookingDetails(prev => ({ ...prev, [name]: value }));
   };
 
-  // ✅ SIMPLE FIX: Enhanced booking submission - SKIP VERIFICATION
+  // STRIPE PAYMENT FLOW - STEP 1: FORM SUBMISSION
   const handleBookingSubmit = async (e) => {
     e.preventDefault();
     
-    console.log(`🎫 Starting SIMPLE payment flow in ${isStripeTestMode ? 'TEST' : 'LIVE'} mode...`);
+    console.log('🎫 Starting Stripe payment flow...');
     
-    // Pre-flight checks
+    // Check if user is logged in FIRST
     if (!isUserLoggedIn()) {
-      console.log('❌ User not logged in');
+      console.log('❌ User not logged in - blocking booking');
       setBookingStatus({
         success: false,
         message: 'Please log in to make a booking. You must sign in to book parking spaces through our system.'
@@ -1317,74 +838,64 @@ const ProfessionalParksyDashboard = () => {
       return;
     }
 
-    const jwtToken = getValidJWTToken();
-    if (!jwtToken) {
-      console.log('❌ JWT token validation failed');
-      setBookingStatus({
-        success: false,
-        message: 'Authentication token is invalid. Please log out and log back in.'
-      });
-      setBookingStep(2);
-      return;
-    }
-
     setIsLoading(true);
     setBookingStatus(null);
-    setPaymentStep(2);
+    setPaymentStep(2); // Move to payment step
 
     try {
-      console.log('🔄 Step 1: Creating payment intent...');
+      // Step 1: Create payment intent
       const paymentIntentResult = await createPaymentIntent();
       
-      console.log('🔄 Step 2: Processing payment with Stripe...');
+      // Step 2: Process payment with Stripe Elements
       const paymentIntent = await processStripePayment(paymentIntentResult.client_secret);
       
-      console.log('🔄 Step 3: SKIPPING verification - going direct to booking...');
-      console.log('⚠️ Payment verification skipped due to backend auth issues');
+      // Step 3: Verify payment
+      const isPaymentVerified = await verifyPayment(paymentIntent.id);
       
-      setPaymentStep(3);
+      if (!isPaymentVerified) {
+        throw new Error('Payment verification failed');
+      }
 
-      console.log('🔄 Step 4: Creating booking directly (no verification)...');
+      setPaymentStep(3); // Move to booking step
+
+      // Step 4: Create booking with payment
       const bookingResult = await createBookingWithPayment(paymentIntent.id);
       
-      if (bookingResult && bookingResult.success) {
+      if (bookingResult.success) {
         setBookingStatus({
           success: true,
-          message: `Payment processed and booking confirmed successfully! (${isStripeTestMode ? 'TEST' : 'LIVE'} mode)`,
-          reference: bookingResult.data?.our_reference || bookingResult.our_reference,
-          magrReference: bookingResult.data?.magr_reference || bookingResult.magr_reference,
-          bookingId: bookingResult.data?.booking_id || bookingResult.data?.database_id || bookingResult.booking_id,
+          message: 'Payment processed and booking confirmed successfully!',
+          reference: bookingResult.data.our_reference,
+          magrReference: bookingResult.data.magr_reference,
+          bookingId: bookingResult.data.booking_id || bookingResult.data.database_id,
           paymentIntentId: paymentIntent.id,
-          paymentAmount: bookingResult.data?.payment_amount || selectedSpot.formatted_price,
-          paymentCurrency: bookingResult.data?.payment_currency || 'gbp',
-          isTestMode: bookingResult.data?.is_test_mode || isStripeTestMode,
+          paymentAmount: bookingResult.data.payment_amount,
+          paymentCurrency: bookingResult.data.payment_currency,
           details: {
-            user: bookingResult.data?.user_email || bookingDetails.customer_email,
-            service: bookingResult.data?.service || selectedSpot.name,
-            airport: bookingResult.data?.airport || searchParams.airport_code,
-            amount: bookingResult.data?.total_amount || bookingResult.data?.booking_amount,
-            commission: bookingResult.data?.commission || selectedSpot.commission_amount
+            user: bookingResult.data.user_email,
+            service: bookingResult.data.service,
+            airport: bookingResult.data.airport,
+            amount: bookingResult.data.total_amount,
+            commission: bookingResult.data.commission
           }
         });
-        setBookingStep(2);
-        console.log('🎉 SIMPLE booking flow completed successfully!');
+        setBookingStep(2); // Show success
       } else {
-        throw new Error(bookingResult?.message || bookingResult?.error || 'Booking creation failed after payment');
+        throw new Error(bookingResult.message || 'Booking creation failed after payment');
       }
 
     } catch (error) {
-      console.error(`❌ SIMPLE payment flow error:`, {
+      console.error('❌ Stripe payment flow error:', {
         message: error.message,
         name: error.name,
+        timestamp: new Date().toISOString(),
         step: paymentStep
       });
       
       setBookingStatus({
         success: false,
-        message: `${error.message || 'Failed to process payment and create booking. Please try again.'} (${isStripeTestMode ? 'TEST' : 'LIVE'} mode)`,
-        paymentStep: paymentStep,
-        isTestMode: isStripeTestMode,
-        errorDetails: error.stack
+        message: error.message || 'Failed to process payment and create booking. Please try again.',
+        paymentStep: paymentStep
       });
       setBookingStep(2);
     } finally {
@@ -1394,12 +905,12 @@ const ProfessionalParksyDashboard = () => {
     }
   };
 
-  // Navigation function
+  // Navigation function for EV Charging
   const navigateToEvCharging = () => {
     window.location.href = '/#/evcharging';
   };
 
-  // Get user location
+  // Get user location with enhanced accuracy
   const getUserLocation = useCallback(async () => {
     if (!navigator.geolocation) {
       setCurrentLocation("London, UK");
@@ -1461,11 +972,13 @@ const ProfessionalParksyDashboard = () => {
   // Initialize Mapbox
   const initializeMapbox = useCallback(() => {
     if (typeof window !== 'undefined' && !window.mapboxgl) {
+      // Load Mapbox CSS
       const link = document.createElement('link');
       link.href = 'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css';
       link.rel = 'stylesheet';
       document.head.appendChild(link);
 
+      // Load Mapbox JS
       const script = document.createElement('script');
       script.src = 'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js';
       script.onload = () => {
@@ -1500,10 +1013,12 @@ const ProfessionalParksyDashboard = () => {
         attributionControl: false
       });
 
+      // Add navigation controls
       map.addControl(new window.mapboxgl.NavigationControl({
         visualizePitch: true
       }), 'top-right');
 
+      // Add geolocate control
       const geolocate = new window.mapboxgl.GeolocateControl({
         positionOptions: {
           enableHighAccuracy: true
@@ -1514,6 +1029,7 @@ const ProfessionalParksyDashboard = () => {
       map.addControl(geolocate, 'top-right');
 
       map.on('load', () => {
+        // Add 3D buildings
         map.addLayer({
           'id': '3d-buildings',
           'source': 'composite',
@@ -1541,6 +1057,7 @@ const ProfessionalParksyDashboard = () => {
           }
         });
 
+        // Add user location marker if available
         if (userLocation) {
           const userMarkerEl = document.createElement('div');
           userMarkerEl.className = 'user-location-marker';
@@ -1554,6 +1071,7 @@ const ProfessionalParksyDashboard = () => {
             .addTo(map);
         }
 
+        // Add parking spot markers
         filteredProducts.forEach(spot => {
           const markerEl = document.createElement('div');
           markerEl.className = 'parking-spot-marker';
@@ -1570,6 +1088,7 @@ const ProfessionalParksyDashboard = () => {
             <div class="marker-arrow"></div>
           `;
 
+          // Create popup content
           const popupContent = document.createElement('div');
           popupContent.className = 'map-popup-content';
           popupContent.innerHTML = `
@@ -1643,6 +1162,7 @@ const ProfessionalParksyDashboard = () => {
     initializeMapbox();
     loadAirports();
     
+    // Hide airplane animation after 3 seconds
     const timer = setTimeout(() => {
       setShowAirplaneAnimation(false);
     }, 3000);
@@ -1672,37 +1192,24 @@ const ProfessionalParksyDashboard = () => {
     };
   }, []);
 
-  // Enhanced Stripe Elements styles
+  // ========== STRIPE ELEMENTS STYLES ==========
   const stripeElementsStyles = `
     .card-element-container {
       background: white;
       padding: 16px;
-      border: 2px solid ${isStripeTestMode ? '#f59e0b' : '#e5e7eb'};
+      border: 2px solid #e5e7eb;
       border-radius: 8px;
       margin: 16px 0;
       transition: border-color 0.3s ease;
-      position: relative;
     }
     
     .card-element-container:focus-within {
-      border-color: ${isStripeTestMode ? '#f59e0b' : '#635BFF'};
-      box-shadow: 0 0 0 3px ${isStripeTestMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(99, 91, 255, 0.1)'};
+      border-color: #635BFF;
+      box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.1);
     }
     
     .card-element-container.error {
       border-color: #df1b41;
-    }
-    
-    .test-mode-indicator {
-      position: absolute;
-      top: -8px;
-      right: 12px;
-      background: #f59e0b;
-      color: white;
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 600;
     }
     
     .card-error {
@@ -1721,31 +1228,6 @@ const ProfessionalParksyDashboard = () => {
       display: flex;
       align-items: center;
       gap: 4px;
-    }
-    
-    .test-cards-section {
-      background: #fef3c7;
-      border: 1px solid #f59e0b;
-      border-radius: 8px;
-      padding: 16px;
-      margin: 16px 0;
-    }
-    
-    .test-card-button {
-      background: #f59e0b;
-      color: white;
-      border: none;
-      padding: 8px 12px;
-      border-radius: 6px;
-      font-size: 12px;
-      cursor: pointer;
-      margin: 4px 4px 4px 0;
-      transition: all 0.2s ease;
-    }
-    
-    .test-card-button:hover {
-      background: #d97706;
-      transform: translateY(-1px);
     }
   `;
 
@@ -1861,7 +1343,7 @@ const ProfessionalParksyDashboard = () => {
               setSelectedSpot(product);
             }}
           >
-            <span className="btn-text">{isStripeTestMode ? '🧪 Book with Test Stripe' : '💳 Book with Stripe'}</span>
+            <span className="btn-text">💳 Book with Stripe</span>
             <ChevronRight size={18} className="btn-icon" />
           </button>
         </div>
@@ -1871,7 +1353,7 @@ const ProfessionalParksyDashboard = () => {
 
   return (
     <div className="premium-parking-dashboard">
-      {/* Add Enhanced Stripe Elements Styles */}
+      {/* Add Stripe Elements Styles */}
       <style>{stripeElementsStyles}</style>
 
       {/* Airplane Animation */}
@@ -1905,6 +1387,21 @@ const ProfessionalParksyDashboard = () => {
             </div>
             <div className="stat-divider"></div>
             <div className="stat-item">
+              <span className="stat-number">🔴</span>
+              <span className="stat-label">Real-Time</span>
+            </div>
+            <div className="stat-divider"></div>
+            <div className="stat-item">
+              <span className="stat-number">{connectionStatus === 'connected' ? '✅' : '❌'}</span>
+              <span className="stat-label">API Status</span>
+            </div>
+            <div className="stat-divider"></div>
+            <div className="stat-item">
+              <span className="stat-number">{stripe ? '💳' : '❌'}</span>
+              <span className="stat-label">{stripe ? 'Stripe Ready' : 'Stripe Loading'}</span>
+            </div>
+            <div className="stat-divider"></div>
+            <div className="stat-item">
               <span className="stat-number">{authStatus.isLoggedIn ? '👤' : '🚫'}</span>
               <span className="stat-label">{authStatus.isLoggedIn ? 'Logged In' : 'Not Logged In'}</span>
             </div>
@@ -1915,11 +1412,11 @@ const ProfessionalParksyDashboard = () => {
         </div>
       </header>
 
-      {/* Enhanced Status Banners */}
+      {/* Status Banners */}
       {connectionStatus === 'failed' && (
         <div className="api-status-banner error">
           <AlertCircle size={16} />
-          <span>❌ BACKEND SERVER CONNECTION FAILED - Check if backend is running</span>
+          <span>❌ BACKEND SERVER CONNECTION FAILED - Check if Render backend is running</span>
         </div>
       )}
       
@@ -1937,7 +1434,7 @@ const ProfessionalParksyDashboard = () => {
         </div>
       )}
 
-      {/* Enhanced Stripe Status Banner */}
+      {/* Stripe Status Banner */}
       {!stripe && connectionStatus === 'connected' && (
         <div className="api-status-banner warning" style={{backgroundColor: '#f59e0b', color: '#000'}}>
           <Lock size={16} />
@@ -1946,54 +1443,9 @@ const ProfessionalParksyDashboard = () => {
       )}
 
       {stripe && (
-        <div className="api-status-banner success" style={{
-          backgroundColor: isStripeTestMode ? '#f59e0b' : '#10b981',
-          color: isStripeTestMode ? '#000' : '#fff'
-        }}>
+        <div className="api-status-banner success">
           <CreditCard size={16} />
-          <span>{isStripeTestMode ? 
-            `🧪 Stripe TEST MODE ready - Use test card numbers for payments` : 
-            `💳 Stripe LIVE MODE ready - Real payments will be processed`}</span>
-          {isStripeTestMode && (
-            <button
-              onClick={() => setShowTestCards(!showTestCards)}
-              style={{
-                marginLeft: '10px',
-                background: '#fff',
-                color: '#f59e0b',
-                border: 'none',
-                padding: '4px 8px',
-                borderRadius: '4px',
-                fontSize: '12px',
-                cursor: 'pointer'
-              }}
-            >
-              {showTestCards ? 'Hide Test Cards' : 'Show Test Cards'}
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Test Cards Information Banner */}
-      {isStripeTestMode && showTestCards && testCardInfo && (
-        <div className="api-status-banner" style={{
-          backgroundColor: '#fef3c7',
-          color: '#92400e',
-          border: '1px solid #f59e0b',
-          flexDirection: 'column',
-          alignItems: 'flex-start'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-            <Info size={16} />
-            <strong>🧪 TEST MODE - Available Test Cards:</strong>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '8px', width: '100%' }}>
-            <div><strong>Visa Success:</strong> {testCardInfo.visa_success}</div>
-            <div><strong>Visa Declined:</strong> {testCardInfo.visa_declined}</div>
-            <div><strong>Mastercard:</strong> {testCardInfo.mastercard}</div>
-            <div><strong>Visa Debit:</strong> {testCardInfo.visa_debit}</div>
-          </div>
-          <small style={{ marginTop: '8px' }}>{testCardInfo.note}</small>
+          <span>💳 Stripe payments ready - Secure payment processing available</span>
         </div>
       )}
 
@@ -2281,7 +1733,7 @@ const ProfessionalParksyDashboard = () => {
         )}
       </main>
 
-      {/* Enhanced Stripe Payment & Booking Modal */}
+      {/* Enhanced Stripe Payment & Booking Modal with Elements */}
       {selectedSpot && (
         <div className="premium-modal-overlay" onClick={() => {
           setSelectedSpot(null);
@@ -2313,7 +1765,7 @@ const ProfessionalParksyDashboard = () => {
             <div className="modal-content">
               {bookingStep === 1 ? (
                 <div className="booking-step-premium">
-                  {/* Enhanced Authentication & Stripe Warnings */}
+                  {/* Authentication & Stripe Warnings */}
                   {!authStatus.isLoggedIn && (
                     <div className="auth-warning">
                       <AlertCircle size={20} />
@@ -2330,30 +1782,11 @@ const ProfessionalParksyDashboard = () => {
                     </div>
                   )}
 
-                  {/* Enhanced Test Mode Warning */}
-                  {isStripeTestMode && stripe && (
-                    <div className="stripe-test-mode-warning" style={{
-                      backgroundColor: '#fef3c7',
-                      color: '#92400e',
-                      border: '2px solid #f59e0b',
-                      padding: '12px',
-                      borderRadius: '8px',
-                      marginBottom: '16px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                        <Info size={20} />
-                        <strong>🧪 TEST MODE ACTIVE - No Real Charges</strong>
-                      </div>
-                      <p>This is a test environment. No real payments will be processed.</p>
-                      <small>Use the test card numbers provided below for testing payments.</small>
-                    </div>
-                  )}
-
                   {/* Payment Processing Status */}
                   {(processingPayment || paymentStep > 1) && (
                     <div className="payment-status-banner" style={{
-                      backgroundColor: paymentStep === 3 ? '#10b981' : (isStripeTestMode ? '#f59e0b' : '#3b82f6'),
-                      color: isStripeTestMode && paymentStep !== 3 ? '#000' : 'white',
+                      backgroundColor: paymentStep === 3 ? '#10b981' : '#3b82f6',
+                      color: 'white',
                       padding: '12px',
                       borderRadius: '8px',
                       marginBottom: '16px',
@@ -2365,14 +1798,14 @@ const ProfessionalParksyDashboard = () => {
                         <>
                           <Loader2 size={16} className="animate-spin" />
                           <span>
-                            {paymentStep === 2 ? (isStripeTestMode ? '🧪 Processing Test Payment...' : '💳 Processing Payment...') : 
+                            {paymentStep === 2 ? '💳 Processing Payment...' : 
                              paymentStep === 3 ? '🎫 Creating Booking...' : '🔄 Processing...'}
                           </span>
                         </>
                       ) : (
                         <>
                           <CreditCard size={16} />
-                          <span>{isStripeTestMode ? '🧪 Ready for Test Payment' : '💳 Ready for Stripe Payment'}</span>
+                          <span>💳 Ready for Stripe Payment</span>
                         </>
                       )}
                     </div>
@@ -2386,21 +1819,6 @@ const ProfessionalParksyDashboard = () => {
                         alt="Service"
                       />
                       <div className="live-data-badge">🔴 LIVE</div>
-                      {isStripeTestMode && (
-                        <div className="test-mode-badge" style={{
-                          position: 'absolute',
-                          top: '8px',
-                          right: '8px',
-                          background: '#f59e0b',
-                          color: 'white',
-                          padding: '4px 8px',
-                          borderRadius: '4px',
-                          fontSize: '11px',
-                          fontWeight: '600'
-                        }}>
-                          TEST
-                        </div>
-                      )}
                     </div>
                     <div className="header-content">
                       <h2 className="service-title">{selectedSpot.name}</h2>
@@ -2410,22 +1828,15 @@ const ProfessionalParksyDashboard = () => {
                           <span className="badge cancelable">Cancelable</span>
                         )}
                         <span className="badge live">🔴 Real-Time Pricing</span>
-                        <span className="badge stripe" style={{
-                          backgroundColor: isStripeTestMode ? '#f59e0b' : '#635BFF'
-                        }}>
-                          {isStripeTestMode ? '🧪 Stripe TEST' : '💳 Stripe Secure'}
-                        </span>
+                        <span className="badge stripe">💳 Stripe Secure</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Service Overview */}
                   <div className="service-overview-premium">
-                    <h4>{isStripeTestMode ? 'Test Payment & Booking' : 'Secure Payment & Booking'}</h4>
-                    <p>{isStripeTestMode ? 
-                        'Complete your test booking with Stripe test mode - no real charges will be made' :
-                        'Complete your booking with secure Stripe payment processing'
-                    }</p>
+                    <h4>Secure Payment & Booking</h4>
+                    <p>Complete your booking with secure Stripe payment processing</p>
                     
                     <div className="service-highlights">
                       <div className="highlight-item">
@@ -2442,7 +1853,7 @@ const ProfessionalParksyDashboard = () => {
                       </div>
                       <div className="highlight-item">
                         <CreditCard size={16} />
-                        <span>{isStripeTestMode ? '🧪 Stripe Test Mode' : '💳 Stripe Secure Payment'}</span>
+                        <span>💳 Stripe Secure Payment</span>
                       </div>
                     </div>
                   </div>
@@ -2646,13 +2057,10 @@ const ProfessionalParksyDashboard = () => {
                       </div>
                     </div>
 
-                    {/* Enhanced Stripe Elements Card Payment Section */}
+                    {/* NEW: Stripe Elements Card Payment Section */}
                     <div className="form-section-premium">
-                      <h4>{isStripeTestMode ? '🧪 Test Payment Details' : '💳 Secure Payment Details'}</h4>
-                      <p>{isStripeTestMode ? 
-                          'Enter test card information below. This is TEST MODE - no real payments will be charged.' :
-                          'Enter your card information below. All payments are processed securely by Stripe.'
-                      }</p>
+                      <h4>💳 Secure Payment Details</h4>
+                      <p>Enter your card information below. All payments are processed securely by Stripe.</p>
                       
                       <div className="payment-methods-info" style={{
                         display: 'flex',
@@ -2660,67 +2068,16 @@ const ProfessionalParksyDashboard = () => {
                         gap: '12px',
                         marginBottom: '16px',
                         padding: '12px',
-                        backgroundColor: isStripeTestMode ? '#fef3c7' : '#f8fafc',
+                        backgroundColor: '#f8fafc',
                         borderRadius: '8px'
                       }}>
-                        <CreditCard size={20} style={{ color: isStripeTestMode ? '#f59e0b' : '#635BFF' }} />
+                        <CreditCard size={20} style={{ color: '#635BFF' }} />
                         <span style={{ fontSize: '14px', color: '#64748b' }}>
-                          {isStripeTestMode ? 
-                            'TEST MODE: Use test card numbers provided below' :
-                            'We accept Visa, Mastercard, American Express, and more'
-                          }
+                          We accept Visa, Mastercard, American Express, and more
                         </span>
                       </div>
 
-                      {/* Test Cards Quick Fill Buttons */}
-                      {isStripeTestMode && testCardInfo && (
-                        <div className="test-cards-section">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                            <Info size={16} />
-                            <strong>Quick Test Cards (Click to see details):</strong>
-                          </div>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                            <button
-                              type="button"
-                              className="test-card-button"
-                              onClick={() => fillTestCard('visa_success')}
-                            >
-                              ✅ Visa Success
-                            </button>
-                            <button
-                              type="button"
-                              className="test-card-button"
-                              onClick={() => fillTestCard('visa_declined')}
-                            >
-                              ❌ Visa Declined
-                            </button>
-                            <button
-                              type="button"
-                              className="test-card-button"
-                              onClick={() => fillTestCard('mastercard')}
-                            >
-                              💳 Mastercard
-                            </button>
-                            <button
-                              type="button"
-                              className="test-card-button"
-                              onClick={() => fillTestCard('visa_debit')}
-                            >
-                              💰 Visa Debit
-                            </button>
-                          </div>
-                          <small style={{ display: 'block', marginTop: '8px', color: '#92400e' }}>
-                            {testCardInfo.note}
-                          </small>
-                        </div>
-                      )}
-
                       <div className={`card-element-container ${cardError ? 'error' : ''}`}>
-                        {isStripeTestMode && (
-                          <div className="test-mode-indicator">
-                            TEST MODE
-                          </div>
-                        )}
                         <div id="card-element">
                           {/* Stripe Elements will mount here */}
                         </div>
@@ -2746,31 +2103,26 @@ const ProfessionalParksyDashboard = () => {
                         gap: '8px',
                         marginTop: '12px',
                         padding: '8px',
-                        backgroundColor: isStripeTestMode ? '#fef3c7' : '#f0fdf4',
+                        backgroundColor: '#f0fdf4',
                         borderRadius: '6px',
                         fontSize: '13px',
-                        color: isStripeTestMode ? '#92400e' : '#059669'
+                        color: '#059669'
                       }}>
                         <Lock size={14} />
-                        <span>{isStripeTestMode ? 
-                          'TEST MODE: No real charges will be made' :
-                          'Your payment information is encrypted and secure'
-                        }</span>
+                        <span>Your payment information is encrypted and secure</span>
                       </div>
                     </div>
 
-                    {/* Enhanced Pricing Summary */}
+                    {/* Pricing Summary with Stripe */}
                     <div className="pricing-summary-premium">
                       <div className="pricing-header">
-                        <h4>{isStripeTestMode ? 'Test Payment Summary' : 'Payment Summary'}</h4>
+                        <h4>Payment Summary</h4>
                         <div className="payment-badges">
                           <span className="price-updated">
                             🔴 Live pricing updated: {selectedSpot.last_updated}
                           </span>
-                          <span className="stripe-badge" style={{
-                            backgroundColor: isStripeTestMode ? '#f59e0b' : '#635BFF'
-                          }}>
-                            {isStripeTestMode ? '🧪 TEST MODE' : '💳 Secured by Stripe'}
+                          <span className="stripe-badge">
+                            💳 Secured by Stripe
                           </span>
                         </div>
                       </div>
@@ -2789,21 +2141,20 @@ const ProfessionalParksyDashboard = () => {
                           <span>£{selectedSpot.commission_amount}</span>
                         </div>
                         <div className="pricing-total">
-                          <span>{isStripeTestMode ? 'Test Amount (No Real Charge)' : 'Total Amount (Live Price)'}</span>
+                          <span>Total Amount (Live Price)</span>
                           <span>£{selectedSpot.formatted_price}</span>
                         </div>
                       </div>
                     </div>
 
-                    {/* Enhanced Submit Button */}
+                    {/* Submit Button - Enhanced for Stripe Elements */}
                     <button
                       type="submit"
                       className="premium-confirm-btn stripe-enhanced"
                       disabled={isLoading || !authStatus.isLoggedIn || !stripe || processingPayment || !cardComplete}
                       style={{
                         background: (!authStatus.isLoggedIn || !stripe || !cardComplete) ? '#94a3b8' : 
-                                   processingPayment ? (isStripeTestMode ? '#f59e0b' : '#3b82f6') : 
-                                   isStripeTestMode ? 'linear-gradient(135deg, #f59e0b, #d97706)' :
+                                   processingPayment ? '#3b82f6' : 
                                    'linear-gradient(135deg, #635BFF, #4F46E5)',
                         opacity: (!authStatus.isLoggedIn || !stripe || processingPayment || !cardComplete) ? 0.7 : 1
                       }}
@@ -2827,7 +2178,7 @@ const ProfessionalParksyDashboard = () => {
                         <>
                           <Loader2 size={20} className="btn-spinner" />
                           <span>
-                            {paymentStep === 2 ? (isStripeTestMode ? '🧪 Processing Test Payment...' : '💳 Processing Payment...') : 
+                            {paymentStep === 2 ? '💳 Processing Payment...' : 
                              paymentStep === 3 ? '🎫 Creating Booking...' : 
                              '🔄 Processing...'}
                           </span>
@@ -2835,29 +2186,16 @@ const ProfessionalParksyDashboard = () => {
                       ) : (
                         <>
                           <CreditCard size={20} />
-                          <span>{isStripeTestMode ? 
-                            `🧪 Test Pay £${selectedSpot.formatted_price}` : 
-                            `💳 Pay £${selectedSpot.formatted_price} Securely`
-                          }</span>
+                          <span>💳 Pay £{selectedSpot.formatted_price} Securely</span>
                         </>
                       )}
                     </button>
 
                     <div className="stripe-disclaimer">
                       <small>
-                        {isStripeTestMode ? (
-                          <>
-                            By clicking "Test Pay", you agree to our Terms of Service. 
-                            This is TEST MODE - no real payments will be processed. 
-                            This will create a test payment intent and process your booking in test mode.
-                          </>
-                        ) : (
-                          <>
-                            By clicking "Pay Securely", you agree to our Terms of Service and 
-                            authorize Stripe to process your payment securely. 
-                            This will create a payment intent and process your booking immediately.
-                          </>
-                        )}
+                        By clicking "Pay Securely", you agree to our Terms of Service and 
+                        authorize Stripe to process your payment securely. 
+                        This will create a payment intent and process your booking immediately.
                       </small>
                     </div>
                   </form>
@@ -2873,39 +2211,15 @@ const ProfessionalParksyDashboard = () => {
                         </div>
                       </div>
                       
-                      <h2>{isStripeTestMode || bookingStatus.isTestMode ? 
-                          '🧪 Test Payment Successful & Booking Confirmed!' : 
-                          '💳 Payment Successful & Booking Confirmed!'
-                      }</h2>
+                      <h2>💳 Payment Successful & Booking Confirmed!</h2>
                       
-                      <p>{isStripeTestMode || bookingStatus.isTestMode ?
-                          'Your test payment has been processed by Stripe (TEST MODE) and your parking space has been reserved' :
-                          'Your payment has been processed securely by Stripe and your parking space has been reserved'
-                      }</p>
-                      
-                      {/* Test Mode Banner in Success */}
-                      {(isStripeTestMode || bookingStatus.isTestMode) && (
-                        <div style={{
-                          background: '#fef3c7',
-                          color: '#92400e',
-                          padding: '12px',
-                          borderRadius: '8px',
-                          marginBottom: '16px',
-                          border: '2px solid #f59e0b'
-                        }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Info size={16} />
-                            <strong>🧪 TEST MODE SUCCESS - No Real Charge Made</strong>
-                          </div>
-                          <small>This was a test transaction. No actual payment has been processed.</small>
-                        </div>
-                      )}
+                      <p>Your payment has been processed securely by Stripe and your parking space has been reserved</p>
                       
                       <div className="booking-details-premium stripe-enhanced">
                         <div className="payment-confirmation">
                           <div className="payment-header">
                             <CreditCard size={20} />
-                            <span>{(isStripeTestMode || bookingStatus.isTestMode) ? 'Test Payment Confirmation' : 'Payment Confirmation'}</span>
+                            <span>Payment Confirmation</span>
                           </div>
                           <div className="payment-details">
                             <div className="detail-row">
@@ -2913,23 +2227,13 @@ const ProfessionalParksyDashboard = () => {
                               <strong>{bookingStatus.paymentIntentId}</strong>
                             </div>
                             <div className="detail-row">
-                              <span>Amount {(isStripeTestMode || bookingStatus.isTestMode) ? '(Test)' : 'Paid'}</span>
+                              <span>Amount Paid</span>
                               <strong>£{bookingStatus.paymentAmount} {bookingStatus.paymentCurrency?.toUpperCase()}</strong>
                             </div>
                             <div className="detail-row">
                               <span>Payment Status</span>
-                              <span className="status-badge success">
-                                {(isStripeTestMode || bookingStatus.isTestMode) ? '🧪 Test Success' : '✅ Paid'}
-                              </span>
+                              <span className="status-badge success">✅ Paid</span>
                             </div>
-                            {(isStripeTestMode || bookingStatus.isTestMode) && (
-                              <div className="detail-row">
-                                <span>Mode</span>
-                                <span className="status-badge" style={{backgroundColor: '#f59e0b', color: 'white'}}>
-                                  TEST MODE
-                                </span>
-                              </div>
-                            )}
                           </div>
                         </div>
 
@@ -2994,10 +2298,7 @@ const ProfessionalParksyDashboard = () => {
                       <div className="stripe-success-footer">
                         <div className="stripe-info">
                           <Lock size={14} />
-                          <span>{(isStripeTestMode || bookingStatus.isTestMode) ? 
-                            'Your test payment was processed by Stripe (TEST MODE)' :
-                            'Your payment was processed securely by Stripe'
-                          }</span>
+                          <span>Your payment was processed securely by Stripe</span>
                         </div>
                         <div className="receipt-info">
                           <Mail size={14} />
@@ -3011,10 +2312,7 @@ const ProfessionalParksyDashboard = () => {
                         <AlertCircle size={64} />
                         <div className="error-pulse"></div>
                       </div>
-                      <h2>{(isStripeTestMode || bookingStatus?.isTestMode) ? 
-                          '🧪 Test Payment or Booking Failed' : 
-                          '💳 Payment or Booking Failed'
-                      }</h2>
+                      <h2>💳 Payment or Booking Failed</h2>
                       <p>{bookingStatus?.message || "Unable to complete your payment or booking"}</p>
                       
                       {bookingStatus?.paymentStep && (
@@ -3041,10 +2339,7 @@ const ProfessionalParksyDashboard = () => {
                           }}
                         >
                           <CreditCard size={18} />
-                          <span>{(isStripeTestMode || bookingStatus?.isTestMode) ? 
-                            'Try Test Payment Again' : 
-                            'Try Payment Again'
-                          }</span>
+                          <span>Try Payment Again</span>
                         </button>
                       </div>
 
