@@ -26,6 +26,8 @@ class MagrApiService {
       successful_requests: 0,
       failed_requests: 0,
       bookings_created: 0,
+      bookings_cancelled: 0,
+      bookings_amended: 0,
       last_request_time: null,
       api_status: 'unknown'
     };
@@ -83,9 +85,15 @@ class MagrApiService {
         duration: `${duration}ms`
       });
 
-      // Track successful booking creation
-      if (response.config.url === '/bookings' && response.data?.status === 'success') {
-        this.stats.bookings_created++;
+      // Track successful operations
+      if (response.data?.status === 'success' || response.data?.status === 'Success') {
+        if (response.config.url === '/bookings') {
+          this.stats.bookings_created++;
+        } else if (response.config.url === '/cancel') {
+          this.stats.bookings_cancelled++;
+        } else if (response.config.url === '/amend') {
+          this.stats.bookings_amended++;
+        }
       }
 
       return response;
@@ -501,6 +509,281 @@ class MagrApiService {
       console.error('❌ MAGR API booking creation failed:', error.message);
       throw new Error(`MAGR API booking failed: ${error.message}`);
     }
+  }
+
+  /**
+   * Cancel booking via MAGR API
+   */
+  async cancelBooking(bookingRef, refundAmount = 0) {
+    try {
+      console.log('🚫 Cancelling MAGR API booking:', bookingRef);
+      
+      if (!bookingRef || typeof bookingRef !== 'string') {
+        throw new Error('Valid booking reference is required for cancellation');
+      }
+
+      const refund = parseFloat(refundAmount || 0);
+      if (isNaN(refund) || refund < 0) {
+        throw new Error('Invalid refund amount - must be a positive number');
+      }
+
+      // Prepare request data matching API documentation
+      const requestData = {
+        booking_ref: bookingRef,
+        refund: refund.toFixed(2)
+      };
+
+      console.log('🚀 Sending cancel request to MAGR API:', {
+        booking_ref: requestData.booking_ref,
+        refund_amount: requestData.refund
+      });
+
+      const startTime = Date.now();
+      const result = await this.makeRequest('/cancel', requestData);
+      const duration = Date.now() - startTime;
+
+      console.log('📋 MAGR API cancel result:', {
+        status: result?.status,
+        message: result?.message,
+        duration: `${duration}ms`
+      });
+
+      if (!result) {
+        throw new Error('Empty response from MAGR API cancel endpoint');
+      }
+
+      // Success case
+      if (result.status === 'success' || result.status === 'Success') {
+        console.log('✅ MAGR API booking cancellation successful');
+        
+        return {
+          success: true,
+          status: 'success',
+          message: result.message || 'Booking cancelled successfully',
+          booking_ref: result.booking_ref || bookingRef,
+          reference: result.reference || result.booking_ref || bookingRef,
+          refund_amount: refund,
+          timestamp: new Date().toISOString()
+        };
+      }
+
+      // Error case
+      if (result.status === 'Error' || result.status === 'error') {
+        const errorMsg = result.message || 'Unknown MAGR API cancellation error';
+        console.error('❌ MAGR API cancellation error:', errorMsg);
+        
+        return {
+          success: false,
+          status: 'error',
+          message: errorMsg,
+          booking_ref: bookingRef,
+          error_code: this.mapCancelErrorCode(errorMsg),
+          timestamp: new Date().toISOString()
+        };
+      }
+
+      // Unexpected response format
+      console.error('❌ Unexpected MAGR API cancel response:', result);
+      return {
+        success: false,
+        status: 'error',
+        message: `Unexpected response from MAGR API: ${JSON.stringify(result).substring(0, 100)}`,
+        booking_ref: bookingRef,
+        error_code: 'UNEXPECTED_RESPONSE',
+        timestamp: new Date().toISOString()
+      };
+
+    } catch (error) {
+      console.error('❌ MAGR API cancellation failed:', error.message);
+      
+      return {
+        success: false,
+        status: 'error',
+        message: error.message,
+        booking_ref: bookingRef,
+        error_code: 'CANCEL_REQUEST_FAILED',
+        timestamp: new Date().toISOString()
+      };
+    }
+  }
+
+  /**
+   * Amend booking via MAGR API
+   */
+  async amendBooking(amendData) {
+    try {
+      console.log('✏️ Amending MAGR API booking:', amendData.bookreference);
+      
+      if (!amendData || typeof amendData !== 'object') {
+        throw new Error('Invalid amend booking data - must provide amend data object');
+      }
+
+      if (!amendData.bookreference) {
+        throw new Error('Booking reference is required for amendment');
+      }
+
+      if (!amendData.company_code) {
+        throw new Error('Company code is required for amendment');
+      }
+
+      // Prepare request data matching API documentation format
+      const requestData = {
+        company_code: amendData.company_code,
+        bookreference: amendData.bookreference,
+        amend_booking: "amend_booking", // Required flag per API docs
+        
+        // Travel details (times can be changed, dates cannot per API docs)
+        dropoff_time: amendData.dropoff_time,
+        dropoff_date: amendData.dropoff_date, // Cannot be changed but must be included
+        pickup_time: amendData.pickup_time,
+        pickup_date: amendData.pickup_date, // Cannot be changed but must be included
+        
+        // Customer details (can be changed)
+        title: amendData.title,
+        first_name: amendData.first_name?.trim(),
+        last_name: amendData.last_name?.trim(),
+        customer_email: amendData.customer_email?.toLowerCase().trim(),
+        phone_number: amendData.phone_number?.trim(),
+        
+        // Flight details (can be changed)
+        departure_flight_number: amendData.departure_flight_number?.trim().toUpperCase() || 'TBA',
+        arrival_flight_number: amendData.arrival_flight_number?.trim().toUpperCase() || 'TBA',
+        departure_terminal: amendData.departure_terminal,
+        arrival_terminal: amendData.arrival_terminal,
+        
+        // Vehicle details (can be changed)
+        car_registration_number: amendData.car_registration_number?.toUpperCase().trim(),
+        car_make: amendData.car_make?.trim(),
+        car_model: amendData.car_model?.trim(),
+        car_color: amendData.car_color?.trim(),
+        
+        // Fixed booking details (cannot be changed)
+        park_api: amendData.park_api || "b2b",
+        passenger: amendData.passenger || 1,
+        paymentgateway: amendData.paymentgateway,
+        payment_token: amendData.payment_token,
+        booking_amount: amendData.booking_amount
+      };
+
+      // Remove undefined/null values
+      Object.keys(requestData).forEach(key => {
+        if (requestData[key] === undefined || requestData[key] === null || requestData[key] === '') {
+          delete requestData[key];
+        }
+      });
+
+      console.log('🚀 Sending amend request to MAGR API:', {
+        bookreference: requestData.bookreference,
+        company_code: requestData.company_code
+      });
+
+      const startTime = Date.now();
+      const result = await this.makeRequest('/amend', requestData);
+      const duration = Date.now() - startTime;
+
+      console.log('📋 MAGR API amend result:', {
+        status: result?.status,
+        reference: result?.reference,
+        duration: `${duration}ms`
+      });
+
+      if (!result) {
+        throw new Error('Empty response from MAGR API amend endpoint');
+      }
+
+      // Success case
+      if (result.status === 'success' || result.status === 'Success') {
+        console.log('✅ MAGR API booking amendment successful');
+        
+        return {
+          success: true,
+          status: 'success',
+          message: result.message || 'Booking amended successfully',
+          reference: result.reference || amendData.bookreference,
+          booking_ref: result.booking_ref || result.reference || amendData.bookreference,
+          timestamp: new Date().toISOString()
+        };
+      }
+
+      // Error case
+      if (result.status === 'Error' || result.status === 'error') {
+        const errorMsg = result.message || 'Unknown MAGR API amendment error';
+        console.error('❌ MAGR API amendment error:', errorMsg);
+        
+        return {
+          success: false,
+          status: 'error',
+          message: errorMsg,
+          reference: amendData.bookreference,
+          error_code: this.mapAmendErrorCode(errorMsg),
+          timestamp: new Date().toISOString()
+        };
+      }
+
+      // Unexpected response format
+      console.error('❌ Unexpected MAGR API amend response:', result);
+      return {
+        success: false,
+        status: 'error',
+        message: `Unexpected response from MAGR API: ${JSON.stringify(result).substring(0, 100)}`,
+        reference: amendData.bookreference,
+        error_code: 'UNEXPECTED_RESPONSE',
+        timestamp: new Date().toISOString()
+      };
+
+    } catch (error) {
+      console.error('❌ MAGR API amendment failed:', error.message);
+      
+      return {
+        success: false,
+        status: 'error',
+        message: error.message,
+        reference: amendData?.bookreference,
+        error_code: 'AMEND_REQUEST_FAILED',
+        timestamp: new Date().toISOString()
+      };
+    }
+  }
+
+  /**
+   * Map MAGR API error messages to standardized error codes
+   */
+  mapCancelErrorCode(errorMessage) {
+    const message = errorMessage.toLowerCase();
+    
+    if (message.includes('user not found') || message.includes('invalid api credentials')) {
+      return 'INVALID_CREDENTIALS';
+    }
+    if (message.includes('within 48 hours') || message.includes('48 hours')) {
+      return 'WITHIN_48_HOURS';
+    }
+    if (message.includes('non-flex') || message.includes('must be flex')) {
+      return 'NON_CANCELLABLE';
+    }
+    if (message.includes('booking not found')) {
+      return 'BOOKING_NOT_FOUND';
+    }
+    
+    return 'UNKNOWN_ERROR';
+  }
+
+  mapAmendErrorCode(errorMessage) {
+    const message = errorMessage.toLowerCase();
+    
+    if (message.includes('user not found') || message.includes('invalid api credentials')) {
+      return 'INVALID_CREDENTIALS';
+    }
+    if (message.includes('within 48 hours') || message.includes('48 hours')) {
+      return 'WITHIN_48_HOURS';
+    }
+    if (message.includes('non-flex') || message.includes('must be flex')) {
+      return 'NON_EDITABLE';
+    }
+    if (message.includes('booking not found')) {
+      return 'BOOKING_NOT_FOUND';
+    }
+    
+    return 'UNKNOWN_ERROR';
   }
 
   /**
