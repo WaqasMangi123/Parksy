@@ -1221,6 +1221,7 @@ const ProfessionalParksyDashboard = () => {
 
       // Clean booking data
      // Clean booking data
+// Clean booking data with CORRECT field names
 const bookingData = {
   payment_intent_id: paymentIntentId,
   
@@ -1237,14 +1238,12 @@ const bookingData = {
   pickup_date: searchParams.pickup_date,
   pickup_time: searchParams.pickup_time,
   
-  // Financial
-  booking_amount: parseFloat(selectedSpot.price || selectedSpot.formatted_price), // ❌ WRONG FIELD NAME
+  // Financial - ✅ CORRECTED
+  price: parseFloat(selectedSpot.price || selectedSpot.formatted_price),
   commission_percentage: selectedSpot.share_percentage || 0,
   
-  // Customer details - ❌ ALL WRONG FIELD NAMES
-  title: bookingDetails.title,
-  first_name: bookingDetails.first_name,
-  last_name: bookingDetails.last_name,
+  // Customer details - ✅ CORRECTED
+  customer_name: `${bookingDetails.first_name} ${bookingDetails.last_name}`,
   customer_email: bookingDetails.customer_email,
   phone_number: bookingDetails.phone_number,
   
@@ -1255,18 +1254,17 @@ const bookingData = {
   arrival_terminal: bookingDetails.arrival_terminal || 'Terminal 1',
   passenger: parseInt(bookingDetails.passenger) || 1,
   
-  // Vehicle details - ❌ ALL WRONG FIELD NAMES
-  car_registration_number: bookingDetails.car_registration_number,
-  car_make: bookingDetails.car_make,
-  car_model: bookingDetails.car_model,
-  car_color: bookingDetails.car_color,
+  // Vehicle details - ✅ CORRECTED
+  vehicle_registration: bookingDetails.car_registration_number,
+  vehicle_make: bookingDetails.car_make,
+  vehicle_model: bookingDetails.car_model,
+  vehicle_color: bookingDetails.car_color,
   
   // Service features
   is_cancelable: selectedSpot.cancelable === 'Yes',
   is_editable: selectedSpot.editable === 'Yes',
   special_features: selectedSpot.features_array || []
 };
-
       console.log('🚀 Submitting booking:', {
         payment_intent_id: paymentIntentId,
         service: bookingData.product_name,
