@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Calendar, User, Car, Plane, AlertCircle, CheckCircle, XCircle, 
-  RefreshCw, Trash2, Eye, Edit, Loader2, Plus, ArrowLeft, Home
+  Calendar, Car, Plane, AlertCircle, XCircle, 
+  RefreshCw, Trash2, Eye, Edit, Loader2, Plus, ArrowLeft
 } from 'lucide-react';
 
 const UserBooking = () => {
   const API_BASE_URL = "https://parksy-backend.onrender.com";
   
-  // State
   const [userBookings, setUserBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -34,17 +33,12 @@ const UserBooking = () => {
     if (userStr) {
       try {
         const userObj = JSON.parse(userStr);
-        if (userObj.token && userObj.token.includes('.')) {
-          return userObj.token;
-        }
-        if (userObj.access_token && userObj.access_token.includes('.')) {
-          return userObj.access_token;
-        }
+        if (userObj.token) return userObj.token;
+        if (userObj.access_token) return userObj.access_token;
       } catch (e) {
         console.error('Failed to parse user object:', e);
       }
     }
-    
     return null;
   };
 
@@ -53,10 +47,7 @@ const UserBooking = () => {
     const userStr = localStorage.getItem('user');
     if (userStr) {
       try {
-        const userObj = JSON.parse(userStr);
-        if (userObj.id && userObj.email) {
-          return userObj;
-        }
+        return JSON.parse(userStr);
       } catch (e) {
         console.error('Failed to parse user:', e);
       }
@@ -64,7 +55,7 @@ const UserBooking = () => {
     return null;
   };
 
-  // Check auth
+  // Check auth on mount
   useEffect(() => {
     const token = getAuthToken();
     const user = getUserInfo();
@@ -78,7 +69,7 @@ const UserBooking = () => {
     }
   }, []);
 
-  // Fetch bookings using new API
+  // Fetch user bookings
   const fetchUserBookings = async () => {
     if (!authStatus.isLoggedIn) return;
 
@@ -87,9 +78,7 @@ const UserBooking = () => {
       setError(null);
       
       const authToken = getAuthToken();
-      if (!authToken) {
-        throw new Error('No authentication token found');
-      }
+      if (!authToken) throw new Error('No authentication token found');
 
       const response = await fetch(`${API_BASE_URL}/api/parking/my-bookings`, {
         headers: {
@@ -99,44 +88,24 @@ const UserBooking = () => {
       });
 
       if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Session expired. Please log in again.');
-        }
+        if (response.status === 401) throw new Error('Session expired. Please log in again.');
         throw new Error(`Failed to fetch bookings: ${response.status}`);
       }
 
       const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.message || 'Failed to fetch bookings');
-      }
+      if (!result.success) throw new Error(result.message || 'Failed to fetch bookings');
 
-      // Process the booking data from the new API structure
+      // Process bookings
       const bookingsArray = result.data || [];
-      
       const processedBookings = bookingsArray.map(booking => ({
         ...booking,
         _id: booking.id,
-        our_reference: booking.our_reference,
-        booking_reference: booking.our_reference,
-        status: booking.status,
-        dropoff_date: booking.travel_details?.dropoff_date,
-        dropoff_time: booking.travel_details?.dropoff_time,
-        pickup_date: booking.travel_details?.pickup_date,
-        pickup_time: booking.travel_details?.pickup_time,
-        customer_email: booking.customer_details?.customer_email,
-        customer_name: booking.customer_details ? 
-          `${booking.customer_details.title || ''} ${booking.customer_details.first_name || ''} ${booking.customer_details.last_name || ''}`.trim() :
-          'N/A',
-        vehicle_registration: booking.vehicle_details?.car_registration_number,
-        price: booking.booking_amount,
-        is_cancelable: booking.can_cancel,
-        is_editable: booking.can_amend,
-        is_test: booking.is_test_payment || false
+        is_test: booking.is_test_payment || booking.our_reference?.includes('TEST'),
+        is_cancelable: booking.can_cancel || booking.is_test_payment,
+        is_editable: booking.can_amend || booking.is_test_payment
       }));
         
       setUserBookings(processedBookings);
-      setError(null);
       
     } catch (error) {
       console.error('Error fetching bookings:', error);
@@ -174,18 +143,13 @@ const UserBooking = () => {
     return null;
   };
 
-  // Cancel booking using new API
+  // Cancel booking
   const cancelBooking = async () => {
     if (!selectedBooking) return;
 
     setProcessingAction(true);
-    
     try {
       const authToken = getAuthToken();
-      if (!authToken) {
-        throw new Error('Authentication required');
-      }
-
       const response = await fetch(`${API_BASE_URL}/api/parking/cancel-booking`, {
         method: 'POST',
         headers: {
@@ -199,9 +163,8 @@ const UserBooking = () => {
       });
 
       const result = await response.json();
-
       if (response.ok && result.success) {
-        alert('Booking cancelled successfully! ' + (result.data?.refund ? `Refund of £${result.data.refund.amount} processed.` : ''));
+        alert('Booking cancelled successfully!');
         setShowModal(false);
         setSelectedBooking(null);
         setActionReason('');
@@ -209,27 +172,20 @@ const UserBooking = () => {
       } else {
         throw new Error(result.message || 'Failed to cancel booking');
       }
-
     } catch (error) {
-      console.error('Error cancelling booking:', error);
       alert(`Failed to cancel booking: ${error.message}`);
     } finally {
       setProcessingAction(false);
     }
   };
 
-  // Amend booking using new API
+  // Amend booking
   const amendBooking = async () => {
     if (!selectedBooking) return;
 
     setProcessingAction(true);
-    
     try {
       const authToken = getAuthToken();
-      if (!authToken) {
-        throw new Error('Authentication required');
-      }
-
       const response = await fetch(`${API_BASE_URL}/api/parking/amend-booking`, {
         method: 'POST',
         headers: {
@@ -243,7 +199,6 @@ const UserBooking = () => {
       });
 
       const result = await response.json();
-
       if (response.ok && result.success) {
         alert('Booking amended successfully!');
         setShowModal(false);
@@ -253,71 +208,38 @@ const UserBooking = () => {
       } else {
         throw new Error(result.message || 'Failed to amend booking');
       }
-
     } catch (error) {
-      console.error('Error amending booking:', error);
       alert(`Failed to amend booking: ${error.message}`);
     } finally {
       setProcessingAction(false);
     }
   };
 
-  // Delete booking (for cancelled bookings)
-  const deleteBooking = async (bookingRef) => {
-    if (!window.confirm('Are you sure you want to delete this booking record? This cannot be undone.')) {
-      return;
-    }
-
-    try {
-      setProcessingAction(true);
-      // This would be a local operation to remove from UI
-      // Since there's no delete endpoint in the backend, we'll just hide it locally
+  // Delete booking
+  const deleteBooking = (bookingRef) => {
+    if (window.confirm('Delete this booking record?')) {
       setUserBookings(prev => prev.filter(b => b.our_reference !== bookingRef));
       setShowModal(false);
-      setSelectedBooking(null);
-      alert('Booking record removed from view');
-    } catch (error) {
-      alert(`Failed to delete booking: ${error.message}`);
-    } finally {
-      setProcessingAction(false);
+      alert('Booking record removed');
     }
   };
 
-  // Format currency
+  // Utilities
   const formatCurrency = (amount) => `£${(amount || 0).toFixed(2)}`;
-
-  // Format date
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-GB', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric'
+      day: 'numeric', month: 'short', year: 'numeric'
     });
   };
-
-  // Get status color
   const getStatusColor = (status) => {
     const colors = {
       'confirmed': '#10b981',
-      'cancelled': '#ef4444',
+      'cancelled': '#ef4444', 
       'pending': '#f59e0b',
       'refunded': '#6366f1'
     };
     return colors[status] || '#6b7280';
-  };
-
-  // Navigation
-  const goToHome = () => window.location.href = '/';
-  const goToNewBooking = () => window.location.href = '/#/parking';
-
-  // Handle amend form changes
-  const handleAmendFormChange = (field, value) => {
-    setAmendFormData(prev => ({
-      ...prev,
-      [field]: value
-    }));
   };
 
   // If not logged in
@@ -326,8 +248,8 @@ const UserBooking = () => {
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' }}>
         <div style={{ maxWidth: '400px', padding: '2rem', background: 'white', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', textAlign: 'center' }}>
           <AlertCircle size={48} style={{ color: '#f59e0b', marginBottom: '1rem' }} />
-          <h2 style={{ marginBottom: '1rem', color: '#1f2937' }}>Login Required</h2>
-          <p style={{ marginBottom: '2rem', color: '#6b7280' }}>Please log in to view your bookings</p>
+          <h2>Login Required</h2>
+          <p>Please log in to view your bookings</p>
           <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
             <button 
               onClick={() => window.location.href = '/#/login'}
@@ -336,7 +258,7 @@ const UserBooking = () => {
               Go to Login
             </button>
             <button 
-              onClick={goToHome}
+              onClick={() => window.location.href = '/'}
               style={{ padding: '0.75rem 1.5rem', background: '#6b7280', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
             >
               Back to Home
@@ -353,7 +275,7 @@ const UserBooking = () => {
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' }}>
         <div style={{ textAlign: 'center', background: 'white', padding: '2rem', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
           <RefreshCw size={48} style={{ color: '#3b82f6', marginBottom: '1rem', animation: 'spin 1s linear infinite' }} />
-          <h2 style={{ color: '#1f2937' }}>Loading Your Bookings...</h2>
+          <h2>Loading Your Bookings...</h2>
         </div>
       </div>
     );
@@ -365,19 +287,13 @@ const UserBooking = () => {
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' }}>
         <div style={{ maxWidth: '500px', padding: '2rem', background: 'white', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', textAlign: 'center' }}>
           <AlertCircle size={48} style={{ color: '#ef4444', marginBottom: '1rem' }} />
-          <h2 style={{ marginBottom: '1rem', color: '#1f2937' }}>Error Loading Bookings</h2>
-          <p style={{ marginBottom: '2rem', color: '#6b7280' }}>{error}</p>
+          <h2>Error Loading Bookings</h2>
+          <p>{error}</p>
           <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-            <button 
-              onClick={fetchUserBookings}
-              style={{ padding: '0.75rem 1.5rem', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-            >
+            <button onClick={fetchUserBookings} style={{ padding: '0.75rem 1.5rem', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
               Try Again
             </button>
-            <button 
-              onClick={goToHome}
-              style={{ padding: '0.75rem 1.5rem', background: '#6b7280', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-            >
+            <button onClick={() => window.location.href = '/'} style={{ padding: '0.75rem 1.5rem', background: '#6b7280', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
               Go Home
             </button>
           </div>
@@ -392,38 +308,36 @@ const UserBooking = () => {
       <div style={{ background: 'white', borderBottom: '1px solid #e5e7eb', padding: '1rem 2rem' }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <button onClick={goToHome} style={{ padding: '0.5rem', background: '#f3f4f6', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
+            <button onClick={() => window.location.href = '/'} style={{ padding: '0.5rem', background: '#f3f4f6', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
               <ArrowLeft size={20} />
             </button>
             <div>
               <h1 style={{ margin: '0', color: '#1f2937' }}>My Bookings</h1>
-              <p style={{ margin: '0', color: '#6b7280', fontSize: '0.875rem' }}>Welcome, {authStatus.user?.email}!</p>
+              <p style={{ margin: '0', color: '#6b7280', fontSize: '0.875rem' }}>{authStatus.user?.email}</p>
             </div>
           </div>
           <div style={{ display: 'flex', gap: '1rem' }}>
             <button 
-              onClick={goToNewBooking}
+              onClick={() => window.location.href = '/#/parking'}
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
             >
               <Plus size={16} />
               New Booking
             </button>
-            <button 
-              onClick={fetchUserBookings}
-              style={{ padding: '0.75rem 1rem', background: '#f3f4f6', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-            >
+            <button onClick={fetchUserBookings} style={{ padding: '0.75rem 1rem', background: '#f3f4f6', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
               <RefreshCw size={16} />
             </button>
           </div>
         </div>
       </div>
 
-      {/* Stats */}
+      {/* Content */}
       <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
+        {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
           <div style={{ background: 'white', padding: '1.5rem', borderRadius: '12px', textAlign: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
             <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#3b82f6' }}>{userBookings.length}</div>
-            <div style={{ color: '#6b7280', fontSize: '0.875rem' }}>Total Bookings</div>
+            <div style={{ color: '#6b7280', fontSize: '0.875rem' }}>Total</div>
           </div>
           <div style={{ background: 'white', padding: '1.5rem', borderRadius: '12px', textAlign: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
             <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#10b981' }}>{userBookings.filter(b => b.status === 'confirmed').length}</div>
@@ -435,7 +349,7 @@ const UserBooking = () => {
           </div>
           <div style={{ background: 'white', padding: '1.5rem', borderRadius: '12px', textAlign: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
             <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#6366f1' }}>
-              {formatCurrency(userBookings.reduce((sum, booking) => sum + (booking.booking_amount || booking.price || 0), 0))}
+              {formatCurrency(userBookings.reduce((sum, booking) => sum + (booking.booking_amount || 0), 0))}
             </div>
             <div style={{ color: '#6b7280', fontSize: '0.875rem' }}>Total Spent</div>
           </div>
@@ -445,10 +359,10 @@ const UserBooking = () => {
         {userBookings.length === 0 ? (
           <div style={{ textAlign: 'center', background: 'white', padding: '3rem', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
             <Plane size={64} style={{ color: '#9ca3af', marginBottom: '1rem' }} />
-            <h3 style={{ marginBottom: '1rem', color: '#1f2937' }}>No Bookings Found</h3>
-            <p style={{ marginBottom: '2rem', color: '#6b7280' }}>You haven't made any bookings yet. Start your journey with us!</p>
+            <h3>No Bookings Found</h3>
+            <p>You haven't made any bookings yet.</p>
             <button 
-              onClick={goToNewBooking}
+              onClick={() => window.location.href = '/#/parking'}
               style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
             >
               <Plus size={16} />
@@ -458,29 +372,29 @@ const UserBooking = () => {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '1.5rem' }}>
             {userBookings.map((booking, index) => (
-              <div key={booking._id || index} style={{ background: 'white', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', border: '1px solid #e5e7eb' }}>
+              <div key={booking._id || index} style={{ background: 'white', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                {/* Booking Header */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
                   <div>
-                    <strong style={{ color: '#1f2937', fontSize: '1.1rem' }}>#{booking.our_reference}</strong>
-                    <div style={{ 
-                      display: 'inline-block', 
+                    <strong style={{ color: '#1f2937' }}>#{booking.our_reference}</strong>
+                    <span style={{ 
                       marginLeft: '0.5rem', 
                       padding: '0.25rem 0.5rem', 
                       fontSize: '0.75rem', 
-                      fontWeight: '500', 
                       borderRadius: '4px',
-                      background: booking.status === 'confirmed' ? '#dcfce7' : booking.status === 'cancelled' ? '#fee2e2' : '#f3f4f6',
+                      background: booking.status === 'confirmed' ? '#dcfce7' : '#fee2e2',
                       color: getStatusColor(booking.status)
                     }}>
                       {booking.status}
-                    </div>
+                    </span>
                     {booking.is_test && (
-                      <div style={{ display: 'inline-block', marginLeft: '0.5rem', padding: '0.25rem 0.5rem', fontSize: '0.625rem', background: '#f59e0b', color: 'white', borderRadius: '4px' }}>
+                      <span style={{ marginLeft: '0.5rem', padding: '0.25rem 0.5rem', fontSize: '0.625rem', background: '#f59e0b', color: 'white', borderRadius: '4px' }}>
                         TEST
-                      </div>
+                      </span>
                     )}
                   </div>
                   
+                  {/* Action Buttons */}
                   <div style={{ display: 'flex', gap: '0.25rem' }}>
                     <button
                       onClick={async () => {
@@ -494,7 +408,7 @@ const UserBooking = () => {
                       <Eye size={14} />
                     </button>
                     
-                    {booking.status === 'confirmed' && booking.is_editable && (
+                    {((booking.status === 'confirmed' || booking.is_test) && booking.is_editable !== false) && (
                       <button
                         onClick={async () => {
                           const details = await getBookingDetails(booking.our_reference);
@@ -509,7 +423,7 @@ const UserBooking = () => {
                       </button>
                     )}
                     
-                    {booking.status === 'confirmed' && booking.is_cancelable && (
+                    {((booking.status === 'confirmed' || booking.is_test) && booking.is_cancelable !== false) && (
                       <button
                         onClick={() => {
                           setSelectedBooking(booking);
@@ -525,11 +439,7 @@ const UserBooking = () => {
                     
                     {booking.status === 'cancelled' && (
                       <button
-                        onClick={() => {
-                          setSelectedBooking(booking);
-                          setModalType('delete');
-                          setShowModal(true);
-                        }}
+                        onClick={() => deleteBooking(booking.our_reference)}
                         style={{ padding: '0.25rem', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                       >
                         <Trash2 size={14} />
@@ -538,6 +448,7 @@ const UserBooking = () => {
                   </div>
                 </div>
 
+                {/* Booking Details */}
                 <div>
                   <h3 style={{ margin: '0 0 0.5rem 0', color: '#1f2937' }}>{booking.product_name || 'Airport Parking'}</h3>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#6b7280', fontSize: '0.875rem', marginBottom: '1rem' }}>
@@ -545,31 +456,30 @@ const UserBooking = () => {
                     <span>{booking.airport_code}</span>
                   </div>
                   
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', color: '#374151' }}>
-                      <Calendar size={14} />
-                      <span>Drop-off: {formatDate(booking.dropoff_date)} at {booking.dropoff_time}</span>
+                  <div style={{ marginBottom: '1rem', fontSize: '0.875rem', color: '#374151' }}>
+                    <div style={{ marginBottom: '0.25rem' }}>
+                      <Calendar size={14} style={{ display: 'inline-block', marginRight: '0.5rem' }} />
+                      Drop-off: {formatDate(booking.travel_details?.dropoff_date)} {booking.travel_details?.dropoff_time}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', color: '#374151' }}>
-                      <Calendar size={14} />
-                      <span>Pick-up: {formatDate(booking.pickup_date)} at {booking.pickup_time}</span>
+                    <div style={{ marginBottom: '0.25rem' }}>
+                      <Calendar size={14} style={{ display: 'inline-block', marginRight: '0.5rem' }} />
+                      Pick-up: {formatDate(booking.travel_details?.pickup_date)} {booking.travel_details?.pickup_time}
                     </div>
-                    {booking.vehicle_registration && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', color: '#374151' }}>
-                        <Car size={14} />
-                        <span>{booking.vehicle_registration}</span>
+                    {booking.vehicle_details?.car_registration_number && (
+                      <div>
+                        <Car size={14} style={{ display: 'inline-block', marginRight: '0.5rem' }} />
+                        {booking.vehicle_details.car_registration_number}
                       </div>
                     )}
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '1rem', borderTop: '1px solid #e5e7eb' }}>
                     <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#1f2937' }}>
-                      {formatCurrency(booking.booking_amount || booking.price)}
+                      {formatCurrency(booking.booking_amount)}
                     </div>
                     <div style={{ 
                       padding: '0.25rem 0.5rem', 
                       fontSize: '0.75rem', 
-                      fontWeight: '500', 
                       borderRadius: '4px',
                       background: booking.payment_status === 'paid' ? '#dcfce7' : '#fee2e2',
                       color: booking.payment_status === 'paid' ? '#166534' : '#dc2626'
@@ -588,119 +498,70 @@ const UserBooking = () => {
       {showModal && selectedBooking && (
         <div 
           style={{ 
-            position: 'fixed', 
-            top: 0, 
-            left: 0, 
-            right: 0, 
-            bottom: 0, 
-            background: 'rgba(0,0,0,0.5)', 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center', 
-            zIndex: 1000 
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
+            background: 'rgba(0,0,0,0.5)', display: 'flex', 
+            alignItems: 'center', justifyContent: 'center', zIndex: 1000 
           }}
           onClick={() => setShowModal(false)}
         >
           <div 
             style={{ 
-              background: 'white', 
-              borderRadius: '12px', 
-              maxWidth: '600px', 
-              maxHeight: '90vh', 
-              overflow: 'auto', 
-              margin: '1rem', 
-              width: '100%' 
+              background: 'white', borderRadius: '12px', maxWidth: '600px', 
+              maxHeight: '90vh', overflow: 'auto', margin: '1rem', width: '100%' 
             }}
             onClick={(e) => e.stopPropagation()}
           >
+            {/* Modal Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem', borderBottom: '1px solid #e5e7eb' }}>
-              <h2 style={{ margin: 0, color: '#1f2937' }}>
+              <h2 style={{ margin: 0 }}>
                 {modalType === 'view' && 'Booking Details'}
                 {modalType === 'cancel' && 'Cancel Booking'}
                 {modalType === 'amend' && 'Amend Booking'}
-                {modalType === 'delete' && 'Delete Booking'}
               </h2>
-              <button 
-                onClick={() => setShowModal(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.5rem' }}
-              >
+              <button onClick={() => setShowModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.5rem' }}>
                 <XCircle size={20} />
               </button>
             </div>
 
+            {/* Modal Content */}
             <div style={{ padding: '1.5rem' }}>
               {modalType === 'view' ? (
                 <div>
                   <div style={{ marginBottom: '1.5rem' }}>
-                    <h3 style={{ marginBottom: '1rem', color: '#1f2937' }}>Service Information</h3>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                      <div>
-                        <label style={{ fontSize: '0.875rem', color: '#6b7280', display: 'block' }}>Service</label>
-                        <span style={{ color: '#1f2937', fontWeight: '500' }}>{selectedBooking.product_name || 'Airport Parking'}</span>
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '0.875rem', color: '#6b7280', display: 'block' }}>Airport</label>
-                        <span style={{ color: '#1f2937', fontWeight: '500' }}>{selectedBooking.airport_code}</span>
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '0.875rem', color: '#6b7280', display: 'block' }}>Reference</label>
-                        <span style={{ color: '#1f2937', fontWeight: '500' }}>{selectedBooking.our_reference}</span>
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '0.875rem', color: '#6b7280', display: 'block' }}>Status</label>
-                        <span style={{ color: getStatusColor(selectedBooking.status), fontWeight: '500' }}>{selectedBooking.status}</span>
-                      </div>
-                    </div>
+                    <h3>Service Information</h3>
+                    <p><strong>Service:</strong> {selectedBooking.product_name || 'Airport Parking'}</p>
+                    <p><strong>Airport:</strong> {selectedBooking.airport_code}</p>
+                    <p><strong>Reference:</strong> {selectedBooking.our_reference}</p>
+                    <p><strong>Status:</strong> <span style={{ color: getStatusColor(selectedBooking.status) }}>{selectedBooking.status}</span></p>
                   </div>
 
                   <div style={{ marginBottom: '1.5rem' }}>
-                    <h3 style={{ marginBottom: '1rem', color: '#1f2937' }}>Travel Information</h3>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                      <div>
-                        <label style={{ fontSize: '0.875rem', color: '#6b7280', display: 'block' }}>Drop-off</label>
-                        <span style={{ color: '#1f2937', fontWeight: '500' }}>{formatDate(selectedBooking.travel_details?.dropoff_date || selectedBooking.dropoff_date)} at {selectedBooking.travel_details?.dropoff_time || selectedBooking.dropoff_time}</span>
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '0.875rem', color: '#6b7280', display: 'block' }}>Pick-up</label>
-                        <span style={{ color: '#1f2937', fontWeight: '500' }}>{formatDate(selectedBooking.travel_details?.pickup_date || selectedBooking.pickup_date)} at {selectedBooking.travel_details?.pickup_time || selectedBooking.pickup_time}</span>
-                      </div>
-                    </div>
+                    <h3>Travel Information</h3>
+                    <p><strong>Drop-off:</strong> {formatDate(selectedBooking.travel_details?.dropoff_date)} at {selectedBooking.travel_details?.dropoff_time}</p>
+                    <p><strong>Pick-up:</strong> {formatDate(selectedBooking.travel_details?.pickup_date)} at {selectedBooking.travel_details?.pickup_time}</p>
                   </div>
 
                   <div style={{ marginBottom: '1.5rem' }}>
-                    <h3 style={{ marginBottom: '1rem', color: '#1f2937' }}>Payment Information</h3>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                      <div>
-                        <label style={{ fontSize: '0.875rem', color: '#6b7280', display: 'block' }}>Amount</label>
-                        <span style={{ color: '#059669', fontWeight: 'bold', fontSize: '1.125rem' }}>{formatCurrency(selectedBooking.booking_amount || selectedBooking.price)}</span>
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '0.875rem', color: '#6b7280', display: 'block' }}>Payment Status</label>
-                        <span style={{ color: selectedBooking.payment_status === 'paid' ? '#059669' : '#dc2626', fontWeight: '500' }}>{selectedBooking.payment_status}</span>
-                      </div>
-                    </div>
+                    <h3>Payment Information</h3>
+                    <p><strong>Amount:</strong> <span style={{ color: '#059669', fontWeight: 'bold' }}>{formatCurrency(selectedBooking.booking_amount)}</span></p>
+                    <p><strong>Status:</strong> {selectedBooking.payment_status}</p>
                   </div>
 
-                  {selectedBooking.status === 'confirmed' && (
+                  {(selectedBooking.status === 'confirmed' || selectedBooking.is_test) && (
                     <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', paddingTop: '1rem', borderTop: '1px solid #e5e7eb' }}>
-                      {selectedBooking.is_editable && (
+                      {(selectedBooking.is_editable || selectedBooking.is_test) && (
                         <button 
-                          onClick={() => {
-                            setModalType('amend');
-                            setAmendFormData({});
-                          }}
-                          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', background: '#1d4ed8', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+                          onClick={() => { setModalType('amend'); setAmendFormData({}); }}
+                          style={{ padding: '0.75rem 1.5rem', background: '#1d4ed8', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
                         >
-                          <Edit size={16} />
                           Amend Booking
                         </button>
                       )}
-                      {selectedBooking.is_cancelable && (
+                      {(selectedBooking.is_cancelable || selectedBooking.is_test) && (
                         <button 
                           onClick={() => setModalType('cancel')}
-                          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', background: '#dc2626', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+                          style={{ padding: '0.75rem 1.5rem', background: '#dc2626', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
                         >
-                          <XCircle size={16} />
                           Cancel Booking
                         </button>
                       )}
@@ -709,190 +570,84 @@ const UserBooking = () => {
                 </div>
               ) : modalType === 'amend' ? (
                 <div>
-                  <div style={{ display: 'flex', gap: '1rem', padding: '1rem', background: '#dbeafe', border: '1px solid #3b82f6', borderRadius: '8px', marginBottom: '1.5rem' }}>
-                    <Edit size={24} style={{ color: '#1d4ed8', flexShrink: 0 }} />
-                    <div>
-                      <h4 style={{ margin: '0 0 0.5rem 0', color: '#1e3a8a' }}>Amend Your Booking</h4>
-                      <p style={{ margin: 0, color: '#1e40af' }}>Make changes to your booking details. Only fill in the fields you want to change.</p>
-                    </div>
+                  <p style={{ color: '#1e40af', marginBottom: '1.5rem' }}>Make changes to your booking details. Only fill in the fields you want to change.</p>
+                  
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem' }}>Drop-off Time</label>
+                    <input
+                      type="time"
+                      value={amendFormData.dropoff_time || ''}
+                      onChange={(e) => setAmendFormData(prev => ({ ...prev, dropoff_time: e.target.value }))}
+                      style={{ width: '100%', padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                    />
+                  </div>
+                  
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem' }}>Pick-up Time</label>
+                    <input
+                      type="time"
+                      value={amendFormData.pickup_time || ''}
+                      onChange={(e) => setAmendFormData(prev => ({ ...prev, pickup_time: e.target.value }))}
+                      style={{ width: '100%', padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                    />
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '0.5rem', color: '#374151', fontWeight: '500' }}>Drop-off Time</label>
-                      <input
-                        type="time"
-                        value={amendFormData.dropoff_time || ''}
-                        onChange={(e) => handleAmendFormChange('dropoff_time', e.target.value)}
-                        style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '0.5rem', color: '#374151', fontWeight: '500' }}>Pick-up Time</label>
-                      <input
-                        type="time"
-                        value={amendFormData.pickup_time || ''}
-                        onChange={(e) => handleAmendFormChange('pickup_time', e.target.value)}
-                        style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 2fr', gap: '1rem', marginBottom: '1.5rem' }}>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '0.5rem', color: '#374151', fontWeight: '500' }}>Title</label>
-                      <select
-                        value={amendFormData.title || ''}
-                        onChange={(e) => handleAmendFormChange('title', e.target.value)}
-                        style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
-                      >
-                        <option value="">Select</option>
-                        <option value="Mr">Mr</option>
-                        <option value="Mrs">Mrs</option>
-                        <option value="Miss">Miss</option>
-                        <option value="Ms">Ms</option>
-                        <option value="Dr">Dr</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '0.5rem', color: '#374151', fontWeight: '500' }}>First Name</label>
-                      <input
-                        type="text"
-                        value={amendFormData.first_name || ''}
-                        onChange={(e) => handleAmendFormChange('first_name', e.target.value)}
-                        style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '0.5rem', color: '#374151', fontWeight: '500' }}>Last Name</label>
-                      <input
-                        type="text"
-                        value={amendFormData.last_name || ''}
-                        onChange={(e) => handleAmendFormChange('last_name', e.target.value)}
-                        style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ marginBottom: '1.5rem' }}>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', color: '#374151', fontWeight: '500' }}>Car Registration</label>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem' }}>Car Registration</label>
                     <input
                       type="text"
                       value={amendFormData.car_registration_number || ''}
-                      onChange={(e) => handleAmendFormChange('car_registration_number', e.target.value.toUpperCase())}
-                      style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                      onChange={(e) => setAmendFormData(prev => ({ ...prev, car_registration_number: e.target.value.toUpperCase() }))}
+                      style={{ width: '100%', padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
                     />
                   </div>
 
                   <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
                     <button 
                       onClick={() => setModalType('view')}
-                      disabled={processingAction}
-                      style={{ padding: '0.75rem 1.5rem', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '8px', cursor: 'pointer' }}
+                      style={{ padding: '0.75rem 1.5rem', background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: '8px', cursor: 'pointer' }}
                     >
-                      Back to Details
+                      Back
                     </button>
                     <button 
                       onClick={amendBooking}
                       disabled={processingAction}
-                      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', background: '#1d4ed8', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+                      style={{ padding: '0.75rem 1.5rem', background: '#1d4ed8', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
                     >
-                      {processingAction ? (
-                        <>
-                          <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
-                          Updating...
-                        </>
-                      ) : (
-                        <>
-                          <Edit size={16} />
-                          Save Changes
-                        </>
-                      )}
+                      {processingAction ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : 'Save Changes'}
                     </button>
                   </div>
                 </div>
-              ) : modalType === 'cancel' ? (
+              ) : (
                 <div>
-                  <div style={{ display: 'flex', gap: '1rem', padding: '1rem', background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: '8px', marginBottom: '1.5rem' }}>
-                    <AlertCircle size={24} style={{ color: '#f59e0b', flexShrink: 0 }} />
-                    <div>
-                      <h4 style={{ margin: '0 0 0.5rem 0', color: '#92400e' }}>Cancel Your Booking</h4>
-                      <p style={{ margin: 0, color: '#92400e' }}>This will process a refund according to the cancellation policy. This action cannot be undone.</p>
-                    </div>
+                  <div style={{ background: '#fef3c7', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
+                    <p style={{ color: '#92400e', margin: 0 }}>This will process a refund according to the cancellation policy. This action cannot be undone.</p>
                   </div>
 
                   <div style={{ marginBottom: '1.5rem' }}>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', color: '#374151', fontWeight: '500' }}>Reason (Optional)</label>
+                    <label style={{ display: 'block', marginBottom: '0.5rem' }}>Reason (Optional)</label>
                     <textarea
                       value={actionReason}
                       onChange={(e) => setActionReason(e.target.value)}
                       placeholder="Why are you cancelling this booking?"
                       rows={3}
-                      style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', resize: 'vertical' }}
+                      style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
                     />
                   </div>
 
                   <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
                     <button 
                       onClick={() => setShowModal(false)}
-                      disabled={processingAction}
-                      style={{ padding: '0.75rem 1.5rem', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '8px', cursor: 'pointer' }}
+                      style={{ padding: '0.75rem 1.5rem', background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: '8px', cursor: 'pointer' }}
                     >
                       Keep Booking
                     </button>
                     <button 
                       onClick={cancelBooking}
                       disabled={processingAction}
-                      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', background: '#dc2626', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+                      style={{ padding: '0.75rem 1.5rem', background: '#dc2626', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
                     >
-                      {processingAction ? (
-                        <>
-                          <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
-                          Cancelling...
-                        </>
-                      ) : (
-                        <>
-                          <XCircle size={16} />
-                          Cancel Booking
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <div style={{ display: 'flex', gap: '1rem', padding: '1rem', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '8px', marginBottom: '1.5rem' }}>
-                    <AlertCircle size={24} style={{ color: '#dc2626', flexShrink: 0 }} />
-                    <div>
-                      <h4 style={{ margin: '0 0 0.5rem 0', color: '#991b1b' }}>Delete Booking Record</h4>
-                      <p style={{ margin: 0, color: '#991b1b' }}>This will permanently remove this booking from your history.</p>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
-                    <button 
-                      onClick={() => setShowModal(false)}
-                      disabled={processingAction}
-                      style={{ padding: '0.75rem 1.5rem', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '8px', cursor: 'pointer' }}
-                    >
-                      Keep Record
-                    </button>
-                    <button 
-                      onClick={() => deleteBooking(selectedBooking.our_reference)}
-                      disabled={processingAction}
-                      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', background: '#dc2626', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-                    >
-                      {processingAction ? (
-                        <>
-                          <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
-                          Deleting...
-                        </>
-                      ) : (
-                        <>
-                          <Trash2 size={16} />
-                          Delete Record
-                        </>
-                      )}
+                      {processingAction ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : 'Cancel Booking'}
                     </button>
                   </div>
                 </div>
@@ -906,12 +661,6 @@ const UserBooking = () => {
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
-        }
-        
-        @media (max-width: 768px) {
-          .booking-grid {
-            grid-template-columns: 1fr !important;
-          }
         }
       `}</style>
     </div>
