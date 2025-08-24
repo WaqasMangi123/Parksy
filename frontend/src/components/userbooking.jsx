@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Calendar, User, Car, Plane, AlertCircle, CheckCircle, XCircle, 
-  RefreshCw, Trash2, Eye, Edit, Loader2, Plus, ArrowLeft, Home, Save
+  RefreshCw, Trash2, Eye, Edit, Loader2, Plus, ArrowLeft, Home
 } from 'lucide-react';
 
 const UserBooking = () => {
@@ -17,17 +17,6 @@ const UserBooking = () => {
   const [processingAction, setProcessingAction] = useState(false);
   const [authStatus, setAuthStatus] = useState({ isLoggedIn: false, user: null });
   const [cancelReason, setCancelReason] = useState('');
-  
-  // ✅ NEW: Edit form state
-  const [editForm, setEditForm] = useState({
-    new_dropoff_date: '',
-    new_dropoff_time: '',
-    new_pickup_date: '',
-    new_pickup_time: '',
-    new_customer_phone: '',
-    new_special_requests: '',
-    amendment_reason: ''
-  });
 
   // Get auth token
   const getAuthToken = () => {
@@ -148,11 +137,10 @@ const UserBooking = () => {
         customer_name: booking.customer_details ? 
           `${booking.customer_details.title || ''} ${booking.customer_details.first_name || ''} ${booking.customer_details.last_name || ''}`.trim() :
           booking.customer_name,
-        customer_phone: booking.customer_details?.customer_phone || booking.customer_phone,
-        vehicle_registration: booking.vehicle_details?.car_registration_number || booking.car_registration_number || booking.vehicle_registration,
+        vehicle_registration: booking.vehicle_details?.car_registration_number || booking.car_registration_number,
         payment_status: booking.payment_details?.payment_status || booking.payment_status,
-        is_cancelable: booking.service_features?.is_cancelable !== false && booking.is_cancelable !== false,
-        is_editable: booking.service_features?.is_editable !== false && booking.is_editable !== false,
+        is_cancelable: booking.service_features?.is_cancelable !== false,
+        is_editable: booking.service_features?.is_editable !== false,
         is_test: booking.payment_details?.is_test_mode || booking.our_reference?.includes('TEST')
       }));
         
@@ -174,20 +162,7 @@ const UserBooking = () => {
     }
   }, [authStatus.isLoggedIn]);
 
-  // ✅ NEW: Initialize edit form when booking is selected for edit
-  const initializeEditForm = (booking) => {
-    setEditForm({
-      new_dropoff_date: booking.dropoff_date || '',
-      new_dropoff_time: booking.dropoff_time || '',
-      new_pickup_date: booking.pickup_date || '',
-      new_pickup_time: booking.pickup_time || '',
-      new_customer_phone: booking.customer_phone || '',
-      new_special_requests: booking.special_requests || '',
-      amendment_reason: ''
-    });
-  };
-
-  // ✅ FIXED: Process booking action (cancel or amend)
+  // Cancel/Amend booking
   const processBookingAction = async () => {
     if (!selectedBooking) return;
 
@@ -200,47 +175,12 @@ const UserBooking = () => {
       }
 
       const bookingRef = selectedBooking.our_reference || selectedBooking.booking_reference;
+      const endpoint = modalType === 'cancel' ? 'cancel-booking' : 'amend-booking';
       
-      let endpoint, payload;
-      
-      if (modalType === 'cancel') {
-        endpoint = 'cancel-booking';
-        payload = {
-          booking_reference: bookingRef,
-          cancellation_reason: cancelReason || 'User requested cancellation'
-        };
-      } else if (modalType === 'edit') {
-        // ✅ FIXED: Use correct endpoint for amendments
-        endpoint = 'amend-booking';
-        
-        // ✅ Only send changed fields
-        payload = {
-          booking_reference: bookingRef,
-          amendment_reason: editForm.amendment_reason || 'User requested changes'
-        };
-        
-        // Add only changed fields
-        if (editForm.new_dropoff_date !== selectedBooking.dropoff_date) {
-          payload.new_dropoff_date = editForm.new_dropoff_date;
-        }
-        if (editForm.new_dropoff_time !== selectedBooking.dropoff_time) {
-          payload.new_dropoff_time = editForm.new_dropoff_time;
-        }
-        if (editForm.new_pickup_date !== selectedBooking.pickup_date) {
-          payload.new_pickup_date = editForm.new_pickup_date;
-        }
-        if (editForm.new_pickup_time !== selectedBooking.pickup_time) {
-          payload.new_pickup_time = editForm.new_pickup_time;
-        }
-        if (editForm.new_customer_phone !== selectedBooking.customer_phone) {
-          payload.new_customer_phone = editForm.new_customer_phone;
-        }
-        if (editForm.new_special_requests !== selectedBooking.special_requests) {
-          payload.new_special_requests = editForm.new_special_requests;
-        }
-      }
-
-      console.log('🚀 Sending request:', { endpoint, payload });
+      const payload = {
+        booking_reference: bookingRef,
+        [modalType === 'cancel' ? 'cancellation_reason' : 'amendment_reason']: cancelReason || `User requested ${modalType}`
+      };
 
       const response = await fetch(`${API_BASE_URL}/api/parking/${endpoint}`, {
         method: 'POST',
@@ -252,22 +192,12 @@ const UserBooking = () => {
       });
 
       const result = await response.json();
-      console.log('📋 API Response:', result);
 
       if (response.ok && result.success) {
-        alert(`Booking ${modalType === 'cancel' ? 'cancelled' : 'updated'} successfully!`);
+        alert(`Booking ${modalType}ed successfully!`);
         setShowModal(false);
         setSelectedBooking(null);
         setCancelReason('');
-        setEditForm({
-          new_dropoff_date: '',
-          new_dropoff_time: '',
-          new_pickup_date: '',
-          new_pickup_time: '',
-          new_customer_phone: '',
-          new_special_requests: '',
-          amendment_reason: ''
-        });
         await fetchUserBookings();
       } else {
         throw new Error(result.message || `Failed to ${modalType} booking`);
@@ -331,8 +261,7 @@ const UserBooking = () => {
       'confirmed': '#10b981',
       'cancelled': '#ef4444',
       'pending': '#f59e0b',
-      'refunded': '#6366f1',
-      'amended': '#8b5cf6'
+      'refunded': '#6366f1'
     };
     return colors[status] || '#6b7280';
   };
@@ -340,14 +269,6 @@ const UserBooking = () => {
   // Navigation
   const goToHome = () => window.location.href = '/';
   const goToNewBooking = () => window.location.href = '/#/parking';
-
-  // ✅ NEW: Handle edit form changes
-  const handleEditFormChange = (field, value) => {
-    setEditForm(prev => ({
-      ...prev,
-      [field]: value
-    }));
-  };
 
   // If not logged in
   if (!authStatus.isLoggedIn) {
@@ -464,7 +385,7 @@ const UserBooking = () => {
           </div>
           <div style={{ background: 'white', padding: '1.5rem', borderRadius: '12px', textAlign: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
             <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#6366f1' }}>
-              {formatCurrency(userBookings.reduce((sum, booking) => sum + (booking.booking_amount || booking.price || 0), 0))}
+              {formatCurrency(userBookings.reduce((sum, booking) => sum + (booking.booking_amount || 0), 0))}
             </div>
             <div style={{ color: '#6b7280', fontSize: '0.875rem' }}>Total Spent</div>
           </div>
@@ -498,7 +419,7 @@ const UserBooking = () => {
                       fontSize: '0.75rem', 
                       fontWeight: '500', 
                       borderRadius: '4px',
-                      background: booking.status === 'confirmed' ? '#dcfce7' : booking.status === 'cancelled' ? '#fee2e2' : booking.status === 'amended' ? '#f3e8ff' : '#f3f4f6',
+                      background: booking.status === 'confirmed' ? '#dcfce7' : booking.status === 'cancelled' ? '#fee2e2' : '#f3f4f6',
                       color: getStatusColor(booking.status)
                     }}>
                       {booking.status}
@@ -522,22 +443,7 @@ const UserBooking = () => {
                       <Eye size={14} />
                     </button>
                     
-                    {/* ✅ FIXED: Show edit button for confirmed/amended bookings that are editable */}
-                    {(booking.status === 'confirmed' || booking.status === 'amended') && booking.is_editable && (
-                      <button
-                        onClick={() => {
-                          setSelectedBooking(booking);
-                          initializeEditForm(booking);
-                          setModalType('edit');
-                          setShowModal(true);
-                        }}
-                        style={{ padding: '0.25rem', background: '#fef3c7', color: '#f59e0b', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                      >
-                        <Edit size={14} />
-                      </button>
-                    )}
-                    
-                    {(booking.status === 'confirmed' || booking.status === 'amended') && booking.is_cancelable && (
+                    {booking.status === 'confirmed' && booking.is_cancelable && (
                       <button
                         onClick={() => {
                           setSelectedBooking(booking);
@@ -566,7 +472,7 @@ const UserBooking = () => {
                 </div>
 
                 <div>
-                  <h3 style={{ margin: '0 0 0.5rem 0', color: '#1f2937' }}>{booking.product_name || booking.service_name || 'Airport Parking'}</h3>
+                  <h3 style={{ margin: '0 0 0.5rem 0', color: '#1f2937' }}>{booking.product_name || 'Airport Parking'}</h3>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#6b7280', fontSize: '0.875rem', marginBottom: '1rem' }}>
                     <Plane size={16} />
                     <span>{booking.airport_code}</span>
@@ -591,7 +497,7 @@ const UserBooking = () => {
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '1rem', borderTop: '1px solid #e5e7eb' }}>
                     <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#1f2937' }}>
-                      {formatCurrency(booking.booking_amount || booking.price || booking.payment_amount)}
+                      {formatCurrency(booking.booking_amount || booking.price)}
                     </div>
                     <div style={{ 
                       padding: '0.25rem 0.5rem', 
@@ -632,7 +538,7 @@ const UserBooking = () => {
             style={{ 
               background: 'white', 
               borderRadius: '12px', 
-              maxWidth: '700px', 
+              maxWidth: '600px', 
               maxHeight: '90vh', 
               overflow: 'auto', 
               margin: '1rem', 
@@ -645,7 +551,6 @@ const UserBooking = () => {
                 {modalType === 'view' && 'Booking Details'}
                 {modalType === 'cancel' && 'Cancel Booking'}
                 {modalType === 'delete' && 'Delete Booking'}
-                {modalType === 'edit' && 'Edit Booking'}
               </h2>
               <button 
                 onClick={() => setShowModal(false)}
@@ -663,7 +568,7 @@ const UserBooking = () => {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
                       <div>
                         <label style={{ fontSize: '0.875rem', color: '#6b7280', display: 'block' }}>Service</label>
-                        <span style={{ color: '#1f2937', fontWeight: '500' }}>{selectedBooking.product_name || selectedBooking.service_name}</span>
+                        <span style={{ color: '#1f2937', fontWeight: '500' }}>{selectedBooking.product_name}</span>
                       </div>
                       <div>
                         <label style={{ fontSize: '0.875rem', color: '#6b7280', display: 'block' }}>Airport</label>
@@ -691,12 +596,6 @@ const UserBooking = () => {
                         <label style={{ fontSize: '0.875rem', color: '#6b7280', display: 'block' }}>Pick-up</label>
                         <span style={{ color: '#1f2937', fontWeight: '500' }}>{formatDate(selectedBooking.pickup_date)} at {selectedBooking.pickup_time}</span>
                       </div>
-                      {selectedBooking.customer_phone && (
-                        <div>
-                          <label style={{ fontSize: '0.875rem', color: '#6b7280', display: 'block' }}>Phone</label>
-                          <span style={{ color: '#1f2937', fontWeight: '500' }}>{selectedBooking.customer_phone}</span>
-                        </div>
-                      )}
                     </div>
                   </div>
 
@@ -705,7 +604,7 @@ const UserBooking = () => {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
                       <div>
                         <label style={{ fontSize: '0.875rem', color: '#6b7280', display: 'block' }}>Amount</label>
-                        <span style={{ color: '#059669', fontWeight: 'bold', fontSize: '1.125rem' }}>{formatCurrency(selectedBooking.booking_amount || selectedBooking.price || selectedBooking.payment_amount)}</span>
+                        <span style={{ color: '#059669', fontWeight: 'bold', fontSize: '1.125rem' }}>{formatCurrency(selectedBooking.booking_amount || selectedBooking.price)}</span>
                       </div>
                       <div>
                         <label style={{ fontSize: '0.875rem', color: '#6b7280', display: 'block' }}>Payment Status</label>
@@ -714,20 +613,8 @@ const UserBooking = () => {
                     </div>
                   </div>
 
-                  {(selectedBooking.status === 'confirmed' || selectedBooking.status === 'amended') && (
+                  {selectedBooking.status === 'confirmed' && (
                     <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', paddingTop: '1rem', borderTop: '1px solid #e5e7eb' }}>
-                      {selectedBooking.is_editable && (
-                        <button 
-                          onClick={() => {
-                            initializeEditForm(selectedBooking);
-                            setModalType('edit');
-                          }}
-                          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-                        >
-                          <Edit size={16} />
-                          Edit Booking
-                        </button>
-                      )}
                       {selectedBooking.is_cancelable && (
                         <button 
                           onClick={() => setModalType('cancel')}
@@ -740,120 +627,7 @@ const UserBooking = () => {
                     </div>
                   )}
                 </div>
-              ) : modalType === 'edit' ? (
-                // ✅ NEW: Edit form
-                <div>
-                  <div style={{ display: 'flex', gap: '1rem', padding: '1rem', background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: '8px', marginBottom: '1.5rem' }}>
-                    <Edit size={24} style={{ color: '#f59e0b', flexShrink: 0 }} />
-                    <div>
-                      <h4 style={{ margin: '0 0 0.5rem 0', color: '#92400e' }}>Edit Your Booking</h4>
-                      <p style={{ margin: 0, color: '#92400e', fontSize: '0.875rem' }}>
-                        You can modify the dates, times, phone number, and special requests. Changes may be subject to availability.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '0.5rem', color: '#374151', fontWeight: '500' }}>Drop-off Date</label>
-                      <input
-                        type="date"
-                        value={editForm.new_dropoff_date}
-                        onChange={(e) => handleEditFormChange('new_dropoff_date', e.target.value)}
-                        style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '0.5rem', color: '#374151', fontWeight: '500' }}>Drop-off Time</label>
-                      <input
-                        type="time"
-                        value={editForm.new_dropoff_time}
-                        onChange={(e) => handleEditFormChange('new_dropoff_time', e.target.value)}
-                        style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '0.5rem', color: '#374151', fontWeight: '500' }}>Pick-up Date</label>
-                      <input
-                        type="date"
-                        value={editForm.new_pickup_date}
-                        onChange={(e) => handleEditFormChange('new_pickup_date', e.target.value)}
-                        style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '0.5rem', color: '#374151', fontWeight: '500' }}>Pick-up Time</label>
-                      <input
-                        type="time"
-                        value={editForm.new_pickup_time}
-                        onChange={(e) => handleEditFormChange('new_pickup_time', e.target.value)}
-                        style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ marginBottom: '1.5rem' }}>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', color: '#374151', fontWeight: '500' }}>Phone Number</label>
-                    <input
-                      type="tel"
-                      value={editForm.new_customer_phone}
-                      onChange={(e) => handleEditFormChange('new_customer_phone', e.target.value)}
-                      placeholder="Enter phone number"
-                      style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
-                    />
-                  </div>
-
-                  <div style={{ marginBottom: '1.5rem' }}>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', color: '#374151', fontWeight: '500' }}>Special Requests</label>
-                    <textarea
-                      value={editForm.new_special_requests}
-                      onChange={(e) => handleEditFormChange('new_special_requests', e.target.value)}
-                      placeholder="Any special requests or instructions..."
-                      rows={3}
-                      style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', resize: 'vertical' }}
-                    />
-                  </div>
-
-                  <div style={{ marginBottom: '1.5rem' }}>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', color: '#374151', fontWeight: '500' }}>Reason for Changes</label>
-                    <textarea
-                      value={editForm.amendment_reason}
-                      onChange={(e) => handleEditFormChange('amendment_reason', e.target.value)}
-                      placeholder="Why are you making these changes?"
-                      rows={2}
-                      style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', resize: 'vertical' }}
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
-                    <button 
-                      onClick={() => setModalType('view')}
-                      disabled={processingAction}
-                      style={{ padding: '0.75rem 1.5rem', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '8px', cursor: 'pointer' }}
-                    >
-                      Cancel Changes
-                    </button>
-                    <button 
-                      onClick={processBookingAction}
-                      disabled={processingAction}
-                      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-                    >
-                      {processingAction ? (
-                        <>
-                          <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
-                          Saving Changes...
-                        </>
-                      ) : (
-                        <>
-                          <Save size={16} />
-                          Save Changes
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
               ) : (
-                // Cancel/Delete forms
                 <div>
                   <div style={{ display: 'flex', gap: '1rem', padding: '1rem', background: modalType === 'cancel' ? '#fef3c7' : '#fee2e2', border: `1px solid ${modalType === 'cancel' ? '#f59e0b' : '#fca5a5'}`, borderRadius: '8px', marginBottom: '1.5rem' }}>
                     <AlertCircle size={24} style={{ color: modalType === 'cancel' ? '#f59e0b' : '#dc2626', flexShrink: 0 }} />
