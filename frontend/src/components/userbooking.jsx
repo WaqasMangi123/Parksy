@@ -95,17 +95,25 @@ const UserBooking = () => {
       const result = await response.json();
       if (!result.success) throw new Error(result.message || 'Failed to fetch bookings');
 
-      // Process bookings
+      // Process bookings - Debug logging
       const bookingsArray = result.data || [];
-      const processedBookings = bookingsArray.map(booking => ({
-        ...booking,
-        _id: booking.id,
-        is_test: booking.is_test_payment || booking.our_reference?.includes('TEST'),
-        // FOR TESTING: Force enable cancel/amend for all bookings
-        is_cancelable: true, // Always allow cancel for testing
-        is_editable: true    // Always allow amend for testing
-      }));
+      console.log('Raw bookings from API:', bookingsArray);
+      
+      const processedBookings = bookingsArray.map(booking => {
+        console.log('Processing booking:', booking);
         
+        return {
+          ...booking,
+          _id: booking.id,
+          is_test: booking.is_test_payment || booking.our_reference?.includes('TEST') || true, // Force true for testing
+          // FOR TESTING: Force enable cancel/amend for all bookings
+          can_cancel: true, // Always allow cancel for testing
+          can_amend: true,  // Always allow amend for testing
+          show_actions: true // Force show actions
+        };
+      });
+
+      console.log('Processed bookings:', processedBookings);
       setUserBookings(processedBookings);
       
     } catch (error) {
@@ -136,7 +144,14 @@ const UserBooking = () => {
 
       if (response.ok) {
         const result = await response.json();
-        return result.success ? result.data : null;
+        const details = result.success ? result.data : null;
+        if (details) {
+          // Ensure action buttons can be shown in modal
+          details.can_cancel = true;
+          details.can_amend = true;
+          details.show_actions = true;
+        }
+        return details;
       }
     } catch (error) {
       console.error('Failed to get booking details:', error);
@@ -241,6 +256,20 @@ const UserBooking = () => {
       'refunded': '#6366f1'
     };
     return colors[status] || '#6b7280';
+  };
+
+  // Check if booking should show action buttons
+  const shouldShowActions = (booking) => {
+    console.log('Checking actions for booking:', booking.our_reference, {
+      status: booking.status,
+      can_cancel: booking.can_cancel,
+      can_amend: booking.can_amend,
+      show_actions: booking.show_actions,
+      is_test: booking.is_test
+    });
+    
+    // For testing - always show if not cancelled
+    return booking.status !== 'cancelled';
   };
 
   // If not logged in
@@ -395,10 +424,12 @@ const UserBooking = () => {
                     )}
                   </div>
                   
-                  {/* Action Buttons */}
+                  {/* Action Buttons - SIMPLIFIED CONDITION */}
                   <div style={{ display: 'flex', gap: '0.25rem' }}>
+                    {/* View Button - Always show */}
                     <button
                       onClick={async () => {
+                        console.log('View button clicked for:', booking.our_reference);
                         const details = await getBookingDetails(booking.our_reference);
                         setSelectedBooking(details || booking);
                         setModalType('view');
@@ -409,10 +440,11 @@ const UserBooking = () => {
                       <Eye size={14} />
                     </button>
                     
-                    {/* Action Buttons - ALWAYS SHOW FOR TESTING */}
-                    {((booking.status === 'confirmed') || booking.is_test) && (
+                    {/* Amend Button - Show for all non-cancelled bookings */}
+                    {shouldShowActions(booking) && (
                       <button
                         onClick={async () => {
+                          console.log('Amend button clicked for:', booking.our_reference);
                           const details = await getBookingDetails(booking.our_reference);
                           setSelectedBooking(details || booking);
                           setModalType('amend');
@@ -425,9 +457,11 @@ const UserBooking = () => {
                       </button>
                     )}
                     
-                    {((booking.status === 'confirmed') || booking.is_test) && (
+                    {/* Cancel Button - Show for all non-cancelled bookings */}
+                    {shouldShowActions(booking) && (
                       <button
                         onClick={() => {
+                          console.log('Cancel button clicked for:', booking.our_reference);
                           setSelectedBooking(booking);
                           setModalType('cancel');
                           setActionReason('');
@@ -439,6 +473,7 @@ const UserBooking = () => {
                       </button>
                     )}
                     
+                    {/* Delete Button - Only for cancelled bookings */}
                     {booking.status === 'cancelled' && (
                       <button
                         onClick={() => deleteBooking(booking.our_reference)}
@@ -549,17 +584,24 @@ const UserBooking = () => {
                     <p><strong>Status:</strong> {selectedBooking.payment_status}</p>
                   </div>
 
-                  {/* ACTION BUTTONS - ALWAYS SHOW FOR CONFIRMED BOOKINGS */}
-                  {(selectedBooking.status === 'confirmed' || selectedBooking.is_test) && (
+                  {/* ACTION BUTTONS - SIMPLIFIED CONDITION FOR MODAL */}
+                  {selectedBooking.status !== 'cancelled' && (
                     <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', paddingTop: '1rem', borderTop: '1px solid #e5e7eb' }}>
                       <button 
-                        onClick={() => { setModalType('amend'); setAmendFormData({}); }}
+                        onClick={() => { 
+                          console.log('Modal amend button clicked');
+                          setModalType('amend'); 
+                          setAmendFormData({}); 
+                        }}
                         style={{ padding: '0.75rem 1.5rem', background: '#1d4ed8', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
                       >
                         Amend Booking
                       </button>
                       <button 
-                        onClick={() => setModalType('cancel')}
+                        onClick={() => {
+                          console.log('Modal cancel button clicked');
+                          setModalType('cancel');
+                        }}
                         style={{ padding: '0.75rem 1.5rem', background: '#dc2626', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
                       >
                         Cancel Booking
