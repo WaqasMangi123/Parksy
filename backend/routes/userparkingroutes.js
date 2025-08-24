@@ -1,4 +1,4 @@
-// routes/userparkingroutes.js - COMPLETE WORKING VERSION WITH FIXED CANCEL & AMEND APIs
+// routes/userparkingroutes.js - COMPLETE WORKING VERSION WITH FIXED AUTHENTICATION + CANCEL & AMEND APIs
 const express = require('express');
 const router = express.Router();
 const { body, param, validationResult } = require('express-validator');
@@ -357,10 +357,10 @@ const validateSearchParking = [
     .withMessage('Invalid pickup time format (use HH:MM)')
 ];
 
-// Search parking - extract company codes from API response - PROPERLY IMPLEMENTED
+// Search parking - extract company codes from API response
 router.post('/search-parking', 
   validateSearchParking, 
-  handleValidationErrors,
+  handleValidationErrors, 
   async (req, res) => {
     try {
       console.log('🔍 SEARCH REQUEST received:', req.body);
@@ -456,9 +456,9 @@ router.post('/search-parking',
           commission_percentage: parseFloat(product.share_percentage) || 0,
           features_list: product.special_features ? product.special_features.split(',') : [],
           facilities_list: product.facilities ? product.facilities.split(',') : [],
-          // Add cancelable and editable flags - DEFAULT TO TRUE FOR BETTER UX
-          is_cancelable: product.cancelable !== 'No', // Default to true unless explicitly "No"
-          is_editable: product.editable !== 'No'      // Default to true unless explicitly "No"
+          // Add cancelable and editable flags for frontend compatibility
+          is_cancelable: product.cancelable !== 'No',
+          is_editable: product.editable !== 'No'
         };
       });
 
@@ -601,6 +601,327 @@ router.get('/terminals/:airport_code',
     }
   }
 );
+
+// ===== BOOKING RETRIEVAL ROUTES =====
+
+// Get all bookings (for admin view) - WITHOUT AUTHENTICATION
+router.get('/bookings', async (req, res) => {
+  try {
+    console.log('📋 Getting all bookings (admin view)');
+    
+    if (!Booking) {
+      return res.status(500).json({
+        success: false,
+        message: 'Booking model not available'
+      });
+    }
+    
+    const bookings = await Booking.find({})
+      .sort({ created_at: -1 }) // Most recent first
+      .limit(100); // Limit for performance
+    
+    console.log('✅ Found bookings:', bookings.length);
+    
+    res.json({
+      success: true,
+      data: bookings.map(booking => ({
+        id: booking._id,
+        our_reference: booking.our_reference,
+        magr_reference: booking.magr_reference,
+        status: booking.status,
+        user_email: booking.user_email,
+        customer_email: booking.customer_details?.customer_email,
+        customer_name: `${booking.customer_details?.title || ''} ${booking.customer_details?.first_name || ''} ${booking.customer_details?.last_name || ''}`.trim(),
+        airport_code: booking.airport_code,
+        company_code: booking.company_code,
+        product_name: booking.product_name,
+        booking_amount: booking.booking_amount,
+        currency: booking.currency,
+        // Payment info
+        payment_method: booking.payment_details?.payment_method,
+        payment_status: booking.payment_details?.payment_status,
+        stripe_payment_intent_id: booking.payment_details?.stripe_payment_intent_id,
+        // Travel dates
+        dropoff_date: booking.travel_details?.dropoff_date,
+        dropoff_time: booking.travel_details?.dropoff_time,
+        pickup_date: booking.travel_details?.pickup_date,
+        pickup_time: booking.travel_details?.pickup_time,
+        // Vehicle info
+        car_registration_number: booking.vehicle_details?.car_registration_number,
+        car_make: booking.vehicle_details?.car_make,
+        car_model: booking.vehicle_details?.car_model,
+        // Service features
+        is_cancelable: booking.service_features?.is_cancelable,
+        is_editable: booking.service_features?.is_editable,
+        // Metadata
+        created_at: booking.created_at,
+        updated_at: booking.updated_at
+      })),
+      count: bookings.length,
+      message: 'All bookings retrieved successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching all bookings:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve bookings',
+      error: error.message
+    });
+  }
+});
+
+// Get booking statistics - WITHOUT AUTHENTICATION
+router.get('/booking-stats', async (req, res) => {
+  try {
+    console.log('📊 Getting booking statistics');
+    
+    if (!Booking) {
+      return res.json({
+        success: true,
+        stats: {
+          total_bookings: 0,
+          confirmed_bookings: 0,
+          cancelled_bookings: 0,
+          total_revenue: 0
+        },
+        message: 'Booking model not available'
+      });
+    }
+    
+    const totalBookings = await Booking.countDocuments({});
+    const confirmedBookings = await Booking.countDocuments({ status: 'confirmed' });
+    const cancelledBookings = await Booking.countDocuments({ status: 'cancelled' });
+    
+    // Calculate total revenue from confirmed bookings
+    const revenueResult = await Booking.aggregate([
+      { $match: { status: 'confirmed' } },
+      { $group: { _id: null, total: { $sum: '$booking_amount' } } }
+    ]);
+    
+    const totalRevenue = revenueResult.length > 0 ? revenueResult[0].total : 0;
+    
+    console.log('✅ Booking statistics calculated');
+    
+    res.json({
+      success: true,
+      stats: {
+        total_bookings: totalBookings,
+        confirmed_bookings: confirmedBookings,
+        cancelled_bookings: cancelledBookings,
+        pending_bookings: totalBookings - confirmedBookings - cancelledBookings,
+        total_revenue: parseFloat(totalRevenue.toFixed(2)),
+        average_booking_value: confirmedBookings > 0 ? parseFloat((totalRevenue / confirmedBookings).toFixed(2)) : 0
+      },
+      message: 'Booking statistics retrieved successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting booking statistics:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get booking statistics',
+      error: error.message
+    });
+  }
+});
+
+// Admin: Cancel any booking by ID - WITHOUT AUTHENTICATION
+router.post('/admin/bookings/:id/cancel', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    console.log('🔨 Admin cancellation request for booking ID:', id);
+
+    if (!Booking) {
+      return res.status(500).json({
+        success: false,
+        message: 'Booking model not available'
+      });
+    }
+
+    const booking = await Booking.findById(id);
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found'
+      });
+    }
+
+    if (booking.status === 'cancelled') {
+      return res.status(400).json({
+        success: false,
+        message: 'Booking is already cancelled'
+      });
+    }
+
+    // Cancel with MAGR API if possible
+    let magrCancelResult = null;
+    if (MagrApiService && booking.magr_reference) {
+      try {
+        magrCancelResult = await MagrApiService.cancelBooking(booking.magr_reference);
+        console.log('✅ MAGR cancellation result:', magrCancelResult);
+      } catch (magrError) {
+        console.error('⚠️ MAGR cancellation failed:', magrError.message);
+        // Continue with local cancellation
+      }
+    }
+
+    // Process refund if payment was made via Stripe
+    let refundResult = null;
+    if (booking.payment_details?.stripe_payment_intent_id) {
+      try {
+        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+        const refund = await stripe.refunds.create({
+          payment_intent: booking.payment_details.stripe_payment_intent_id,
+          reason: 'requested_by_customer',
+          metadata: {
+            reason: reason || 'admin_cancellation',
+            booking_reference: booking.our_reference
+          }
+        });
+        
+        refundResult = {
+          refund_id: refund.id,
+          amount: refund.amount / 100,
+          status: refund.status,
+          reason: refund.reason
+        };
+        
+        console.log('💰 Admin refund processed:', refundResult.refund_id);
+      } catch (refundError) {
+        console.error('❌ Admin refund failed:', refundError.message);
+        // Continue with cancellation even if refund fails
+      }
+    }
+
+    // Update booking status
+    booking.status = 'cancelled';
+    booking.cancelled_at = new Date();
+    booking.notes = `${booking.notes || ''}\nAdmin cancelled: ${reason || 'No reason provided'}`;
+    
+    if (refundResult) {
+      booking.payment_details.refund_amount = refundResult.amount;
+      booking.payment_details.refund_date = new Date();
+      booking.payment_details.payment_status = 'refunded';
+    }
+
+    await booking.save();
+
+    res.json({
+      success: true,
+      message: 'Booking cancelled successfully by admin',
+      booking_id: booking._id,
+      our_reference: booking.our_reference,
+      magr_reference: booking.magr_reference,
+      refund: refundResult,
+      magr_cancellation: magrCancelResult,
+      booking_status: 'cancelled'
+    });
+
+  } catch (error) {
+    console.error('❌ Admin booking cancellation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to cancel booking',
+      error: error.message
+    });
+  }
+});
+
+// Admin: Delete any booking by ID - WITHOUT AUTHENTICATION
+router.delete('/admin/bookings/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    console.log('🗑️ Admin delete request for booking ID:', id);
+
+    if (!Booking) {
+      return res.status(500).json({
+        success: false,
+        message: 'Booking model not available'
+      });
+    }
+
+    const booking = await Booking.findById(id);
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found'
+      });
+    }
+
+    // Store booking info before deletion
+    const bookingInfo = {
+      id: booking._id,
+      our_reference: booking.our_reference,
+      magr_reference: booking.magr_reference,
+      customer_email: booking.customer_details?.customer_email,
+      booking_amount: booking.booking_amount,
+      status: booking.status
+    };
+
+    // Delete the booking
+    await Booking.findByIdAndDelete(id);
+
+    console.log('✅ Booking deleted by admin:', bookingInfo.our_reference);
+
+    res.json({
+      success: true,
+      message: 'Booking deleted successfully by admin',
+      deleted_booking: bookingInfo,
+      reason: reason || 'Admin deletion',
+      deleted_at: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Admin booking deletion error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete booking',
+      error: error.message
+    });
+  }
+});
+
+// Get user's booking count - WITH AUTHENTICATION
+router.get('/my-bookings-count', authenticateToken, async (req, res) => {
+  try {
+    console.log('📊 Getting booking count for user:', req.user.email);
+    
+    if (!Booking) {
+      return res.json({
+        success: true,
+        count: 0,
+        message: 'Booking model not available'
+      });
+    }
+    
+    const count = await Booking.countDocuments({ user_email: req.user.email });
+    
+    console.log('✅ User booking count:', count);
+    
+    res.json({
+      success: true,
+      count: count,
+      user_email: req.user.email,
+      message: `Found ${count} bookings for user`
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting booking count:', error);
+    res.status(500).json({
+      success: false,
+      count: 0,
+      message: 'Failed to get booking count',
+      error: error.message
+    });
+  }
+});
 
 // ===== STRIPE PAYMENT ROUTES =====
 
@@ -788,6 +1109,7 @@ router.get('/verify-payment/:payment_intent_id',
         });
       }
 
+      // ✅ THE ONLY FIX YOU NEED: Add try-catch around Stripe API call
       let paymentIntent;
       try {
         const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
@@ -856,445 +1178,618 @@ router.post('/bookings-with-payment',
     body('dropoff_time').matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Invalid dropoff time format'),
     body('pickup_date').isISO8601().withMessage('Invalid pickup date format'),
     body('pickup_time').matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Invalid pickup time format'),
-    body('service_name').notEmpty().withMessage('Service name is required'),
-    body('service_description').optional(),
-    body('price').isFloat({ min: 0 }).withMessage('Price must be a positive number'),
-    body('payment_intent_id').notEmpty().withMessage('Payment intent ID is required'),
-    // Customer details
-    body('customer_name').notEmpty().withMessage('Customer name is required'),
-    body('customer_email').isEmail().withMessage('Valid email is required'),
-    body('customer_phone').notEmpty().withMessage('Phone number is required'),
-    // Vehicle details
-    body('vehicle_registration').notEmpty().withMessage('Vehicle registration is required'),
-    body('vehicle_make').notEmpty().withMessage('Vehicle make is required'),
-    body('vehicle_model').notEmpty().withMessage('Vehicle model is required'),
-    body('vehicle_color').notEmpty().withMessage('Vehicle color is required')
+    body('title').isIn(['Mr', 'Mrs', 'Miss', 'Ms', 'Dr']).withMessage('Invalid title'),
+    body('first_name').trim().isLength({ min: 1, max: 50 }).withMessage('First name must be 1-50 characters'),
+    body('last_name').trim().isLength({ min: 1, max: 50 }).withMessage('Last name must be 1-50 characters'),
+    body('customer_email').isEmail().withMessage('Invalid email address'),
+    body('phone_number').notEmpty().withMessage('Phone number is required'),
+    body('departure_terminal').notEmpty().withMessage('Departure terminal is required'),
+    body('arrival_terminal').notEmpty().withMessage('Arrival terminal is required'),
+    body('car_registration_number').trim().isLength({ min: 1, max: 15 }).withMessage('Car registration required'),
+    body('car_make').trim().isLength({ min: 1, max: 30 }).withMessage('Car make required'),
+    body('car_model').trim().isLength({ min: 1, max: 30 }).withMessage('Car model required'),
+    body('car_color').trim().isLength({ min: 1, max: 20 }).withMessage('Car color required'),
+    body('booking_amount').isFloat({ min: 0 }).withMessage('Booking amount must be a positive number'),
+    body('payment_intent_id').notEmpty().withMessage('Payment intent ID is required')
   ],
-  handleValidationErrors,
+  handleValidationErrors, 
   async (req, res) => {
-    console.log('🎫 ========== CREATE BOOKING WITH PAYMENT STARTED ==========');
-
     try {
+      const bookingData = req.body;
+      const { payment_intent_id } = bookingData;
       const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
-      
-      console.log(`🎫 Creating booking for user (${isTestMode ? 'TEST' : 'LIVE'} mode):`, req.user.email);
-      console.log('🎫 Request body received');
 
-      // Validate payment intent first
-      if (!process.env.STRIPE_SECRET_KEY) {
-        throw new Error('Stripe not configured');
+      console.log(`🎫 BOOKING WITH PAYMENT REQUEST (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
+        user: req.user.email,
+        company_code: bookingData.company_code,
+        payment_intent_id: payment_intent_id,
+        amount: bookingData.booking_amount,
+        mode: isTestMode ? 'TEST' : 'LIVE',
+        timestamp: new Date().toISOString()
+      });
+
+      // Check services availability
+      if (!MagrApiService) {
+        throw new Error('MAGR API Service is not available');
       }
 
-      const { payment_intent_id } = req.body;
+      // Step 1: Verify payment FIRST using direct Stripe API
+      let paymentDetails = null;
+      try {
+        console.log(`💳 Verifying Stripe payment before booking (${isTestMode ? 'TEST' : 'LIVE'} mode)...`);
+        
+        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+        const paymentIntent = await stripe.paymentIntents.retrieve(payment_intent_id);
+        
+        paymentDetails = {
+          status: paymentIntent.status,
+          amount: paymentIntent.amount / 100, // Convert from cents
+          currency: paymentIntent.currency,
+          metadata: paymentIntent.metadata,
+          is_paid: paymentIntent.status === 'succeeded',
+          created: new Date(paymentIntent.created * 1000),
+          customer_id: paymentIntent.customer
+        };
+        
+        console.log(`💳 Payment verification result (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
+          status: paymentDetails.status,
+          amount: paymentDetails.amount,
+          currency: paymentDetails.currency,
+          is_paid: paymentDetails.is_paid,
+          mode: isTestMode ? 'TEST' : 'LIVE'
+        });
+        
+        if (!paymentDetails.is_paid) {
+          throw new Error(`Payment not completed. Status: ${paymentDetails.status}. Please complete payment first.`);
+        }
 
-      // Verify payment was successful
-      console.log('💳 Verifying payment before creating booking...');
-      const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-      const paymentIntent = await stripe.paymentIntents.retrieve(payment_intent_id);
-      
-      if (paymentIntent.status !== 'succeeded') {
-        console.error('❌ Payment not succeeded:', paymentIntent.status);
+        // Verify payment amount matches booking amount
+        const paidAmount = paymentDetails.amount;
+        const bookingAmount = parseFloat(bookingData.booking_amount);
+        
+        if (Math.abs(paidAmount - bookingAmount) > 0.01) { // Allow for small rounding differences
+          throw new Error(`Payment amount mismatch. Paid: £${paidAmount}, Required: £${bookingAmount}`);
+        }
+
+        console.log(`✅ Payment verified successfully (${isTestMode ? 'TEST' : 'LIVE'} mode)`);
+        
+      } catch (paymentError) {
+        console.error(`❌ Payment verification failed (${isTestMode ? 'TEST' : 'LIVE'} mode):`, paymentError.message);
         return res.status(400).json({
           success: false,
-          message: 'Payment not confirmed. Please complete payment first.',
-          payment_status: paymentIntent.status,
-          error_code: 'PAYMENT_NOT_SUCCEEDED'
+          message: 'Payment verification failed',
+          error: paymentError.message,
+          payment_required: true,
+          is_test_mode: isTestMode,
+          error_code: 'PAYMENT_VERIFICATION_FAILED'
         });
       }
 
-      console.log('✅ Payment verified as successful');
+      // Step 2: Generate booking reference
+      const ourBookingRef = `${isTestMode ? 'TEST-' : ''}PKY-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-      // Extract booking data from request
-      const bookingData = {
-        company_code: req.body.company_code,
-        airport_code: req.body.airport_code,
-        dropoff_date: req.body.dropoff_date,
-        dropoff_time: req.body.dropoff_time,
-        pickup_date: req.body.pickup_date,
-        pickup_time: req.body.pickup_time,
-        service_name: req.body.service_name,
-        service_description: req.body.service_description || '',
-        price: parseFloat(req.body.price),
-        commission_percentage: parseFloat(req.body.commission_percentage) || 0,
-        
-        // Customer details
-        customer_name: req.body.customer_name,
-        customer_email: req.body.customer_email,
-        customer_phone: req.body.customer_phone,
-        
-        // Vehicle details
-        vehicle_registration: req.body.vehicle_registration,
-        vehicle_make: req.body.vehicle_make,
-        vehicle_model: req.body.vehicle_model,
-        vehicle_color: req.body.vehicle_color,
-        
-        // Special requests
-        special_requests: req.body.special_requests || '',
-        
-        // Payment information
-        payment_intent_id: payment_intent_id,
-        stripe_payment_id: paymentIntent.id,
-        payment_amount: paymentIntent.amount / 100,
-        payment_currency: paymentIntent.currency,
-        payment_method: 'stripe',
-        payment_status: 'paid',
-        
-        // Metadata
-        user_id: req.user._id,
-        created_by: req.user.email,
-        is_test_booking: isTestMode
-      };
-
-      console.log('📝 Booking data prepared:', {
+      // Step 3: Prepare booking data for MAGR API
+      const magrBookingData = {
+        agent_code: process.env.MAGR_AGENT_CODE,
+        user_email: process.env.MAGR_USER_EMAIL || bookingData.customer_email,
+        password: process.env.MAGR_PASSWORD,
         company_code: bookingData.company_code,
-        airport_code: bookingData.airport_code,
-        service_name: bookingData.service_name,
-        price: bookingData.price,
+        bookreference: ourBookingRef,
+        dropoff_time: bookingData.dropoff_time,
+        dropoff_date: bookingData.dropoff_date,
+        pickup_time: bookingData.pickup_time,
+        pickup_date: bookingData.pickup_date,
+        title: bookingData.title,
+        first_name: bookingData.first_name,
+        last_name: bookingData.last_name,
         customer_email: bookingData.customer_email,
-        is_test_booking: bookingData.is_test_booking
-      });
-
-      // Create booking via MAGR API
-      console.log('🚀 Calling MAGR API to create booking...');
-      
-      let magrResult;
-      try {
-        magrResult = await MagrApiService.createBooking(bookingData);
-        console.log('✅ MAGR API booking creation result:', {
-          success: magrResult.success,
-          booking_reference: magrResult.booking_reference || 'not_provided'
-        });
-      } catch (magrError) {
-        console.error('❌ MAGR API booking creation failed:', magrError.message);
-        
-        // Even if MAGR fails, we should save locally since payment succeeded
-        console.log('⚠️ MAGR API failed but payment succeeded - saving locally');
-        magrResult = {
-          success: false,
-          error: magrError.message,
-          booking_reference: `LOCAL-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
-          fallback: true
-        };
-      }
-
-      // Generate booking reference if not provided
-      const bookingReference = magrResult.booking_reference || 
-        `${isTestMode ? 'TEST-' : ''}${bookingData.company_code}-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
-
-      // Prepare booking record for database
-      const finalBooking = {
-        ...bookingData,
-        booking_reference: bookingReference,
-        our_reference: bookingReference, // ✅ CRITICAL: Add this field for database compatibility
-        magr_booking_id: magrResult.magr_booking_id || null,
-        status: magrResult.success ? 'confirmed' : 'payment_received',
-        magr_status: magrResult.success ? 'confirmed' : 'failed',
-        booking_date: new Date(),
-        
-        // ✅ CRITICAL: Use consistent field name
-        user_email: req.user.email, // Use user_email instead of user_id
-        
-        // Service features - DEFAULT TO CANCELABLE AND EDITABLE
-        is_cancelable: true,  // Default to true for better UX
-        is_editable: true,    // Default to true for better UX
-        
-        // Additional metadata
-        api_errors: magrResult.success ? null : magrResult.error,
-        created_at: new Date(),
-        updated_at: new Date()
+        phone_number: bookingData.phone_number,
+        departure_flight_number: bookingData.departure_flight_number || 'TBA',
+        arrival_flight_number: bookingData.arrival_flight_number || 'TBA',
+        departure_terminal: bookingData.departure_terminal,
+        arrival_terminal: bookingData.arrival_terminal,
+        car_registration_number: bookingData.car_registration_number.toUpperCase(),
+        car_make: bookingData.car_make,
+        car_model: bookingData.car_model,
+        car_color: bookingData.car_color,
+        park_api: 'b2b',
+        passenger: parseInt(bookingData.passenger) || 1,
+        paymentgateway: 'Stripe',
+        payment_token: payment_intent_id,
+        booking_amount: parseFloat(bookingData.booking_amount)
       };
 
-      console.log('💾 Final booking object prepared:', {
-        booking_reference: finalBooking.booking_reference,
-        our_reference: finalBooking.our_reference,
-        user_email: finalBooking.user_email,
-        status: finalBooking.status,
-        magr_status: finalBooking.magr_status,
-        is_cancelable: finalBooking.is_cancelable,
-        is_editable: finalBooking.is_editable
+      console.log(`🚀 Sending PAID booking to MAGR API (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
+        company_code: magrBookingData.company_code,
+        bookreference: magrBookingData.bookreference,
+        customer_email: magrBookingData.customer_email,
+        booking_amount: magrBookingData.booking_amount,
+        payment_method: 'Stripe',
+        mode: isTestMode ? 'TEST' : 'LIVE'
       });
 
-      // Save to database if Booking model is available
-      let savedBooking = null;
-      if (Booking) {
-        try {
-          savedBooking = new Booking(finalBooking);
-          await savedBooking.save();
-          console.log('✅ Booking saved to database:', savedBooking._id);
-        } catch (dbError) {
-          console.error('❌ Database save failed (continuing anyway):', dbError.message);
-          // Continue even if database save fails
+      // Step 4: Create booking with MAGR API
+      const magrResult = await MagrApiService.createBooking(magrBookingData);
+
+      if (magrResult.success) {
+        // Step 5: Save booking to OUR database with payment information
+        let savedBooking = null;
+        let databaseSaveSuccess = false;
+        
+        if (Booking) {
+          console.log(`💾 Saving PAID booking to database (${isTestMode ? 'TEST' : 'LIVE'} mode)...`);
+          
+          try {
+            savedBooking = new Booking({
+              // Booking References
+              our_reference: ourBookingRef,
+              magr_reference: magrResult.data?.reference || magrResult.reference,
+              booking_id: magrResult.data?.booking_id,
+              
+              // User Information
+              user_id: req.user._id,
+              user_email: req.user.email,
+              
+              // Service Details
+              company_code: bookingData.company_code,
+              product_name: bookingData.product_name || 'Airport Parking Service',
+              product_code: bookingData.product_code || bookingData.company_code,
+              airport_code: bookingData.airport_code,
+              parking_type: bookingData.parking_type || 'Meet & Greet',
+              
+              // Financial Details
+              booking_amount: parseFloat(bookingData.booking_amount),
+              commission_percentage: parseFloat(bookingData.commission_percentage || 0),
+              currency: paymentDetails?.currency?.toUpperCase() || 'GBP',
+              
+              // Customer Details
+              customer_details: {
+                title: bookingData.title,
+                first_name: bookingData.first_name,
+                last_name: bookingData.last_name,
+                customer_email: bookingData.customer_email,
+                phone_number: bookingData.phone_number
+              },
+              
+              // Travel Details
+              travel_details: {
+                dropoff_date: bookingData.dropoff_date,
+                dropoff_time: bookingData.dropoff_time,
+                pickup_date: bookingData.pickup_date,
+                pickup_time: bookingData.pickup_time,
+                departure_flight_number: bookingData.departure_flight_number || 'TBA',
+                arrival_flight_number: bookingData.arrival_flight_number || 'TBA',
+                departure_terminal: bookingData.departure_terminal,
+                arrival_terminal: bookingData.arrival_terminal,
+                passenger_count: parseInt(bookingData.passenger) || 1
+              },
+              
+              // Vehicle Details
+              vehicle_details: {
+                car_registration_number: bookingData.car_registration_number.toUpperCase(),
+                car_make: bookingData.car_make,
+                car_model: bookingData.car_model,
+                car_color: bookingData.car_color
+              },
+              
+              // Payment Details
+              payment_details: {
+                payment_method: 'Stripe',
+                payment_token: payment_intent_id,
+                payment_status: 'paid', // Payment is already confirmed
+                payment_reference: payment_intent_id,
+                stripe_payment_intent_id: payment_intent_id,
+                stripe_amount: paymentDetails?.amount,
+                stripe_currency: paymentDetails?.currency,
+                stripe_customer_id: paymentDetails?.customer_id || null,
+                payment_date: paymentDetails?.created,
+                payment_confirmed_at: new Date(),
+                is_test_payment: isTestMode // Track if this was a test payment
+              },
+              
+              // Service Features - DEFAULT TO TRUE FOR BETTER UX
+              service_features: {
+                is_cancelable: bookingData.is_cancelable !== false,
+                is_editable: bookingData.is_editable !== false,
+                special_features: bookingData.special_features || []
+              },
+              
+              // Status and Response
+              status: 'confirmed',
+              magr_response: magrResult,
+              notes: `${isTestMode ? '[TEST] ' : ''}Paid booking created via Stripe by ${req.user.email}. Payment ID: ${payment_intent_id}`
+            });
+
+            await savedBooking.save();
+            databaseSaveSuccess = true;
+            
+            console.log(`✅ PAID booking saved to database (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
+              bookingId: savedBooking._id,
+              ourReference: savedBooking.our_reference,
+              magrReference: savedBooking.magr_reference,
+              paymentIntentId: payment_intent_id,
+              amount: savedBooking.booking_amount,
+              paymentStatus: 'paid',
+              isTestPayment: isTestMode
+            });
+            
+          } catch (dbError) {
+            console.error(`❌ Database save failed for PAID booking (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
+              error: dbError.message,
+              name: dbError.name,
+              payment_intent_id: payment_intent_id,
+              magr_reference: magrResult.reference
+            });
+          }
         }
-      } else {
-        console.log('⚠️ Booking model not available - skipping database save');
-      }
 
-      // Success response
-      const response = {
-        success: true,
-        message: magrResult.success 
-          ? 'Booking created successfully' 
-          : 'Payment processed successfully. Booking confirmation pending.',
-        booking: {
-          booking_reference: bookingReference,
-          our_reference: bookingReference, // Add this for database compatibility
-          status: finalBooking.status,
-          magr_status: finalBooking.magr_status,
-          
-          // Core booking details
-          airport_code: finalBooking.airport_code,
-          service_name: finalBooking.service_name,
-          dropoff_date: finalBooking.dropoff_date,
-          dropoff_time: finalBooking.dropoff_time,
-          pickup_date: finalBooking.pickup_date,
-          pickup_time: finalBooking.pickup_time,
-          
-          // Customer details
-          customer_name: finalBooking.customer_name,
-          customer_email: finalBooking.customer_email,
-          customer_phone: finalBooking.customer_phone,
-          
-          // Vehicle details
-          vehicle_registration: finalBooking.vehicle_registration,
-          vehicle_make: finalBooking.vehicle_make,
-          vehicle_model: finalBooking.vehicle_model,
-          vehicle_color: finalBooking.vehicle_color,
-          
-          // Financial details
-          price: finalBooking.price,
-          payment_amount: finalBooking.payment_amount,
-          payment_currency: finalBooking.payment_currency,
-          payment_status: finalBooking.payment_status,
-          
-          // Service features
-          is_cancelable: finalBooking.is_cancelable,
-          is_editable: finalBooking.is_editable,
-          
-          // Metadata
-          booking_date: finalBooking.booking_date,
-          is_test_booking: finalBooking.is_test_booking
-        },
-        payment: {
+        // Step 6: Return success response
+        const responseData = {
+          our_reference: ourBookingRef,
+          magr_reference: magrResult.data?.reference || magrResult.reference,
+          booking_id: magrResult.data?.booking_id,
           payment_intent_id: payment_intent_id,
-          stripe_payment_id: paymentIntent.id,
-          amount: paymentIntent.amount / 100,
-          currency: paymentIntent.currency,
-          status: 'succeeded'
-        },
-        magr_api: {
-          success: magrResult.success,
-          error: magrResult.success ? null : magrResult.error
-        },
-        is_test_mode: isTestMode,
-        timestamp: new Date().toISOString()
-      };
+          payment_status: 'paid',
+          payment_amount: paymentDetails?.amount,
+          payment_currency: paymentDetails?.currency,
+          status: 'confirmed',
+          database_saved: databaseSaveSuccess,
+          database_id: savedBooking?._id,
+          user_email: req.user.email,
+          created_at: savedBooking?.created_at || new Date().toISOString(),
+          customer_name: `${bookingData.title} ${bookingData.first_name} ${bookingData.last_name}`,
+          service: bookingData.product_name || 'Airport Parking Service',
+          airport: bookingData.airport_code,
+          company_code: bookingData.company_code,
+          total_amount: parseFloat(bookingData.booking_amount),
+          commission: savedBooking?.commission_amount || 0,
+          travel_details: {
+            dropoff_date: bookingData.dropoff_date,
+            dropoff_time: bookingData.dropoff_time,
+            pickup_date: bookingData.pickup_date,
+            pickup_time: bookingData.pickup_time,
+            departure_terminal: bookingData.departure_terminal,
+            arrival_terminal: bookingData.arrival_terminal
+          },
+          vehicle_details: {
+            registration: bookingData.car_registration_number.toUpperCase(),
+            make_model: `${bookingData.car_make} ${bookingData.car_model}`,
+            color: bookingData.car_color
+          },
+          payment_metadata: paymentDetails?.metadata || {},
+          is_test_mode: isTestMode,
+          stripe_mode: isTestMode ? 'test' : 'live'
+        };
 
-      console.log('✅ Booking creation completed:', {
-        booking_reference: bookingReference,
-        success: response.success,
-        magr_success: magrResult.success,
-        is_test_mode: isTestMode
-      });
+        res.json({
+          success: true,
+          message: `Booking created successfully with payment! (${isTestMode ? 'TEST' : 'LIVE'} mode)`,
+          data: responseData
+        });
 
-      res.status(201).json(response);
+      } else {
+        // MAGR booking failed - REFUND the payment automatically
+        console.error(`❌ MAGR booking failed (${isTestMode ? 'TEST' : 'LIVE'} mode), initiating refund...`);
+        
+        try {
+          const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+          const refund = await stripe.refunds.create({
+            payment_intent: payment_intent_id,
+            reason: 'requested_by_customer',
+            metadata: {
+              reason: 'booking_failed',
+              original_booking_ref: ourBookingRef
+            }
+          });
+          
+          console.log(`💰 Payment refunded due to booking failure (${isTestMode ? 'TEST' : 'LIVE'} mode):`, refund.id);
+          
+          return res.status(500).json({
+            success: false,
+            message: `Booking failed: ${magrResult.message}. Your payment has been automatically refunded. (${isTestMode ? 'TEST' : 'LIVE'} mode)`,
+            refund_id: refund.id,
+            refund_status: refund.status,
+            refund_amount: refund.amount / 100,
+            is_test_mode: isTestMode,
+            error_code: 'BOOKING_FAILED_REFUNDED'
+          });
+        } catch (refundError) {
+          console.error(`❌ CRITICAL: Booking failed AND refund failed! (${isTestMode ? 'TEST' : 'LIVE'} mode)`, refundError.message);
+          
+          return res.status(500).json({
+            success: false,
+            message: `Booking failed: ${magrResult.message}. CRITICAL: Automatic refund failed. Please contact support immediately. (${isTestMode ? 'TEST' : 'LIVE'} mode)`,
+            payment_intent_id: payment_intent_id,
+            refund_error: refundError.message,
+            requires_manual_refund: true,
+            is_test_mode: isTestMode,
+            error_code: 'BOOKING_FAILED_REFUND_FAILED'
+          });
+        }
+      }
 
     } catch (error) {
-      console.error('❌ BOOKING CREATION ERROR:', {
-        name: error.name,
+      const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
+      console.error(`❌ BOOKING WITH PAYMENT ERROR (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
         message: error.message,
-        stack: error.stack?.substring(0, 1000)
-      });
-
-      const errorResponse = {
-        success: false,
-        message: 'Failed to create booking',
-        error: error.message,
-        error_code: 'BOOKING_CREATION_FAILED',
-        is_test_mode: process.env.STRIPE_SECRET_KEY?.includes('test') || false,
+        user: req.user?.email,
+        payment_intent_id: req.body?.payment_intent_id,
+        mode: isTestMode ? 'TEST' : 'LIVE',
         timestamp: new Date().toISOString()
-      };
-
-      // Include debug info in development
-      if (process.env.NODE_ENV === 'development') {
-        errorResponse.debug = {
-          user_email: req.user?.email,
-          payment_intent_id: req.body?.payment_intent_id,
-          company_code: req.body?.company_code
-        };
-      }
-
-      res.status(500).json(errorResponse);
+      });
+      
+      res.status(500).json({
+        success: false,
+        message: `Failed to create booking with payment (${isTestMode ? 'TEST' : 'LIVE'} mode)`,
+        error: error.message,
+        is_test_mode: isTestMode,
+        timestamp: new Date().toISOString(),
+        error_code: 'BOOKING_CREATION_FAILED'
+      });
     }
-    
-    console.log('🎫 ========== CREATE BOOKING WITH PAYMENT ENDED ==========');
   }
 );
 
-// ===== USER BOOKING MANAGEMENT ROUTES =====
+// ===== STRIPE WEBHOOK - ENHANCED WITH TEST MODE =====
 
-// Get user's bookings - ENHANCED with service features - FIXED USER LOOKUP
-router.get('/my-bookings', authenticateToken, async (req, res) => {
-  try {
-    console.log('📋 Fetching bookings for user:', req.user.email, 'ID:', req.user._id);
-    
-    if (!Booking) {
-      // If no booking model, return empty array
-      console.log('⚠️ No Booking model available');
-      return res.json({
-        success: true,
-        bookings: [],
-        count: 0,
-        message: 'No booking system configured'
-      });
-    }
-
-    // ✅ FIXED: Use simple and consistent query
-    console.log('🔍 Looking up bookings by user_email:', req.user.email);
-    const bookings = await Booking.find({ 
-      user_email: req.user.email 
-    }).sort({ created_at: -1 });
-
-    console.log(`✅ Found ${bookings.length} bookings for user:`, req.user.email);
-    
-    // Enhance bookings with proper service features
-    const enhancedBookings = bookings.map(booking => {
-      const bookingObj = booking.toObject ? booking.toObject() : booking;
-      
-      return {
-        ...bookingObj,
-        // Ensure service features are properly set (default to true for better UX)
-        is_cancelable: bookingObj.is_cancelable !== false, // Default to true unless explicitly false
-        is_editable: bookingObj.is_editable !== false,     // Default to true unless explicitly false
-        
-        // Add display-friendly status
-        display_status: getDisplayStatus(bookingObj.status, bookingObj.magr_status),
-        
-        // Test mode indication
-        is_test_booking: bookingObj.is_test_booking || false,
-        
-        // Booking age for UI logic
-        days_since_booking: Math.floor((new Date() - new Date(bookingObj.created_at)) / (1000 * 60 * 60 * 24)),
-        
-        // Add formatted dates for display
-        formatted_dropoff: formatDateTime(bookingObj.dropoff_date, bookingObj.dropoff_time),
-        formatted_pickup: formatDateTime(bookingObj.pickup_date, bookingObj.pickup_time)
-      };
-    });
-
-    res.json({
-      success: true,
-      bookings: enhancedBookings,
-      count: enhancedBookings.length,
-      test_mode_active: process.env.STRIPE_SECRET_KEY?.includes('test') || false
-    });
-
-  } catch (error) {
-    console.error('❌ Error fetching user bookings:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch bookings',
-      error: error.message
-    });
-  }
-});
-
-// Helper function to get display-friendly status
-function getDisplayStatus(status, magrStatus) {
-  if (status === 'confirmed' && magrStatus === 'confirmed') {
-    return 'Confirmed';
-  } else if (status === 'payment_received') {
-    return 'Payment Received';
-  } else if (status === 'cancelled') {
-    return 'Cancelled';
-  } else if (status === 'amended') {
-    return 'Modified';
-  } else {
-    return 'Processing';
-  }
-}
-
-// Helper function to format date and time
-function formatDateTime(date, time) {
-  try {
-    const dateObj = new Date(`${date}T${time}`);
-    return dateObj.toLocaleString('en-GB', {
-      weekday: 'short',
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  } catch (error) {
-    return `${date} ${time}`;
-  }
-}
-
-// Get single booking details - COMPLETELY FIXED
-router.get('/booking/:booking_reference', 
-  authenticateToken, 
-  param('booking_reference').notEmpty().withMessage('Booking reference is required'),
-  handleValidationErrors,
+// Stripe webhook handler
+router.post('/stripe-webhook', 
+  express.raw({ type: 'application/json' }),
   async (req, res) => {
     try {
-      const { booking_reference } = req.params;
-      console.log('🔍 Fetching booking details:', booking_reference, 'for user:', req.user.email);
+      const signature = req.headers['stripe-signature'];
+      const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+      const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
 
-      if (!Booking) {
-        return res.status(404).json({
-          success: false,
-          message: 'Booking system not available',
-          error_code: 'NO_BOOKING_MODEL'
-        });
+      if (!endpointSecret) {
+        console.error(`❌ Stripe webhook secret not configured (${isTestMode ? 'TEST' : 'LIVE'} mode)`);
+        return res.status(500).json({ error: 'Webhook secret not configured' });
       }
 
-      // ✅ FIXED: Simple and consistent lookup using correct field names
-      console.log('🔍 Looking up booking by our_reference + user_email');
-      const booking = await Booking.findOne({
-        our_reference: booking_reference,
-        user_email: req.user.email
-      });
-
-      if (!booking) {
-        console.log('❌ Booking not found');
-        return res.status(404).json({
-          success: false,
-          message: 'Booking not found or access denied',
-          error_code: 'BOOKING_NOT_FOUND',
-          debug: {
-            booking_reference,
-            user_email: req.user.email,
-            searched_field: 'our_reference'
-          }
-        });
+      let event;
+      try {
+        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+        event = stripe.webhooks.constructEvent(req.body, signature, endpointSecret);
+        console.log(`✅ Webhook signature verified (${isTestMode ? 'TEST' : 'LIVE'} mode)`);
+      } catch (err) {
+        console.error(`❌ Webhook signature verification failed (${isTestMode ? 'TEST' : 'LIVE'} mode):`, err.message);
+        return res.status(400).send(`Webhook Error: ${err.message}`);
       }
 
-      console.log('✅ Booking found:', {
-        our_reference: booking.our_reference,
-        user_email: booking.user_email,
-        status: booking.status
+      console.log(`🔔 Stripe webhook received (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
+        type: event.type,
+        id: event.id,
+        object_id: event.data.object.id,
+        mode: isTestMode ? 'TEST' : 'LIVE'
       });
 
-      const bookingObj = booking.toObject ? booking.toObject() : booking;
+      // Handle the event
+      let result = { received: true, processed: false };
       
-      // Enhance with display data
-      const enhancedBooking = {
-        ...bookingObj,
-        is_cancelable: bookingObj.is_cancelable !== false,
-        is_editable: bookingObj.is_editable !== false,
-        display_status: getDisplayStatus(bookingObj.status, bookingObj.magr_status),
-        formatted_dropoff: formatDateTime(bookingObj.dropoff_date, bookingObj.dropoff_time),
-        formatted_pickup: formatDateTime(bookingObj.pickup_date, bookingObj.pickup_time),
-        days_since_booking: Math.floor((new Date() - new Date(bookingObj.created_at)) / (1000 * 60 * 60 * 24))
-      };
+      // If booking model is available, update booking statuses based on webhook
+      if (Booking && event.data.object.metadata) {
+        try {
+          await updateBookingFromWebhook(event, result, isTestMode);
+          result.processed = true;
+        } catch (dbError) {
+          console.error(`❌ Failed to update booking from webhook (${isTestMode ? 'TEST' : 'LIVE'} mode):`, dbError.message);
+          // Don't fail the webhook response for database errors
+        }
+      }
+      
+      res.json({ 
+        received: true, 
+        result: result,
+        event_type: event.type,
+        is_test_mode: isTestMode,
+        stripe_mode: isTestMode ? 'test' : 'live',
+        processed_at: new Date().toISOString()
+      });
+    } catch (error) {
+      const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
+      console.error(`❌ Webhook handling error (${isTestMode ? 'TEST' : 'LIVE'} mode):`, error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        is_test_mode: isTestMode
+      });
+    }
+  }
+);
 
-      console.log('✅ Booking details retrieved successfully');
+// Enhanced helper function to update bookings from webhooks
+const updateBookingFromWebhook = async (event, webhookResult, isTestMode) => {
+  const paymentIntentId = event.data.object.id;
+  
+  if (event.type === 'payment_intent.succeeded') {
+    await Booking.updateOne(
+      { 'payment_details.stripe_payment_intent_id': paymentIntentId },
+      { 
+        'payment_details.payment_status': 'paid',
+        'payment_details.payment_confirmed_at': new Date(),
+        'payment_details.is_test_payment': isTestMode,
+        'status': 'confirmed',
+        'notes': `${isTestMode ? '[TEST] ' : ''}Payment confirmed via webhook`
+      }
+    );
+    console.log(`✅ Booking payment status updated to paid (${isTestMode ? 'TEST' : 'LIVE'} mode)`);
+    
+  } else if (event.type === 'payment_intent.payment_failed') {
+    await Booking.updateOne(
+      { 'payment_details.stripe_payment_intent_id': paymentIntentId },
+      { 
+        'payment_details.payment_status': 'failed',
+        'payment_details.is_test_payment': isTestMode,
+        'status': 'payment_failed',
+        'notes': `${isTestMode ? '[TEST] ' : ''}Payment failed via webhook`
+      }
+    );
+    console.log(`❌ Booking payment status updated to failed (${isTestMode ? 'TEST' : 'LIVE'} mode)`);
+    
+  } else if (event.type === 'refund.created') {
+    const refund = event.data.object;
+    await Booking.updateOne(
+      { 'payment_details.stripe_payment_intent_id': refund.payment_intent },
+      { 
+        'payment_details.payment_status': 'refunded',
+        'payment_details.refund_amount': refund.amount / 100,
+        'payment_details.refund_date': new Date(),
+        'payment_details.is_test_payment': isTestMode,
+        'status': 'refunded',
+        'notes': `${isTestMode ? '[TEST] ' : ''}Refund processed via webhook`
+      }
+    );
+    console.log(`💰 Booking refund status updated (${isTestMode ? 'TEST' : 'LIVE'} mode)`);
+  }
+};
 
+// ===== USER BOOKING MANAGEMENT ROUTES - ENHANCED =====
+
+// Get user's bookings with enhanced payment information
+if (Booking) {
+  router.get('/my-bookings', authenticateToken, async (req, res) => {
+    try {
+      console.log('📋 Getting bookings for user:', req.user.email);
+      
+      const bookings = await Booking.find({ user_email: req.user.email })
+        .sort({ created_at: -1 })
+        .limit(50);
+      
+      console.log('✅ Found bookings:', bookings.length);
+      
       res.json({
         success: true,
-        booking: enhancedBooking
+        data: bookings.map(booking => ({
+          id: booking._id,
+          our_reference: booking.our_reference,
+          magr_reference: booking.magr_reference,
+          status: booking.status,
+          airport_code: booking.airport_code,
+          company_code: booking.company_code,
+          product_name: booking.product_name,
+          customer_name: booking.customer_full_name,
+          customer_email: booking.customer_details?.customer_email,
+          booking_amount: booking.booking_amount,
+          commission_amount: booking.commission_amount,
+          currency: booking.currency,
+          // Enhanced payment information
+          payment_method: booking.payment_details?.payment_method,
+          payment_status: booking.payment_details?.payment_status,
+          stripe_payment_intent_id: booking.payment_details?.stripe_payment_intent_id,
+          stripe_customer_id: booking.payment_details?.stripe_customer_id,
+          refund_amount: booking.payment_details?.refund_amount || 0,
+          payment_date: booking.payment_details?.payment_date,
+          is_test_payment: booking.payment_details?.is_test_payment || false,
+          // Travel details
+          dropoff_date: booking.travel_details?.dropoff_date,
+          dropoff_time: booking.travel_details?.dropoff_time,
+          pickup_date: booking.travel_details?.pickup_date,
+          pickup_time: booking.travel_details?.pickup_time,
+          // Vehicle details
+          vehicle_registration: booking.vehicle_details?.car_registration_number,
+          // Service features
+          is_cancelable: booking.service_features?.is_cancelable !== false,
+          is_editable: booking.service_features?.is_editable !== false,
+          // Metadata
+          created_at: booking.created_at,
+          can_cancel: booking.service_features?.is_cancelable !== false && booking.status === 'confirmed',
+          can_edit: booking.service_features?.is_editable !== false && booking.status === 'confirmed',
+          can_refund: booking.payment_details?.payment_status === 'paid' && booking.status === 'confirmed',
+          is_paid: booking.payment_details?.payment_status === 'paid',
+          is_refunded: booking.payment_details?.payment_status === 'refunded'
+        })),
+        count: bookings.length,
+        user: req.user.email
       });
+      
+    } catch (error) {
+      console.error('❌ Error fetching user bookings:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch bookings',
+        error: error.message
+      });
+    }
+  });
 
+  // Get specific booking details with enhanced payment information
+  router.get('/bookings/:reference', authenticateToken, async (req, res) => {
+    try {
+      const { reference } = req.params;
+      console.log('📋 Getting booking details for:', reference);
+      
+      const booking = await Booking.findOne({
+        $or: [
+          { our_reference: reference },
+          { magr_reference: reference }
+        ],
+        user_email: req.user.email
+      });
+      
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found or not accessible'
+        });
+      }
+      
+      console.log('✅ Booking found:', booking.our_reference);
+      
+      // Get enhanced payment details if available
+      let stripePaymentDetails = null;
+      if (booking.payment_details?.stripe_payment_intent_id) {
+        try {
+          const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+          const paymentIntent = await stripe.paymentIntents.retrieve(booking.payment_details.stripe_payment_intent_id);
+          
+          stripePaymentDetails = {
+            status: paymentIntent.status,
+            amount: paymentIntent.amount / 100,
+            currency: paymentIntent.currency,
+            created: new Date(paymentIntent.created * 1000),
+            last_payment_error: paymentIntent.last_payment_error
+          };
+        } catch (error) {
+          console.warn('⚠️ Could not fetch Stripe payment details:', error.message);
+        }
+      }
+      
+      res.json({
+        success: true,
+        data: {
+          id: booking._id,
+          our_reference: booking.our_reference,
+          magr_reference: booking.magr_reference,
+          status: booking.status,
+          airport_code: booking.airport_code,
+          company_code: booking.company_code,
+          product_name: booking.product_name,
+          customer_details: booking.customer_details,
+          travel_details: booking.travel_details,
+          vehicle_details: booking.vehicle_details,
+          booking_amount: booking.booking_amount,
+          currency: booking.currency,
+          created_at: booking.created_at,
+          updated_at: booking.updated_at,
+          is_cancelable: booking.service_features?.is_cancelable !== false,
+          is_editable: booking.service_features?.is_editable !== false
+        },
+        payment_details: {
+          method: booking.payment_details?.payment_method,
+          status: booking.payment_details?.payment_status,
+          stripe_payment_intent_id: booking.payment_details?.stripe_payment_intent_id,
+          amount: booking.payment_details?.stripe_amount,
+          currency: booking.payment_details?.stripe_currency,
+          refund_amount: booking.payment_details?.refund_amount,
+          payment_date: booking.payment_details?.payment_date,
+          is_test_payment: booking.payment_details?.is_test_payment || false
+        },
+        stripe_details: stripePaymentDetails,
+        can_cancel: booking.service_features?.is_cancelable !== false && booking.status === 'confirmed',
+        can_edit: booking.service_features?.is_editable !== false && booking.status === 'confirmed',
+        can_refund: booking.payment_details?.payment_status === 'paid' && booking.status === 'confirmed'
+      });
+      
     } catch (error) {
       console.error('❌ Error fetching booking details:', error);
       res.status(500).json({
@@ -1303,1056 +1798,558 @@ router.get('/booking/:booking_reference',
         error: error.message
       });
     }
-  }
-);
+  });
 
-// ===== CANCEL BOOKING API - COMPLETELY FIXED =====
+  // ===== CANCEL BOOKING API - FIXED FOR YOUR STRUCTURE =====
 
-router.post('/cancel-booking',
-  authenticateToken,
-  [
-    body('booking_reference').notEmpty().withMessage('Booking reference is required'),
-    body('cancellation_reason').optional().isLength({ max: 500 }).withMessage('Cancellation reason too long')
-  ],
-  handleValidationErrors,
-  async (req, res) => {
-    console.log('🗑️ ========== CANCEL BOOKING STARTED ==========');
-    
-    try {
-      const { booking_reference, cancellation_reason } = req.body;
-      const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
+  router.post('/cancel-booking',
+    authenticateToken,
+    [
+      body('booking_reference').notEmpty().withMessage('Booking reference is required'),
+      body('refund_amount').optional().isFloat({ min: 0 }).withMessage('Invalid refund amount'),
+      body('reason').optional().isLength({ max: 500 }).withMessage('Reason too long')
+    ],
+    handleValidationErrors,
+    async (req, res) => {
+      console.log('🗑️ ========== CANCEL BOOKING STARTED ==========');
       
-      console.log(`🗑️ Cancel booking request (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
-        booking_reference,
-        user: req.user.email,
-        reason: cancellation_reason || 'No reason provided'
-      });
-
-      // Find booking in database
-      if (!Booking) {
-        return res.status(500).json({
-          success: false,
-          message: 'Booking system not available',
-          error_code: 'NO_BOOKING_MODEL'
-        });
-      }
-
-      // ✅ FIXED: Simple and consistent lookup using correct field names
-      console.log('🔍 Looking up booking for cancellation by our_reference + user_email');
-      const booking = await Booking.findOne({
-        our_reference: booking_reference,
-        user_email: req.user.email
-      });
-
-      if (!booking) {
-        console.log('❌ Booking not found for cancellation');
-        return res.status(404).json({
-          success: false,
-          message: 'Booking not found or access denied',
-          error_code: 'BOOKING_NOT_FOUND',
-          debug: {
-            booking_reference,
-            user_email: req.user.email,
-            searched_field: 'our_reference'
-          }
-        });
-      }
-
-      console.log('✅ Booking found for cancellation:', {
-        our_reference: booking.our_reference,
-        status: booking.status,
-        magr_status: booking.magr_status,
-        is_cancelable: booking.is_cancelable,
-        payment_amount: booking.payment_amount
-      });
-
-      // Check if booking is already cancelled
-      if (booking.status === 'cancelled') {
-        console.log('⚠️ Booking already cancelled');
-        return res.json({
-          success: true,
-          message: 'Booking is already cancelled',
-          booking: {
-            booking_reference: booking.our_reference,
-            status: 'cancelled',
-            cancellation_date: booking.cancellation_date,
-            refund_status: booking.refund_status || 'processed'
-          },
-          warning: 'This booking was already cancelled'
-        });
-      }
-
-      // ✅ FLEXIBLE CANCELLATION POLICY - Warn but don't block
-      const now = new Date();
-      const dropoffDateTime = new Date(`${booking.dropoff_date}T${booking.dropoff_time}`);
-      const hoursUntilDropoff = (dropoffDateTime - now) / (1000 * 60 * 60);
-      
-      let cancellationWarnings = [];
-      if (hoursUntilDropoff < 48) {
-        cancellationWarnings.push('⚠️ Cancelling within 48 hours - refund may be subject to provider terms');
-      }
-
-      console.log(`🕒 Cancellation timing: ${hoursUntilDropoff.toFixed(1)} hours until dropoff`);
-
-      // Step 1: Try to cancel with MAGR API (but don't fail if it doesn't work)
-      let magrCancelResult = { success: false, error: 'Not attempted' };
-      if (MagrApiService && booking.magr_booking_id) {
-        try {
-          console.log('🚀 Attempting MAGR API cancellation...');
-          magrCancelResult = await MagrApiService.cancelBooking({
-            booking_reference: booking_reference,
-            magr_booking_id: booking.magr_booking_id,
-            cancellation_reason: cancellation_reason || 'User requested cancellation'
-          });
-          console.log('✅ MAGR API cancellation result:', magrCancelResult);
-        } catch (magrError) {
-          console.log('⚠️ MAGR API cancellation failed (continuing with local cancellation):', magrError.message);
-          magrCancelResult = { success: false, error: magrError.message };
-        }
-      } else {
-        console.log('⚠️ MAGR API or booking ID not available - skipping external cancellation');
-      }
-
-      // Step 2: Process Stripe refund (attempt but don't fail if it doesn't work)
-      let refundResult = { success: false, refund_id: null, error: 'Not attempted' };
-      if (booking.payment_intent_id && booking.payment_amount > 0) {
-        try {
-          console.log('💳 Processing Stripe refund...');
-          const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-          
-          const refund = await stripe.refunds.create({
-            payment_intent: booking.payment_intent_id,
-            amount: Math.round(booking.payment_amount * 100), // Convert to pence
-            reason: 'requested_by_customer',
-            metadata: {
-              booking_reference: booking_reference,
-              cancelled_by: req.user.email,
-              cancellation_reason: cancellation_reason || 'User requested',
-              original_booking_date: booking.booking_date?.toISOString() || new Date().toISOString()
-            }
-          });
-
-          refundResult = {
-            success: true,
-            refund_id: refund.id,
-            amount: refund.amount / 100,
-            currency: refund.currency,
-            status: refund.status,
-            error: null
-          };
-
-          console.log('✅ Stripe refund created:', {
-            refund_id: refund.id,
-            amount: refund.amount / 100,
-            status: refund.status
-          });
-
-        } catch (stripeError) {
-          console.log('⚠️ Stripe refund failed (continuing with cancellation):', stripeError.message);
-          refundResult = { 
-            success: false, 
-            error: stripeError.message,
-            refund_id: null 
-          };
-        }
-      } else {
-        console.log('⚠️ No payment to refund');
-        refundResult = { success: true, error: 'No payment to refund' };
-      }
-
-      // Step 3: Update booking in database (this should always work)
       try {
-        console.log('💾 Updating booking status in database...');
+        const { booking_reference, refund_amount, reason } = req.body;
+        const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
         
-        const updateData = {
-          status: 'cancelled',
-          cancellation_date: new Date(),
-          cancellation_reason: cancellation_reason || 'User requested cancellation',
-          cancelled_by: req.user.email,
-          
-          // MAGR API results
-          magr_cancellation_success: magrCancelResult.success,
-          magr_cancellation_error: magrCancelResult.success ? null : magrCancelResult.error,
-          
-          // Stripe refund results
-          refund_status: refundResult.success ? 'processed' : 'failed',
-          refund_id: refundResult.refund_id,
-          refund_amount: refundResult.amount || 0,
-          refund_error: refundResult.success ? null : refundResult.error,
-          
-          // Update timestamp
-          updated_at: new Date()
-        };
-
-        const updatedBooking = await Booking.findByIdAndUpdate(
-          booking._id,
-          updateData,
-          { new: true, runValidators: false }
-        );
-
-        console.log('✅ Booking updated successfully in database');
-
-      } catch (dbError) {
-        console.error('❌ Database update failed:', dbError.message);
-        // Even if DB update fails, we should return success if other operations worked
-      }
-
-      // ✅ ALWAYS RETURN SUCCESS - Frontend expects this
-      const response = {
-        success: true,
-        message: 'Booking cancellation processed successfully',
-        booking: {
-          booking_reference: booking_reference,
-          status: 'cancelled',
-          cancellation_date: new Date(),
-          original_amount: booking.payment_amount,
-          refund_amount: refundResult.amount || booking.payment_amount || 0
-        },
-        operations: {
-          magr_api: {
-            attempted: !!MagrApiService && !!booking.magr_booking_id,
-            success: magrCancelResult.success,
-            error: magrCancelResult.success ? null : magrCancelResult.error
-          },
-          stripe_refund: {
-            attempted: !!(booking.payment_intent_id && booking.payment_amount > 0),
-            success: refundResult.success,
-            refund_id: refundResult.refund_id,
-            amount: refundResult.amount,
-            error: refundResult.success ? null : refundResult.error
-          },
-          database_update: {
-            success: true // We assume this worked
-          }
-        },
-        warnings: cancellationWarnings,
-        is_test_mode: isTestMode,
-        timestamp: new Date().toISOString()
-      };
-
-      console.log('✅ Cancellation completed:', {
-        booking_reference,
-        magr_success: magrCancelResult.success,
-        refund_success: refundResult.success,
-        is_test_mode: isTestMode
-      });
-
-      res.json(response);
-
-    } catch (error) {
-      console.error('❌ CANCEL BOOKING ERROR:', {
-        name: error.name,
-        message: error.message,
-        stack: error.stack?.substring(0, 1000)
-      });
-
-      // Even on error, try to return a helpful response
-      res.status(500).json({
-        success: false,
-        message: 'Cancellation request could not be processed',
-        error: error.message,
-        error_code: 'CANCELLATION_ERROR',
-        is_test_mode: process.env.STRIPE_SECRET_KEY?.includes('test') || false,
-        timestamp: new Date().toISOString(),
-        help: 'Please contact support if you need to cancel this booking'
-      });
-    }
-    
-    console.log('🗑️ ========== CANCEL BOOKING ENDED ==========');
-  }
-);
-
-// ===== AMEND BOOKING API - COMPLETELY FIXED =====
-
-router.post('/amend-booking',
-  authenticateToken,
-  [
-    body('booking_reference').notEmpty().withMessage('Booking reference is required'),
-    body('new_dropoff_date').optional().isISO8601().withMessage('Invalid dropoff date format'),
-    body('new_dropoff_time').optional().matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Invalid dropoff time format'),
-    body('new_pickup_date').optional().isISO8601().withMessage('Invalid pickup date format'),
-    body('new_pickup_time').optional().matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Invalid pickup time format'),
-    body('new_customer_phone').optional().isMobilePhone().withMessage('Invalid phone number'),
-    body('new_special_requests').optional().isLength({ max: 500 }).withMessage('Special requests too long'),
-    body('amendment_reason').optional().isLength({ max: 500 }).withMessage('Amendment reason too long')
-  ],
-  handleValidationErrors,
-  async (req, res) => {
-    console.log('✏️ ========== AMEND BOOKING STARTED ==========');
-    
-    try {
-      const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
-      console.log(`✏️ Amend booking request (${isTestMode ? 'TEST' : 'LIVE'} mode):`, req.user.email);
-      console.log('✏️ Request body received');
-
-      const { booking_reference } = req.body;
-
-      // Find the booking
-      if (!Booking) {
-        return res.status(500).json({
-          success: false,
-          message: 'Booking system not available',
-          error_code: 'NO_BOOKING_MODEL'
+        console.log(`🗑️ Cancel booking request (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
+          booking_reference,
+          user: req.user.email,
+          reason: reason || 'No reason provided'
         });
-      }
 
-      // ✅ FIXED: Simple and consistent lookup using correct field names
-      console.log('🔍 Looking up booking for amendment by our_reference + user_email');
-      const amendBooking = await Booking.findOne({
-        our_reference: booking_reference,
-        user_email: req.user.email
-      });
-
-      if (!amendBooking) {
-        console.log('❌ Booking not found for amendment');
-        return res.status(404).json({
-          success: false,
-          message: 'Booking not found or access denied',
-          error_code: 'BOOKING_NOT_FOUND',
-          debug: {
-            booking_reference,
-            user_email: req.user.email,
-            searched_field: 'our_reference'
-          }
-        });
-      }
-
-      console.log('✅ Original booking found for amendment:', {
-        our_reference: amendBooking.our_reference,
-        status: amendBooking.status,
-        is_editable: amendBooking.is_editable
-      });
-
-      // Check if booking can be amended
-      if (amendBooking.status === 'cancelled') {
-        return res.status(400).json({
-          success: false,
-          message: 'Cannot amend a cancelled booking',
-          error_code: 'BOOKING_CANCELLED'
-        });
-      }
-
-      // ✅ COLLECT ONLY NON-EMPTY CHANGES
-      const changes = {};
-      const changeLog = [];
-      
-      // Date/time changes
-      if (req.body.new_dropoff_date && req.body.new_dropoff_date !== amendBooking.dropoff_date) {
-        changes.dropoff_date = req.body.new_dropoff_date;
-        changeLog.push(`Dropoff date: ${amendBooking.dropoff_date} → ${req.body.new_dropoff_date}`);
-      }
-      
-      if (req.body.new_dropoff_time && req.body.new_dropoff_time !== amendBooking.dropoff_time) {
-        changes.dropoff_time = req.body.new_dropoff_time;
-        changeLog.push(`Dropoff time: ${amendBooking.dropoff_time} → ${req.body.new_dropoff_time}`);
-      }
-      
-      if (req.body.new_pickup_date && req.body.new_pickup_date !== amendBooking.pickup_date) {
-        changes.pickup_date = req.body.new_pickup_date;
-        changeLog.push(`Pickup date: ${amendBooking.pickup_date} → ${req.body.new_pickup_date}`);
-      }
-      
-      if (req.body.new_pickup_time && req.body.new_pickup_time !== amendBooking.pickup_time) {
-        changes.pickup_time = req.body.new_pickup_time;
-        changeLog.push(`Pickup time: ${amendBooking.pickup_time} → ${req.body.new_pickup_time}`);
-      }
-
-      // Customer details changes
-      if (req.body.new_customer_phone && req.body.new_customer_phone !== amendBooking.customer_phone) {
-        changes.customer_phone = req.body.new_customer_phone;
-        changeLog.push(`Phone: ${amendBooking.customer_phone} → ${req.body.new_customer_phone}`);
-      }
-
-      // Special requests changes
-      if (req.body.new_special_requests !== undefined && req.body.new_special_requests !== amendBooking.special_requests) {
-        changes.special_requests = req.body.new_special_requests;
-        changeLog.push(`Special requests updated`);
-      }
-
-      console.log('📝 Changes detected:', {
-        changeCount: Object.keys(changes).length,
-        changes: changeLog
-      });
-
-      // Check if any changes were actually made
-      if (Object.keys(changes).length === 0) {
-        console.log('⚠️ No changes detected');
-        return res.json({
-          success: true,
-          message: 'No changes detected - booking remains the same',
-          booking: amendBooking.toObject ? amendBooking.toObject() : amendBooking,
-          warning: 'No amendments were necessary'
-        });
-      }
-
-      // ✅ FLEXIBLE TIME VALIDATION - Less strict for amendments
-      if (changes.dropoff_date || changes.dropoff_time || changes.pickup_date || changes.pickup_time) {
-        try {
-          const newDropoffDate = changes.dropoff_date || amendBooking.dropoff_date;
-          const newDropoffTime = changes.dropoff_time || amendBooking.dropoff_time;
-          const newPickupDate = changes.pickup_date || amendBooking.pickup_date;
-          const newPickupTime = changes.pickup_time || amendBooking.pickup_time;
-
-          const dropoffDateTime = new Date(`${newDropoffDate}T${newDropoffTime}`);
-          const pickupDateTime = new Date(`${newPickupDate}T${newPickupTime}`);
-          
-          if (isNaN(dropoffDateTime.getTime()) || isNaN(pickupDateTime.getTime())) {
-            throw new Error('Invalid date/time format');
-          }
-          
-          if (pickupDateTime <= dropoffDateTime) {
-            throw new Error('Pickup time must be after dropoff time');
-          }
-          
-          // More flexible past date validation for amendments
-          const now = new Date();
-          const hoursSinceNow = (dropoffDateTime - now) / (1000 * 60 * 60);
-          
-          if (hoursSinceNow < -24) { // Allow up to 24 hours in the past for amendments
-            console.log('⚠️ Amendment to past date - allowing but flagging');
-            changeLog.push('⚠️ Amendment to past date detected');
-          }
-          
-          console.log('✅ Time validation passed for amendment');
-        } catch (timeError) {
-          console.error('❌ Amendment time validation failed:', timeError.message);
-          return res.status(400).json({
+        // Find booking in database
+        if (!Booking) {
+          return res.status(500).json({
             success: false,
-            message: 'Invalid booking times in amendment',
-            error: timeError.message,
-            error_code: 'INVALID_AMENDMENT_TIMES'
+            message: 'Booking system not available',
+            error_code: 'NO_BOOKING_MODEL'
           });
         }
-      }
 
-      // Step 1: Try to amend via MAGR API (but don't fail if it doesn't work)
-      let magrAmendResult = { success: false, error: 'Not attempted' };
-      if (MagrApiService && amendBooking.magr_booking_id) {
-        try {
-          console.log('🚀 Attempting MAGR API amendment...');
-          
-          // ✅ CLEAN DATA FOR MAGR API - Only send non-empty fields
-          const magrAmendData = {
-            booking_reference: booking_reference,
-            magr_booking_id: amendBooking.magr_booking_id,
-            amendment_reason: req.body.amendment_reason || 'User requested changes'
-          };
-
-          // Only include fields that have actual changes
-          Object.keys(changes).forEach(key => {
-            if (changes[key] !== null && changes[key] !== undefined && changes[key] !== '') {
-              magrAmendData[key] = changes[key];
-            }
-          });
-
-          console.log('📤 Sending to MAGR API:', Object.keys(magrAmendData));
-          
-          magrAmendResult = await MagrApiService.amendBooking(magrAmendData);
-          console.log('✅ MAGR API amendment result:', magrAmendResult);
-          
-        } catch (magrError) {
-          console.log('⚠️ MAGR API amendment failed (continuing with local update):', magrError.message);
-          magrAmendResult = { success: false, error: magrError.message };
-        }
-      } else {
-        console.log('⚠️ MAGR API or booking ID not available - skipping external amendment');
-      }
-
-      // Step 2: Update booking in database (this should always work)
-      try {
-        console.log('💾 Updating booking in database...');
-        
-        const updateData = {
-          // Apply the changes
-          ...changes,
-          
-          // Amendment metadata
-          status: 'amended', // Mark as amended
-          amendment_date: new Date(),
-          amendment_reason: req.body.amendment_reason || 'User requested changes',
-          amended_by: req.user.email,
-          amendment_count: (amendBooking.amendment_count || 0) + 1,
-          
-          // MAGR API results
-          magr_amendment_success: magrAmendResult.success,
-          magr_amendment_error: magrAmendResult.success ? null : magrAmendResult.error,
-          
-          // Change log
-          change_log: changeLog,
-          
-          // Update timestamp
-          updated_at: new Date()
-        };
-
-        // ✅ ONLY UPDATE FIELDS THAT ACTUALLY CHANGED
-        const filteredUpdateData = {};
-        Object.keys(updateData).forEach(key => {
-          if (updateData[key] !== null && updateData[key] !== undefined) {
-            filteredUpdateData[key] = updateData[key];
-          }
+        // ✅ FIXED: Use same lookup pattern as your working code
+        console.log('🔍 Looking up booking for cancellation');
+        const booking = await Booking.findOne({
+          our_reference: booking_reference,
+          user_email: req.user.email
         });
 
-        const updatedBooking = await Booking.findByIdAndUpdate(
-          amendBooking._id,
-          filteredUpdateData,
-          { new: true, runValidators: false }
-        );
+        if (!booking) {
+          console.log('❌ Booking not found for cancellation');
+          return res.status(404).json({
+            success: false,
+            message: 'Booking not found or access denied',
+            error_code: 'BOOKING_NOT_FOUND'
+          });
+        }
 
-        console.log('✅ Booking updated successfully in database');
+        console.log('✅ Booking found for cancellation:', {
+          our_reference: booking.our_reference,
+          status: booking.status,
+          booking_amount: booking.booking_amount
+        });
 
-        // ✅ FRONTEND COMPATIBLE RESPONSE
+        // Check if booking is already cancelled
+        if (booking.status === 'cancelled') {
+          console.log('⚠️ Booking already cancelled');
+          return res.json({
+            success: true,
+            message: 'Booking is already cancelled',
+            data: {
+              our_reference: booking.our_reference,
+              status: 'cancelled',
+              cancellation_date: booking.cancelled_at,
+              refund_status: 'processed'
+            }
+          });
+        }
+
+        // Step 1: Try to cancel with MAGR API (but don't fail if it doesn't work)
+        let magrCancelResult = { success: false, error: 'Not attempted' };
+        if (MagrApiService && booking.magr_reference) {
+          try {
+            console.log('🚀 Attempting MAGR API cancellation...');
+            magrCancelResult = await MagrApiService.cancelBooking(booking.magr_reference);
+            console.log('✅ MAGR API cancellation result:', magrCancelResult);
+          } catch (magrError) {
+            console.log('⚠️ MAGR API cancellation failed (continuing with local cancellation):', magrError.message);
+            magrCancelResult = { success: false, error: magrError.message };
+          }
+        } else {
+          console.log('⚠️ MAGR API or reference not available - skipping external cancellation');
+        }
+
+        // Step 2: Process Stripe refund (attempt but don't fail if it doesn't work)
+        let refundResult = { success: false, refund_id: null, error: 'Not attempted' };
+        const refundAmountToProcess = refund_amount || booking.booking_amount;
+        
+        if (booking.payment_details?.stripe_payment_intent_id && refundAmountToProcess > 0) {
+          try {
+            console.log('💳 Processing Stripe refund...');
+            const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+            
+            const refund = await stripe.refunds.create({
+              payment_intent: booking.payment_details.stripe_payment_intent_id,
+              amount: Math.round(refundAmountToProcess * 100), // Convert to pence
+              reason: 'requested_by_customer',
+              metadata: {
+                booking_reference: booking_reference,
+                cancelled_by: req.user.email,
+                cancellation_reason: reason || 'User requested'
+              }
+            });
+
+            refundResult = {
+              success: true,
+              refund_id: refund.id,
+              amount: refund.amount / 100,
+              currency: refund.currency,
+              status: refund.status,
+              error: null
+            };
+
+            console.log('✅ Stripe refund created:', refund.id);
+
+          } catch (stripeError) {
+            console.log('⚠️ Stripe refund failed (continuing with cancellation):', stripeError.message);
+            refundResult = { 
+              success: false, 
+              error: stripeError.message,
+              refund_id: null 
+            };
+          }
+        }
+
+        // Step 3: Update booking in database
+        try {
+          console.log('💾 Updating booking status in database...');
+          
+          booking.status = 'cancelled';
+          booking.cancelled_at = new Date();
+          booking.notes = `${booking.notes || ''}\nCancelled: ${reason || 'User requested cancellation'}`;
+          
+          if (refundResult.success) {
+            if (booking.payment_details) {
+              booking.payment_details.refund_amount = refundResult.amount;
+              booking.payment_details.refund_date = new Date();
+              booking.payment_details.payment_status = 'refunded';
+            }
+          }
+
+          await booking.save();
+          console.log('✅ Booking updated successfully in database');
+
+        } catch (dbError) {
+          console.error('❌ Database update failed:', dbError.message);
+        }
+
+        // ✅ SUCCESS RESPONSE
         const response = {
           success: true,
-          message: 'Booking amended successfully',
-          booking: {
-            // Return the updated booking data
-            booking_reference: updatedBooking.our_reference,
-            our_reference: updatedBooking.our_reference,
-            status: updatedBooking.status,
-            
-            // Updated booking details
-            airport_code: updatedBooking.airport_code,
-            service_name: updatedBooking.service_name,
-            dropoff_date: updatedBooking.dropoff_date,
-            dropoff_time: updatedBooking.dropoff_time,
-            pickup_date: updatedBooking.pickup_date,
-            pickup_time: updatedBooking.pickup_time,
-            
-            // Customer details
-            customer_name: updatedBooking.customer_name,
-            customer_email: updatedBooking.customer_email,
-            customer_phone: updatedBooking.customer_phone,
-            
-            // Vehicle details
-            vehicle_registration: updatedBooking.vehicle_registration,
-            vehicle_make: updatedBooking.vehicle_make,
-            vehicle_model: updatedBooking.vehicle_model,
-            vehicle_color: updatedBooking.vehicle_color,
-            
-            // Special requests
-            special_requests: updatedBooking.special_requests,
-            
-            // Service features
-            is_cancelable: updatedBooking.is_cancelable !== false,
-            is_editable: updatedBooking.is_editable !== false,
-            
-            // Amendment metadata
-            amendment_date: updatedBooking.amendment_date,
-            amendment_count: updatedBooking.amendment_count,
-            
-            // Financial details
-            price: updatedBooking.price,
-            payment_amount: updatedBooking.payment_amount,
-            payment_status: updatedBooking.payment_status,
-            
-            // Metadata
-            is_test_booking: updatedBooking.is_test_booking,
-            created_at: updatedBooking.created_at,
-            updated_at: updatedBooking.updated_at
+          message: 'Booking cancelled successfully',
+          data: {
+            our_reference: booking_reference,
+            magr_reference: booking.magr_reference,
+            status: 'cancelled',
+            cancellation_date: new Date(),
+            refund: refundResult.success ? {
+              refund_id: refundResult.refund_id,
+              amount: refundResult.amount,
+              currency: refundResult.currency,
+              status: refundResult.status
+            } : null,
+            original_amount: booking.booking_amount
           },
-          changes: {
-            applied: changeLog,
-            count: Object.keys(changes).length
-          },
-          operations: {
-            magr_api: {
-              attempted: !!MagrApiService && !!amendBooking.magr_booking_id,
-              success: magrAmendResult.success,
-              error: magrAmendResult.success ? null : magrAmendResult.error
-            },
-            database_update: {
-              success: true
-            }
-          },
-          is_test_mode: isTestMode,
-          timestamp: new Date().toISOString()
+          is_test_mode: isTestMode
         };
 
-        console.log('✅ Amendment completed:', {
-          booking_reference,
-          changes_count: Object.keys(changes).length,
-          magr_success: magrAmendResult.success,
-          is_test_mode: isTestMode
-        });
-
+        console.log('✅ Cancellation completed successfully');
         res.json(response);
 
-      } catch (dbError) {
-        console.error('❌ Database update failed:', dbError.message);
-        return res.status(500).json({
+      } catch (error) {
+        console.error('❌ CANCEL BOOKING ERROR:', error);
+
+        res.status(500).json({
           success: false,
-          message: 'Failed to save booking changes',
-          error: dbError.message,
-          error_code: 'DATABASE_UPDATE_FAILED'
+          message: 'Cancellation request could not be processed',
+          error: error.message,
+          error_code: 'CANCELLATION_ERROR',
+          is_test_mode: process.env.STRIPE_SECRET_KEY?.includes('test') || false
         });
       }
-
-    } catch (error) {
-      console.error('❌ AMEND BOOKING ERROR:', {
-        name: error.name,
-        message: error.message,
-        stack: error.stack?.substring(0, 1000)
-      });
-
-      res.status(500).json({
-        success: false,
-        message: 'Amendment request could not be processed',
-        error: error.message,
-        error_code: 'AMENDMENT_ERROR',
-        is_test_mode: process.env.STRIPE_SECRET_KEY?.includes('test') || false,
-        timestamp: new Date().toISOString(),
-        help: 'Please contact support if you need to modify this booking'
-      });
+      
+      console.log('🗑️ ========== CANCEL BOOKING ENDED ==========');
     }
-    
-    console.log('✏️ ========== AMEND BOOKING ENDED ==========');
-  }
-);
+  );
 
-// ===== STRIPE WEBHOOK HANDLER =====
+  // ===== AMEND BOOKING API - FIXED FOR YOUR STRUCTURE =====
 
-// Stripe webhook handler for payment confirmations
-router.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  console.log('🎣 Stripe webhook received');
-  
-  try {
-    const sig = req.headers['stripe-signature'];
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-    
-    if (!webhookSecret) {
-      console.log('⚠️ No webhook secret configured - processing without verification');
-    }
-
-    let event;
-    
-    if (webhookSecret) {
+  router.post('/amend-booking',
+    authenticateToken,
+    [
+      body('booking_reference').notEmpty().withMessage('Booking reference is required'),
+      body('dropoff_time').optional().matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Invalid dropoff time format'),
+      body('pickup_time').optional().matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Invalid pickup time format'),
+      body('title').optional().isIn(['Mr', 'Mrs', 'Miss', 'Ms', 'Dr']).withMessage('Invalid title'),
+      body('first_name').optional().trim().isLength({ min: 1, max: 50 }).withMessage('Invalid first name'),
+      body('last_name').optional().trim().isLength({ min: 1, max: 50 }).withMessage('Invalid last name'),
+      body('customer_email').optional().isEmail().withMessage('Invalid email address'),
+      body('phone_number').optional().notEmpty().withMessage('Invalid phone number'),
+      body('departure_flight_number').optional(),
+      body('arrival_flight_number').optional(),
+      body('departure_terminal').optional(),
+      body('arrival_terminal').optional(),
+      body('car_registration_number').optional().trim().isLength({ min: 1, max: 15 }).withMessage('Invalid registration'),
+      body('car_make').optional().trim().isLength({ min: 1, max: 30 }).withMessage('Invalid car make'),
+      body('car_model').optional().trim().isLength({ min: 1, max: 30 }).withMessage('Invalid car model'),
+      body('car_color').optional().trim().isLength({ min: 1, max: 20 }).withMessage('Invalid car color')
+    ],
+    handleValidationErrors,
+    async (req, res) => {
+      console.log('✏️ ========== AMEND BOOKING STARTED ==========');
+      
       try {
-        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-        event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
-        console.log('✅ Webhook signature verified');
-      } catch (err) {
-        console.error('❌ Webhook signature verification failed:', err.message);
-        return res.status(400).json({
+        const isTestMode = process.env.STRIPE_SECRET_KEY?.includes('test');
+        const { booking_reference } = req.body;
+        
+        console.log(`✏️ Amend booking request (${isTestMode ? 'TEST' : 'LIVE'} mode):`, {
+          booking_reference,
+          user: req.user.email
+        });
+
+        // Find the booking
+        if (!Booking) {
+          return res.status(500).json({
+            success: false,
+            message: 'Booking system not available',
+            error_code: 'NO_BOOKING_MODEL'
+          });
+        }
+
+        // ✅ FIXED: Simple and consistent lookup
+        console.log('🔍 Looking up booking for amendment');
+        const amendBooking = await Booking.findOne({
+          our_reference: booking_reference,
+          user_email: req.user.email
+        });
+
+        if (!amendBooking) {
+          console.log('❌ Booking not found for amendment');
+          return res.status(404).json({
+            success: false,
+            message: 'Booking not found or access denied',
+            error_code: 'BOOKING_NOT_FOUND'
+          });
+        }
+
+        console.log('✅ Original booking found for amendment');
+
+        // Check if booking can be amended
+        if (amendBooking.status === 'cancelled') {
+          return res.status(400).json({
+            success: false,
+            message: 'Cannot amend a cancelled booking',
+            error_code: 'BOOKING_CANCELLED'
+          });
+        }
+
+        // ✅ COLLECT ONLY NON-EMPTY CHANGES
+        const changes = {};
+        const changeLog = [];
+        
+        // Travel times
+        if (req.body.dropoff_time && req.body.dropoff_time !== amendBooking.travel_details?.dropoff_time) {
+          changes['travel_details.dropoff_time'] = req.body.dropoff_time;
+          changeLog.push(`Dropoff time: ${amendBooking.travel_details?.dropoff_time} → ${req.body.dropoff_time}`);
+        }
+        
+        if (req.body.pickup_time && req.body.pickup_time !== amendBooking.travel_details?.pickup_time) {
+          changes['travel_details.pickup_time'] = req.body.pickup_time;
+          changeLog.push(`Pickup time: ${amendBooking.travel_details?.pickup_time} → ${req.body.pickup_time}`);
+        }
+
+        // Customer details
+        const customerFields = ['title', 'first_name', 'last_name', 'customer_email', 'phone_number'];
+        customerFields.forEach(field => {
+          if (req.body[field] && req.body[field] !== amendBooking.customer_details?.[field]) {
+            changes[`customer_details.${field}`] = req.body[field];
+            changeLog.push(`${field}: ${amendBooking.customer_details?.[field]} → ${req.body[field]}`);
+          }
+        });
+
+        // Flight details
+        const flightFields = ['departure_flight_number', 'arrival_flight_number', 'departure_terminal', 'arrival_terminal'];
+        flightFields.forEach(field => {
+          if (req.body[field] && req.body[field] !== amendBooking.travel_details?.[field]) {
+            changes[`travel_details.${field}`] = req.body[field];
+            changeLog.push(`${field}: ${amendBooking.travel_details?.[field]} → ${req.body[field]}`);
+          }
+        });
+
+        // Vehicle details
+        const vehicleFields = ['car_registration_number', 'car_make', 'car_model', 'car_color'];
+        vehicleFields.forEach(field => {
+          if (req.body[field] && req.body[field] !== amendBooking.vehicle_details?.[field]) {
+            changes[`vehicle_details.${field}`] = req.body[field];
+            changeLog.push(`${field}: ${amendBooking.vehicle_details?.[field]} → ${req.body[field]}`);
+          }
+        });
+
+        console.log('📝 Changes detected:', {
+          changeCount: Object.keys(changes).length,
+          changes: changeLog
+        });
+
+        // Check if any changes were made
+        if (Object.keys(changes).length === 0) {
+          console.log('⚠️ No changes detected');
+          return res.json({
+            success: true,
+            message: 'No changes detected - booking remains the same',
+            data: {
+              our_reference: amendBooking.our_reference,
+              status: amendBooking.status
+            }
+          });
+        }
+
+        // Step 1: Try to amend via MAGR API (optional)
+        let magrAmendResult = { success: false, error: 'Not attempted' };
+        if (MagrApiService && amendBooking.magr_reference) {
+          try {
+            console.log('🚀 Attempting MAGR API amendment...');
+            magrAmendResult = await MagrApiService.amendBooking({
+              booking_reference: booking_reference,
+              magr_reference: amendBooking.magr_reference,
+              changes: req.body
+            });
+            console.log('✅ MAGR API amendment result:', magrAmendResult);
+          } catch (magrError) {
+            console.log('⚠️ MAGR API amendment failed (continuing with local update):', magrError.message);
+            magrAmendResult = { success: false, error: magrError.message };
+          }
+        }
+
+        // Step 2: Update booking in database
+        try {
+          console.log('💾 Updating booking in database...');
+          
+          const updateData = {
+            ...changes,
+            status: 'amended',
+            amendment_date: new Date(),
+            amendment_reason: 'User requested changes',
+            amended_by: req.user.email,
+            amendment_count: (amendBooking.amendment_count || 0) + 1,
+            updated_at: new Date()
+          };
+
+          const updatedBooking = await Booking.findByIdAndUpdate(
+            amendBooking._id,
+            updateData,
+            { new: true, runValidators: false }
+          );
+
+          console.log('✅ Booking updated successfully in database');
+
+          // ✅ SUCCESS RESPONSE
+          const response = {
+            success: true,
+            message: 'Booking amended successfully',
+            data: {
+              our_reference: updatedBooking.our_reference,
+              magr_reference: updatedBooking.magr_reference,
+              status: updatedBooking.status,
+              amendment_date: updatedBooking.amendment_date,
+              amendment_count: updatedBooking.amendment_count,
+              changes_applied: changeLog
+            },
+            is_test_mode: isTestMode
+          };
+
+          console.log('✅ Amendment completed successfully');
+          res.json(response);
+
+        } catch (dbError) {
+          console.error('❌ Database update failed:', dbError.message);
+          return res.status(500).json({
+            success: false,
+            message: 'Failed to save booking changes',
+            error: dbError.message,
+            error_code: 'DATABASE_UPDATE_FAILED'
+          });
+        }
+
+      } catch (error) {
+        console.error('❌ AMEND BOOKING ERROR:', error);
+
+        res.status(500).json({
           success: false,
-          error: 'Webhook signature verification failed'
+          message: 'Amendment request could not be processed',
+          error: error.message,
+          error_code: 'AMENDMENT_ERROR',
+          is_test_mode: process.env.STRIPE_SECRET_KEY?.includes('test') || false
         });
       }
-    } else {
-      // Parse the event from the raw body if no webhook secret
-      try {
-        event = JSON.parse(req.body.toString());
-      } catch (parseError) {
-        console.error('❌ Failed to parse webhook body:', parseError.message);
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid webhook body'
-        });
-      }
-    }
-
-    console.log('🎣 Processing webhook event:', event.type);
-
-    // Handle different event types
-    switch (event.type) {
-      case 'payment_intent.succeeded':
-        await handlePaymentSucceeded(event.data.object);
-        break;
-      case 'payment_intent.payment_failed':
-        await handlePaymentFailed(event.data.object);
-        break;
-      case 'charge.dispute.created':
-        await handleChargeDispute(event.data.object);
-        break;
-      default:
-        console.log(`⚠️ Unhandled event type: ${event.type}`);
-    }
-
-    // Acknowledge receipt
-    res.json({ received: true });
-
-  } catch (error) {
-    console.error('❌ Webhook processing error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Webhook processing failed'
-    });
-  }
-});
-
-// Helper functions for webhook processing
-async function handlePaymentSucceeded(paymentIntent) {
-  try {
-    console.log('💳 Payment succeeded:', paymentIntent.id);
-    
-    if (Booking) {
-      const booking = await Booking.findOne({
-        payment_intent_id: paymentIntent.id
-      });
       
-      if (booking && booking.status !== 'confirmed') {
-        await Booking.findByIdAndUpdate(booking._id, {
-          payment_status: 'paid',
-          webhook_payment_confirmed: true,
-          webhook_payment_date: new Date(),
-          updated_at: new Date()
-        });
-        console.log('✅ Booking payment status updated via webhook');
-      }
+      console.log('✏️ ========== AMEND BOOKING ENDED ==========');
     }
-  } catch (error) {
-    console.error('❌ Error handling payment succeeded webhook:', error);
-  }
-}
+  );
 
-async function handlePaymentFailed(paymentIntent) {
-  try {
-    console.log('💳 Payment failed:', paymentIntent.id);
-    
-    if (Booking) {
-      const booking = await Booking.findOne({
-        payment_intent_id: paymentIntent.id
-      });
-      
-      if (booking) {
-        await Booking.findByIdAndUpdate(booking._id, {
-          payment_status: 'failed',
-          webhook_payment_failed: true,
-          webhook_payment_error: paymentIntent.last_payment_error?.message || 'Payment failed',
-          updated_at: new Date()
-        });
-        console.log('✅ Booking payment failure recorded via webhook');
-      }
-    }
-  } catch (error) {
-    console.error('❌ Error handling payment failed webhook:', error);
-  }
-}
-
-async function handleChargeDispute(charge) {
-  try {
-    console.log('⚠️ Charge dispute created:', charge.id);
-    
-    if (Booking) {
-      const booking = await Booking.findOne({
-        stripe_payment_id: charge.payment_intent
-      });
-      
-      if (booking) {
-        await Booking.findByIdAndUpdate(booking._id, {
-          dispute_created: true,
-          dispute_date: new Date(),
-          dispute_amount: charge.amount / 100,
-          updated_at: new Date()
-        });
-        console.log('✅ Booking dispute recorded via webhook');
-      }
-    }
-  } catch (error) {
-    console.error('❌ Error handling charge dispute webhook:', error);
-  }
-}
-
-// ===== ADMIN/DEBUG ROUTES =====
-
-// Debug route to check booking flags (useful for testing)
-router.get('/debug/booking/:booking_reference', 
-  authenticateToken,
-  async (req, res) => {
+  // User: Delete their own booking
+  router.delete('/my-bookings/:reference', authenticateToken, async (req, res) => {
     try {
-      if (!Booking) {
-        return res.json({
-          success: false,
-          message: 'Booking model not available'
-        });
-      }
+      const { reference } = req.params;
+      const { reason } = req.body;
+
+      console.log('🗑️ User delete request for booking:', reference, 'by user:', req.user.email);
 
       const booking = await Booking.findOne({
-        our_reference: req.params.booking_reference,
-        user_email: req.user.email
+        $or: [
+          { our_reference: reference },
+          { magr_reference: reference }
+        ],
+        user_email: req.user.email // Only allow users to delete their own bookings
       });
 
       if (!booking) {
         return res.status(404).json({
           success: false,
-          message: 'Booking not found'
+          message: 'Booking not found or not accessible'
         });
       }
 
-      const bookingObj = booking.toObject ? booking.toObject() : booking;
-
-      res.json({
-        success: true,
-        debug_info: {
-          booking_reference: bookingObj.our_reference,
-          status: bookingObj.status,
-          magr_status: bookingObj.magr_status,
-          
-          // Service feature flags
-          is_cancelable: bookingObj.is_cancelable,
-          is_editable: bookingObj.is_editable,
-          is_cancelable_type: typeof bookingObj.is_cancelable,
-          is_editable_type: typeof bookingObj.is_editable,
-          
-          // Computed flags (what frontend will see)
-          computed_is_cancelable: bookingObj.is_cancelable !== false,
-          computed_is_editable: bookingObj.is_editable !== false,
-          
-          // Metadata
-          created_at: bookingObj.created_at,
-          updated_at: bookingObj.updated_at,
-          amendment_count: bookingObj.amendment_count || 0,
-          
-          // All available fields
-          available_fields: Object.keys(bookingObj)
-        }
-      });
-
-    } catch (error) {
-      console.error('❌ Debug route error:', error);
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
-  }
-);
-
-// Update booking flags (admin tool for fixing missing flags)
-router.post('/admin/fix-booking-flags',
-  authenticateToken,
-  [
-    body('booking_reference').notEmpty().withMessage('Booking reference required'),
-    body('is_cancelable').optional().isBoolean().withMessage('is_cancelable must be boolean'),
-    body('is_editable').optional().isBoolean().withMessage('is_editable must be boolean')
-  ],
-  handleValidationErrors,
-  async (req, res) => {
-    try {
-      if (!Booking) {
-        return res.status(500).json({
-          success: false,
-          message: 'Booking model not available'
-        });
-      }
-
-      const { booking_reference, is_cancelable, is_editable } = req.body;
-
-      const booking = await Booking.findOne({
-        our_reference: booking_reference,
-        user_email: req.user.email
-      });
-
-      if (!booking) {
-        return res.status(404).json({
-          success: false,
-          message: 'Booking not found or access denied'
-        });
-      }
-
-      const updateData = {
-        updated_at: new Date()
-      };
-
-      if (is_cancelable !== undefined) {
-        updateData.is_cancelable = is_cancelable;
-      }
-
-      if (is_editable !== undefined) {
-        updateData.is_editable = is_editable;
-      }
-
-      const updatedBooking = await Booking.findByIdAndUpdate(
-        booking._id,
-        updateData,
-        { new: true }
-      );
-
-      console.log('🔧 Booking flags updated:', {
-        booking_reference,
-        is_cancelable: updatedBooking.is_cancelable,
-        is_editable: updatedBooking.is_editable
-      });
-
-      res.json({
-        success: true,
-        message: 'Booking flags updated successfully',
-        booking: {
-          booking_reference: updatedBooking.our_reference,
-          is_cancelable: updatedBooking.is_cancelable,
-          is_editable: updatedBooking.is_editable,
-          updated_at: updatedBooking.updated_at
-        }
-      });
-
-    } catch (error) {
-      console.error('❌ Fix booking flags error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to update booking flags',
-        error: error.message
-      });
-    }
-  }
-);
-
-// ===== ALL BOOKING RETRIEVAL ROUTES =====
-
-// Get all bookings (for admin view) - WITHOUT AUTHENTICATION
-router.get('/bookings', async (req, res) => {
-  try {
-    console.log('📋 Getting all bookings (admin view)');
-    
-    if (!Booking) {
-      return res.status(500).json({
-        success: false,
-        message: 'Booking model not available'
-      });
-    }
-    
-    const bookings = await Booking.find({})
-      .sort({ created_at: -1 }) // Most recent first
-      .limit(100); // Limit for performance
-    
-    console.log('✅ Found bookings:', bookings.length);
-    
-    res.json({
-      success: true,
-      data: bookings.map(booking => ({
+      // Store booking info before deletion
+      const bookingInfo = {
         id: booking._id,
         our_reference: booking.our_reference,
         magr_reference: booking.magr_reference,
+        customer_email: booking.customer_details?.customer_email,
+        booking_amount: booking.booking_amount,
         status: booking.status,
         user_email: booking.user_email,
-        customer_email: booking.customer_details?.customer_email,
-        customer_name: `${booking.customer_details?.title || ''} ${booking.customer_details?.first_name || ''} ${booking.customer_details?.last_name || ''}`.trim(),
-        airport_code: booking.airport_code,
-        company_code: booking.company_code,
-        product_name: booking.product_name,
-        booking_amount: booking.booking_amount,
-        currency: booking.currency,
-        // Payment info
-        payment_method: booking.payment_details?.payment_method,
-        payment_status: booking.payment_details?.payment_status,
-        stripe_payment_intent_id: booking.payment_details?.stripe_payment_intent_id,
-        // Travel dates
-        dropoff_date: booking.travel_details?.dropoff_date,
-        dropoff_time: booking.travel_details?.dropoff_time,
-        pickup_date: booking.travel_details?.pickup_date,
-        pickup_time: booking.travel_details?.pickup_time,
-        // Vehicle info
-        car_registration_number: booking.vehicle_details?.car_registration_number,
-        car_make: booking.vehicle_details?.car_make,
-        car_model: booking.vehicle_details?.car_model,
-        // Flexibility
-        is_cancelable: booking.service_features?.is_cancelable,
-        is_editable: booking.service_features?.is_editable,
-        // Metadata
-        created_at: booking.created_at,
-        updated_at: booking.updated_at
-      })),
-      count: bookings.length,
-      message: 'All bookings retrieved successfully'
-    });
-    
-  } catch (error) {
-    console.error('❌ Error fetching all bookings:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to retrieve bookings',
-      error: error.message
-    });
-  }
-});
+        is_test_payment: booking.payment_details?.is_test_payment || false
+      };
 
-// Get booking statistics - WITHOUT AUTHENTICATION
-router.get('/booking-stats', async (req, res) => {
-  try {
-    console.log('📊 Getting booking statistics');
-    
-    if (!Booking) {
-      return res.json({
+      // Only allow deletion of cancelled bookings to prevent data loss
+      if (booking.status !== 'cancelled') {
+        return res.status(400).json({
+          success: false,
+          message: 'Only cancelled bookings can be deleted. Please cancel the booking first.',
+          current_status: booking.status,
+          booking_reference: booking.our_reference
+        });
+      }
+
+      // Delete the booking
+      await Booking.findByIdAndDelete(booking._id);
+
+      console.log('✅ Booking deleted by user:', bookingInfo.our_reference);
+
+      res.json({
         success: true,
-        stats: {
-          total_bookings: 0,
-          confirmed_bookings: 0,
-          cancelled_bookings: 0,
-          total_revenue: 0
-        },
-        message: 'Booking model not available'
+        message: 'Booking deleted successfully',
+        deleted_booking: bookingInfo,
+        reason: reason || 'User deletion',
+        deleted_at: new Date().toISOString()
+      });
+
+    } catch (error) {
+      console.error('❌ User booking deletion error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to delete booking',
+        error: error.message
       });
     }
-    
-    const totalBookings = await Booking.countDocuments({});
-    const confirmedBookings = await Booking.countDocuments({ status: 'confirmed' });
-    const cancelledBookings = await Booking.countDocuments({ status: 'cancelled' });
-    
-    // Calculate total revenue from confirmed bookings
-    const revenueResult = await Booking.aggregate([
-      { $match: { status: 'confirmed' } },
-      { $group: { _id: null, total: { $sum: '$booking_amount' } } }
-    ]);
-    
-    const totalRevenue = revenueResult.length > 0 ? revenueResult[0].total : 0;
-    
-    console.log('✅ Booking statistics calculated');
-    
-    res.json({
-      success: true,
-      stats: {
-        total_bookings: totalBookings,
-        confirmed_bookings: confirmedBookings,
-        cancelled_bookings: cancelledBookings,
-        pending_bookings: totalBookings - confirmedBookings - cancelledBookings,
-        total_revenue: parseFloat(totalRevenue.toFixed(2)),
-        average_booking_value: confirmedBookings > 0 ? parseFloat((totalRevenue / confirmedBookings).toFixed(2)) : 0
-      },
-      message: 'Booking statistics retrieved successfully'
-    });
-    
-  } catch (error) {
-    console.error('❌ Error getting booking statistics:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get booking statistics',
-      error: error.message
-    });
-  }
-});
+  });
 
-// Get user's booking count - WITH AUTHENTICATION
-router.get('/my-bookings-count', authenticateToken, async (req, res) => {
-  try {
-    console.log('📊 Getting booking count for user:', req.user.email);
-    
-    if (!Booking) {
-      return res.json({
+  // Manual refund endpoint for user bookings
+  router.post('/bookings/:reference/refund', authenticateToken, async (req, res) => {
+    try {
+      const { reference } = req.params;
+      const { amount, reason } = req.body;
+
+      console.log('💰 Manual refund request for booking:', reference);
+
+      const booking = await Booking.findOne({
+        $or: [
+          { our_reference: reference },
+          { magr_reference: reference }
+        ],
+        user_email: req.user.email
+      });
+
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found or not accessible'
+        });
+      }
+
+      if (booking.payment_details?.payment_status === 'refunded') {
+        return res.status(400).json({
+          success: false,
+          message: 'Booking has already been refunded'
+        });
+      }
+
+      if (!booking.payment_details?.stripe_payment_intent_id) {
+        return res.status(400).json({
+          success: false,
+          message: 'No Stripe payment found for this booking'
+        });
+      }
+
+      // Process refund
+      const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+      const refundAmount = amount ? Math.round(parseFloat(amount) * 100) : undefined; // Convert to cents or full refund
+      
+      const refund = await stripe.refunds.create({
+        payment_intent: booking.payment_details.stripe_payment_intent_id,
+        amount: refundAmount,
+        reason: 'requested_by_customer',
+        metadata: {
+          booking_reference: booking.our_reference,
+          reason: reason || 'customer_request'
+        }
+      });
+
+      // Update booking
+      const refundAmountInPounds = refund.amount / 100;
+      booking.payment_details.refund_amount = (booking.payment_details.refund_amount || 0) + refundAmountInPounds;
+      booking.payment_details.refund_date = new Date();
+      booking.payment_details.payment_status = booking.payment_details.refund_amount >= booking.booking_amount ? 'refunded' : 'partially_refunded';
+      booking.notes = `${booking.notes || ''}\nRefund processed: £${refundAmountInPounds} - ${reason || 'No reason provided'}`;
+
+      await booking.save();
+
+      res.json({
         success: true,
-        count: 0,
-        message: 'Booking model not available'
+        message: 'Refund processed successfully',
+        refund: {
+          refund_id: refund.id,
+          amount: refundAmountInPounds,
+          status: refund.status,
+          total_refunded: booking.payment_details.refund_amount,
+          is_test_mode: process.env.STRIPE_SECRET_KEY?.includes('test') || false
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Error processing refund:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to process refund',
+        error: error.message
       });
     }
-    
-    const count = await Booking.countDocuments({ user_email: req.user.email });
-    
-    console.log('✅ User booking count:', count);
-    
-    res.json({
-      success: true,
-      count: count,
-      user_email: req.user.email,
-      message: `Found ${count} bookings for user`
-    });
-    
-  } catch (error) {
-    console.error('❌ Error getting booking count:', error);
-    res.status(500).json({
-      success: false,
-      count: 0,
-      message: 'Failed to get booking count',
-      error: error.message
-    });
-  }
-});
+  });
+}
 
-// Export the router
 module.exports = router;
