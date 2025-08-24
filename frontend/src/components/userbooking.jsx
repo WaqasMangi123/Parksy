@@ -101,8 +101,9 @@ const UserBooking = () => {
         ...booking,
         _id: booking.id,
         is_test: booking.is_test_payment || booking.our_reference?.includes('TEST'),
-        is_cancelable: booking.can_cancel || booking.is_test_payment,
-        is_editable: booking.can_amend || booking.is_test_payment
+        // FOR TESTING: Force enable cancel/amend for all bookings
+        is_cancelable: true, // Always allow cancel for testing
+        is_editable: true    // Always allow amend for testing
       }));
         
       setUserBookings(processedBookings);
@@ -408,7 +409,8 @@ const UserBooking = () => {
                       <Eye size={14} />
                     </button>
                     
-                    {((booking.status === 'confirmed' || booking.is_test) && booking.is_editable !== false) && (
+                    {/* Action Buttons - ALWAYS SHOW FOR TESTING */}
+                    {((booking.status === 'confirmed') || booking.is_test) && (
                       <button
                         onClick={async () => {
                           const details = await getBookingDetails(booking.our_reference);
@@ -423,7 +425,7 @@ const UserBooking = () => {
                       </button>
                     )}
                     
-                    {((booking.status === 'confirmed' || booking.is_test) && booking.is_cancelable !== false) && (
+                    {((booking.status === 'confirmed') || booking.is_test) && (
                       <button
                         onClick={() => {
                           setSelectedBooking(booking);
@@ -547,24 +549,21 @@ const UserBooking = () => {
                     <p><strong>Status:</strong> {selectedBooking.payment_status}</p>
                   </div>
 
+                  {/* ACTION BUTTONS - ALWAYS SHOW FOR CONFIRMED BOOKINGS */}
                   {(selectedBooking.status === 'confirmed' || selectedBooking.is_test) && (
                     <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', paddingTop: '1rem', borderTop: '1px solid #e5e7eb' }}>
-                      {(selectedBooking.is_editable || selectedBooking.is_test) && (
-                        <button 
-                          onClick={() => { setModalType('amend'); setAmendFormData({}); }}
-                          style={{ padding: '0.75rem 1.5rem', background: '#1d4ed8', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-                        >
-                          Amend Booking
-                        </button>
-                      )}
-                      {(selectedBooking.is_cancelable || selectedBooking.is_test) && (
-                        <button 
-                          onClick={() => setModalType('cancel')}
-                          style={{ padding: '0.75rem 1.5rem', background: '#dc2626', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-                        >
-                          Cancel Booking
-                        </button>
-                      )}
+                      <button 
+                        onClick={() => { setModalType('amend'); setAmendFormData({}); }}
+                        style={{ padding: '0.75rem 1.5rem', background: '#1d4ed8', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+                      >
+                        Amend Booking
+                      </button>
+                      <button 
+                        onClick={() => setModalType('cancel')}
+                        style={{ padding: '0.75rem 1.5rem', background: '#dc2626', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+                      >
+                        Cancel Booking
+                      </button>
                     </div>
                   )}
                 </div>
