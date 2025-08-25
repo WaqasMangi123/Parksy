@@ -94,7 +94,7 @@ const Footer = () => {
                   variants={itemVariants}
                 >
                   <Link 
-                    to={item.path} 
+                    to={item.path}
                     className="footer-link"
                     whileHover={{ x: 5 }}
                   >
@@ -114,11 +114,63 @@ const Footer = () => {
         transition={{ delay: 1 }}
       >
         <div className="footer-container">
-          <p>&copy; {new Date().getFullYear()} Parksy. All rights reserved.</p>
-          <div className="footer-legal">
-            <Link to="/privacypolicy" className="legal-link">Privacy Policy</Link>
-            <Link to="/termsandconditions" className="legal-link">Terms & Conditions</Link>
+          <div className="footer-bottom-content">
+            <p>&copy; {new Date().getFullYear()} Parksy. All rights reserved.</p>
+            <div className="footer-legal">
+              <Link to="/privacypolicy" className="legal-link">Privacy Policy</Link>
+              <Link to="/termsandconditions" className="legal-link">Terms & Conditions</Link>
+            </div>
           </div>
+          
+          {/* TechPrime Solutions Credit */}
+          <motion.div 
+            className="footer-credit"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 1.3, duration: 0.6 }}
+          >
+            <motion.div 
+              className="credit-content"
+              whileHover={{ scale: 1.05 }}
+              transition={{ type: "spring", stiffness: 300 }}
+            >
+              <motion.span 
+                className="credit-text"
+                animate={{ 
+                  backgroundPosition: ['0% 50%', '100% 50%', '0% 50%']
+                }}
+                transition={{ 
+                  duration: 4, 
+                  repeat: Infinity, 
+                  ease: "linear" 
+                }}
+              >
+                Crafted by 
+                <motion.span 
+                  className="company-name"
+                  whileHover={{ 
+                    textShadow: "0 0 20px rgba(139, 92, 246, 0.6)" 
+                  }}
+                  transition={{ duration: 0.3 }}
+                >
+                  TechPrimeSolutions
+                </motion.span>
+              </motion.span>
+              <motion.div 
+                className="credit-decoration"
+                animate={{ 
+                  rotate: [0, 360] 
+                }}
+                transition={{ 
+                  duration: 8, 
+                  repeat: Infinity, 
+                  ease: "linear" 
+                }}
+              >
+                ✨
+              </motion.div>
+            </motion.div>
+          </motion.div>
         </div>
       </motion.div>
     </motion.footer>

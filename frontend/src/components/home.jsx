@@ -1861,7 +1861,7 @@ const ProfessionalParksyDashboard = () => {
               setSelectedSpot(product);
             }}
           >
-            <span className="btn-text">{isStripeTestMode ? '🧪 Book with Test Stripe' : '💳 Book with Stripe'}</span>
+            <span className="btn-text">{isStripeTestMode ? '🧪 Book with Parksy' : '💳 Book with Parksy'}</span>
             <ChevronRight size={18} className="btn-icon" />
           </button>
         </div>
