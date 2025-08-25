@@ -1875,12 +1875,41 @@ const ProfessionalParksyDashboard = () => {
       <style>{stripeElementsStyles}</style>
 
       {/* Airplane Animation */}
-      {showAirplaneAnimation && (
-        <div className="airplane-animation">
-          <div className="airplane">✈️</div>
-          <div className="welcome-text">Welcome to Parksy</div>
-          <div className="welcome-subtitle">Premium Airport Parking Solutions</div>
+     {/* Airplane Animation */}
+{showAirplaneAnimation && (
+  <div className="airplane-animation">
+    {/* Full Screen Background Video */}
+    <video 
+      autoPlay 
+      muted 
+      loop
+      playsInline
+      preload="auto"
+      className="fullscreen-background-video"
+      onError={(e) => console.error('Video error:', e)}
+      onLoadedData={() => console.log('Video loaded successfully')}
+    >
+      <source src={`${process.env.PUBLIC_URL}/aeroplaneanimation.mp4`} type="video/mp4" />
+      <source src="/aeroplaneanimation.mp4" type="video/mp4" />
+      <source src="./aeroplaneanimation.mp4" type="video/mp4" />
+    </video>
+    
+    {/* Dark Overlay for better text readability */}
+    <div className="video-overlay"></div>
+    
+    {/* Content on top of video */}
+    <div className="welcome-content-overlay">
+      <div className="welcome-text-container">
+        <div className="welcome-textt">Welcome to Parksy</div>
+        <div className="welcome-subtitle">Premium Airport Parking Solutions</div>
+        <div className="animation-dots">
+          <span></span>
+          <span></span>
+          <span></span>
         </div>
+      </div>
+    </div>
+  </div>
       )}
 
       {/* Background Elements */}
