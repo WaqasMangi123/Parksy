@@ -218,7 +218,7 @@ function VerifyEmail() {
       y: -20,
       scale: 0.95,
       transition: {
-        duration: 0.3
+        duration: 0.4
       }
     }
   };
